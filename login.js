@@ -2,8 +2,28 @@
   const form = document.getElementById('login-form');
   if (!form) return;
 
-  const ADMIN_EMAIL = 'd.entranchi@gmail.com';
-  const ADMIN_PASSWORD = 'Dent@2025';
+  const roleCredentials = {
+    admin: {
+      email: 'd.entranchi@gmail.com',
+      password: 'Dent@2025',
+    },
+    customer: {
+      email: 'customer.portal@dakshayanienterprises.in',
+      password: 'Customer@2025',
+    },
+    employee: {
+      email: 'employee.portal@dakshayanienterprises.in',
+      password: 'Employee@2025',
+    },
+    installer: {
+      email: 'installer.portal@dakshayanienterprises.in',
+      password: 'Installer@2025',
+    },
+    referrer: {
+      email: 'referrer.portal@dakshayanienterprises.in',
+      password: 'Referrer@2025',
+    },
+  };
 
   const roleToRoute = {
     admin: 'admin-dashboard.html',
@@ -60,26 +80,35 @@
       return;
     }
 
-    if (selectedRole === 'admin') {
-      if (email.toLowerCase() !== ADMIN_EMAIL) {
-        if (feedbackEl) {
-          feedbackEl.textContent = 'The admin email ID does not match our records.';
-          feedbackEl.classList.add('is-error');
-          feedbackEl.classList.remove('is-success');
-        }
-        emailInput.focus();
-        return;
-      }
+    const expectedCredentials = roleCredentials[selectedRole];
 
-      if (password !== ADMIN_PASSWORD) {
-        if (feedbackEl) {
-          feedbackEl.textContent = 'The admin password is incorrect.';
-          feedbackEl.classList.add('is-error');
-          feedbackEl.classList.remove('is-success');
-        }
-        passwordInput.focus();
-        return;
+    if (!expectedCredentials) {
+      return;
+    }
+
+    const normalizedEmail = email.toLowerCase();
+    const matchedRoleEntry = Object.entries(roleCredentials).find(([, creds]) => {
+      return creds.email.toLowerCase() === normalizedEmail;
+    });
+
+    if (matchedRoleEntry && matchedRoleEntry[0] !== selectedRole) {
+      if (feedbackEl) {
+        feedbackEl.textContent =
+          'These credentials belong to a different portal. Please switch to the matching portal type to continue.';
+        feedbackEl.classList.add('is-error');
+        feedbackEl.classList.remove('is-success');
       }
+      return;
+    }
+
+    if (normalizedEmail !== expectedCredentials.email.toLowerCase() || password !== expectedCredentials.password) {
+      if (feedbackEl) {
+        feedbackEl.textContent = 'The email ID or password does not match this portal. Please try again.';
+        feedbackEl.classList.add('is-error');
+        feedbackEl.classList.remove('is-success');
+      }
+      passwordInput.focus();
+      return;
     }
 
     if (feedbackEl) {
