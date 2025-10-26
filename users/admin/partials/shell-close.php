@@ -14,6 +14,11 @@
         </div>
       </div>
     </div>
+    <?php if (!empty($extraScripts)): ?>
+      <?php foreach ($extraScripts as $scriptSrc): ?>
+        <script src="<?php echo htmlspecialchars($scriptSrc); ?>" defer></script>
+      <?php endforeach; ?>
+    <?php endif; ?>
     <script src="<?php echo htmlspecialchars(portal_url('users/admin/admin.js')); ?>" defer></script>
   </body>
 </html>

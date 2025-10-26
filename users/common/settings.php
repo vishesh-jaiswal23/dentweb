@@ -4,16 +4,13 @@ require_once __DIR__ . '/security.php';
 
 const PORTAL_AI_SETTINGS_KEY = 'ai_provider';
 
-function portal_storage_path($file) {
-    $base = PORTAL_STORAGE_PATH ?: (__DIR__ . '/../../storage');
-    if (!is_dir($base)) {
-        @mkdir($base, 0775, true);
-    }
-    return rtrim($base, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . ltrim($file, DIRECTORY_SEPARATOR);
-}
-
 function portal_settings_file() {
-    return portal_storage_path('settings.json');
+    $path = portal_storage_path('settings.json');
+    $directory = dirname($path);
+    if (!is_dir($directory)) {
+        @mkdir($directory, 0775, true);
+    }
+    return $path;
 }
 
 function portal_settings_load_all() {

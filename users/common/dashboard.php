@@ -469,6 +469,17 @@ function portal_dashboard_config($role, array $user)
         'login_at' => $user['login_at'] ?? time(),
     ];
 
+    $config['secure_links'] = [];
+    if ($role === 'employee' && function_exists('portal_protected_modules') && function_exists('portal_user_has_capability')) {
+        $links = [];
+        foreach (portal_protected_modules() as $module) {
+            if (portal_user_has_capability($module['capability'], $user)) {
+                $links[] = $module;
+            }
+        }
+        $config['secure_links'] = $links;
+    }
+
     return $config;
 }
 
@@ -477,6 +488,7 @@ function portal_render_dashboard(array $config)
     $searchJson = htmlspecialchars(json_encode($config['search'] ?? [], JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8');
     $user = $config['user'];
     $loginAgo = portal_relative_time($user['login_at'] ?? time());
+    $secureLinks = $config['secure_links'] ?? [];
     ?>
     <section class="dashboard" data-dashboard data-role="<?php echo htmlspecialchars($config['role']); ?>" data-search="<?php echo $searchJson; ?>">
       <div class="container dashboard-shell">
@@ -511,6 +523,20 @@ function portal_render_dashboard(array $config)
                   </a>
                 </li>
               <?php endforeach; ?>
+              <?php if (!empty($secureLinks)): ?>
+                <li class="dashboard-nav-heading" aria-hidden="true">Operations apps</li>
+                <?php foreach ($secureLinks as $link): ?>
+                  <li>
+                    <a href="<?php echo htmlspecialchars(portal_url('users/admin/' . $link['href'])); ?>" class="dashboard-nav-link dashboard-nav-link--external">
+                      <span class="dashboard-nav-link__meta">
+                        <i class="fa-solid <?php echo htmlspecialchars($link['icon']); ?>" aria-hidden="true"></i>
+                        <span><?php echo htmlspecialchars($link['label']); ?></span>
+                      </span>
+                      <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                    </a>
+                  </li>
+                <?php endforeach; ?>
+              <?php endif; ?>
               <li class="dashboard-nav-footer">
                 <a href="<?php echo htmlspecialchars(portal_url('logout.php')); ?>" class="dashboard-nav-link dashboard-nav-link--logout">
                   <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>

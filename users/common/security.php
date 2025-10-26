@@ -48,6 +48,8 @@ function portal_default_permissions() {
             'activity.view',
             'errors.view',
             'notifications.view',
+            'service.workflow.access',
+            'service.crm.access',
         ],
         'employee' => [
             'dashboard.view',
@@ -69,6 +71,10 @@ function portal_permission_catalog() {
     static $catalog = null;
     if ($catalog === null) {
         $catalog = portal_default_permissions();
+        if (PORTAL_ALLOW_EMPLOYEE_SERVICE_AND_CRM) {
+            $catalog['employee'][] = 'service.workflow.access';
+            $catalog['employee'][] = 'service.crm.access';
+        }
     }
     return $catalog;
 }
