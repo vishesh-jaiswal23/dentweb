@@ -56,11 +56,21 @@
       const list = document.createElement('ul');
       groupMatches.forEach((match) => {
         const li = document.createElement('li');
-        li.innerHTML = `
-          <div class="title">${match.title}</div>
-          <div class="desc">${match.description || ''}</div>
-          <span class="badge badge-soft">${match.badge || ''}</span>
-        `;
+        const titleEl = document.createElement('div');
+        titleEl.className = 'title';
+        titleEl.textContent = match.title || '';
+
+        const descEl = document.createElement('div');
+        descEl.className = 'desc';
+        descEl.textContent = match.description || '';
+
+        const badgeEl = document.createElement('span');
+        badgeEl.className = 'badge badge-soft';
+        badgeEl.textContent = match.badge || '';
+
+        li.appendChild(titleEl);
+        li.appendChild(descEl);
+        li.appendChild(badgeEl);
         list.appendChild(li);
       });
       section.appendChild(list);
