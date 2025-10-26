@@ -55,7 +55,7 @@
           </p>
           <p class="dashboard-meta">
             <i class="fa-regular fa-circle-check" aria-hidden="true"></i>
-            Last verified backup <strong>Today, 02:00</strong> · <span>2FA enforced for all admin logins</span>
+            Last verified backup <strong>--</strong> · <span>2FA enforced for all admin logins</span>
           </p>
         </div>
         <div class="dashboard-search" role="search">
@@ -107,43 +107,43 @@
             <div class="dashboard-cards">
               <article class="dashboard-card dashboard-card--neutral">
                 <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-solar-panel"></i></div>
-                <div>
-                  <p class="dashboard-card-title">Active customers</p>
-                  <p class="dashboard-card-value">1,284</p>
-                  <p class="dashboard-card-meta">+18 signed up this week · 92% subsidy eligible</p>
-                </div>
-              </article>
-              <article class="dashboard-card dashboard-card--positive">
-                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-user-gear"></i></div>
-                <div>
-                  <p class="dashboard-card-title">New user requests</p>
-                  <p class="dashboard-card-value">12</p>
-                  <p class="dashboard-card-meta">7 installers, 3 employees, 2 referrers awaiting admin approval</p>
-                </div>
-              </article>
-              <article class="dashboard-card dashboard-card--warning">
-                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-ticket"></i></div>
-                <div>
-                  <p class="dashboard-card-title">Open service tickets</p>
-                  <p class="dashboard-card-value">36</p>
-                  <p class="dashboard-card-meta">5 breaching SLA in &lt; 24h · 9 in work phase</p>
-                </div>
-              </article>
-              <article class="dashboard-card">
-                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-indian-rupee-sign"></i></div>
-                <div>
-                  <p class="dashboard-card-title">Subsidy pipeline</p>
-                  <p class="dashboard-card-value">₹4.6 Cr</p>
-                  <p class="dashboard-card-meta">Awaiting DISCOM validation: ₹1.8 Cr · Released this month: ₹92 Lakh</p>
-                </div>
-              </article>
+              <div>
+                <p class="dashboard-card-title">Active customers</p>
+                <p class="dashboard-card-value" data-metric="customers">--</p>
+                <p class="dashboard-card-meta">Live counts appear after data sync.</p>
+              </div>
+            </article>
+            <article class="dashboard-card dashboard-card--positive">
+              <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-user-gear"></i></div>
+              <div>
+                <p class="dashboard-card-title">New user requests</p>
+                <p class="dashboard-card-value" data-metric="approvals">--</p>
+                <p class="dashboard-card-meta">Invitations awaiting approval will display here.</p>
+              </div>
+            </article>
+            <article class="dashboard-card dashboard-card--warning">
+              <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-ticket"></i></div>
+              <div>
+                <p class="dashboard-card-title">Open service tickets</p>
+                <p class="dashboard-card-value" data-metric="tickets">--</p>
+                <p class="dashboard-card-meta">Ticket volume updates after service data refresh.</p>
+              </div>
+            </article>
+            <article class="dashboard-card">
+              <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+              <div>
+                <p class="dashboard-card-title">Subsidy pipeline</p>
+                <p class="dashboard-card-value" data-metric="subsidy">--</p>
+                <p class="dashboard-card-meta">Financial progress appears when subsidy data loads.</p>
+              </div>
+            </article>
             </div>
           </section>
 
           <section class="dashboard-section" id="onboarding">
             <h2>Onboarding &amp; user control</h2>
             <p class="dashboard-section-sub">
-              Employees can invite new records, but activation only happens once you approve and assign the right role.
+              Admins can create new users directly, while employee-invited accounts remain pending until you approve and assign roles.
             </p>
             <div class="dashboard-lists">
               <div class="dashboard-list">
@@ -153,16 +153,8 @@
                 </header>
                 <ul>
                   <li>
-                    <p class="primary">Rohan Singh · Installer</p>
-                    <p class="secondary">Submitted by employee Anika · ID proof verified · Assign role &amp; region</p>
-                  </li>
-                  <li>
-                    <p class="primary">SunEdge EPC Pvt. Ltd · Referrer</p>
-                    <p class="secondary">Requires admin review of compliance documents before activation</p>
-                  </li>
-                  <li>
-                    <p class="primary">Aditi Sharma · Customer</p>
-                    <p class="secondary">Website signup · Needs subsidy eligibility confirmation</p>
+                    <p class="primary" data-placeholder="pending-approvals">No pending invitations loaded.</p>
+                    <p class="secondary">Employee invited users appear here once they await admin authorization.</p>
                   </li>
                 </ul>
               </div>
@@ -173,16 +165,8 @@
                 </header>
                 <ul>
                   <li>
-                    <p class="primary">Installer · GreenTech Services</p>
-                    <p class="secondary">Activated today · Assigned to Ranchi cluster · Auto-shared onboarding kit</p>
-                  </li>
-                  <li>
-                    <p class="primary">Employee · Finance Analyst</p>
-                    <p class="secondary">Manual invite approved · Role scoped to subsidy reimbursements</p>
-                  </li>
-                  <li>
-                    <p class="primary">Customer · Meera GH2 pilot</p>
-                    <p class="secondary">Admin granted hydrogen dashboard + AMC scheduling permissions</p>
+                    <p class="primary" data-placeholder="recent-activations">No recent activations recorded.</p>
+                    <p class="secondary">Approved employees, installers, referrers, or customers will be listed after activation.</p>
                   </li>
                 </ul>
               </div>
@@ -194,15 +178,15 @@
                 <ul>
                   <li>
                     <p class="primary">Intake ➝ Identity verification</p>
-                    <p class="secondary">Documents auto-checked by employees; admins confirm authenticity</p>
+                    <p class="secondary">Employees collect documents; admins confirm authenticity before approval.</p>
                   </li>
                   <li>
                     <p class="primary">Admin role assignment</p>
-                    <p class="secondary">Select role template, adjust module permissions, notify requester</p>
+                    <p class="secondary">Admin selects role and permissions, then shares login credentials securely.</p>
                   </li>
                   <li>
                     <p class="primary">Activation &amp; monitoring</p>
-                    <p class="secondary">Access logs tracked for first 7 days, revocation available anytime</p>
+                    <p class="secondary">Admins can deactivate, modify, or revoke user access at any time.</p>
                   </li>
                 </ul>
               </div>
@@ -318,19 +302,19 @@
                 <div class="dashboard-form-grid">
                   <label>
                     Uptime (7 days)
-                    <input type="text" value="99.97%" readonly />
+                    <input type="text" value="--" readonly aria-label="Uptime awaiting data" />
                   </label>
                   <label>
                     Error logs (24h)
-                    <input type="text" value="0 critical · 3 warnings" readonly />
+                    <input type="text" value="--" readonly aria-label="Error logs awaiting data" />
                   </label>
                   <label>
                     Last backup
-                    <input type="text" value="Today · 02:00" readonly />
+                    <input type="text" value="--" readonly aria-label="Backup status awaiting data" />
                   </label>
                   <label>
                     Storage utilisation
-                    <input type="text" value="68% (warn at 80%)" readonly />
+                    <input type="text" value="--" readonly aria-label="Storage utilisation awaiting data" />
                   </label>
                 </div>
                 <p class="dashboard-form-note">
@@ -348,26 +332,12 @@
 
               <article class="dashboard-form">
                 <h3>Recent activity feed</h3>
-                <ul class="dashboard-notifications">
+                <ul class="dashboard-notifications" data-placeholder="activity-feed">
                   <li class="dashboard-notification dashboard-notification--info">
-                    <i class="fa-solid fa-user-check" aria-hidden="true"></i>
+                    <i class="fa-solid fa-bolt" aria-hidden="true"></i>
                     <div>
-                      <p>Employee invited installer Rohan Singh</p>
-                      <span>Awaiting admin approval · 12 mins ago</span>
-                    </div>
-                  </li>
-                  <li class="dashboard-notification dashboard-notification--success">
-                    <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
-                    <div>
-                      <p>Backup completed successfully</p>
-                      <span>Today at 02:00 · Stored in Ranchi DC</span>
-                    </div>
-                  </li>
-                  <li class="dashboard-notification dashboard-notification--warning">
-                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
-                    <div>
-                      <p>SLA warning: Ticket #DK-8723</p>
-                      <span>In work phase · Due within 20 hours</span>
+                      <p>No recent activity to display.</p>
+                      <span>Live audit events will appear after integration.</span>
                     </div>
                   </li>
                 </ul>
@@ -383,10 +353,10 @@
             <form class="dashboard-form" data-gemini-form>
               <h3>API credentials</h3>
               <div class="dashboard-form-grid">
-                <label>
-                  Gemini API key
-                  <input type="password" name="apiKey" placeholder="••••••••••" value="AIzaSy****" autocomplete="off" />
-                </label>
+                  <label>
+                    Gemini API key
+                    <input type="password" name="apiKey" placeholder="Enter secure API key" autocomplete="off" />
+                  </label>
                 <label>
                   Text model code
                   <input type="text" name="textModel" value="gemini-2.5-flash" />
@@ -431,28 +401,32 @@
                     </header>
                     <ul>
                       <li>
-                        <p class="primary">#C-1098 · Subsidy status query</p>
-                        <p class="secondary">Assigned to Priya · SLA 3 days · Documents pending from customer</p>
-                      </li>
-                      <li>
-                        <p class="primary">#C-1102 · Rooftop inverter fault</p>
-                        <p class="secondary">Photos uploaded · Awaiting triage review</p>
+                        <p class="primary" data-placeholder="complaint-intake">No complaints loaded.</p>
+                        <p class="secondary">Website and internal submissions appear here for triage.</p>
                       </li>
                     </ul>
                   </div>
                   <div class="dashboard-list">
                     <header>
                       <i class="fa-solid fa-stethoscope" aria-hidden="true"></i>
-                      <h3>Triage &amp; work</h3>
+                      <h3>Triage</h3>
                     </header>
                     <ul>
                       <li>
-                        <p class="primary">#C-1045 · AMC overdue follow-up</p>
-                        <p class="secondary">Technician visit scheduled tomorrow · Escalate if no update</p>
+                        <p class="primary" data-placeholder="complaint-triage">No triage items available.</p>
+                        <p class="secondary">Prioritized complaints appear after admin review.</p>
                       </li>
+                    </ul>
+                  </div>
+                  <div class="dashboard-list">
+                    <header>
+                      <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i>
+                      <h3>Work</h3>
+                    </header>
+                    <ul>
                       <li>
-                        <p class="primary">#C-1088 · Smart meter sync issue</p>
-                        <p class="secondary">Routed to IoT team · Testing firmware patch</p>
+                        <p class="primary" data-placeholder="complaint-work">Work queue empty.</p>
+                        <p class="secondary">Assigned employees will track SLA progress from this view.</p>
                       </li>
                     </ul>
                   </div>
@@ -463,12 +437,8 @@
                     </header>
                     <ul>
                       <li>
-                        <p class="primary">#C-1019 · Maintenance complaint</p>
-                        <p class="secondary">Resolved by Rohan · SLA met · Feedback email sent</p>
-                      </li>
-                      <li>
-                        <p class="primary">#C-1026 · Subsidy disbursement</p>
-                        <p class="secondary">Awaiting DISCOM confirmation · Customer notified</p>
+                        <p class="primary" data-placeholder="complaint-resolution">No recent resolutions available.</p>
+                        <p class="secondary">Closed complaints show here after customer confirmation.</p>
                       </li>
                     </ul>
                   </div>
@@ -480,19 +450,19 @@
                 <div class="dashboard-form-grid">
                   <label>
                     Priority rule set
-                    <input type="text" value="High · Medium · Low (auto-set from impact)" readonly />
+                    <input type="text" value="Configure after service data sync" readonly />
                   </label>
                   <label>
                     Escalation contacts
-                    <input type="text" value="NOC Lead, Service Manager" readonly />
+                    <input type="text" value="--" readonly aria-label="Escalation contacts awaiting data" />
                   </label>
                   <label>
                     SLA breach alerts
-                    <input type="text" value="Email + SMS + in-app" readonly />
+                    <input type="text" value="--" readonly aria-label="SLA breach alerts awaiting data" />
                   </label>
                   <label>
                     Upcoming AMC visits
-                    <input type="text" value="12 due this week" readonly />
+                    <input type="text" value="--" readonly aria-label="Upcoming AMC visits awaiting data" />
                   </label>
                 </div>
                 <p class="dashboard-form-note">
@@ -531,26 +501,12 @@
 
           <section class="dashboard-panel">
             <h2>Notifications</h2>
-            <ul class="dashboard-notifications">
-              <li class="dashboard-notification dashboard-notification--warning">
+            <ul class="dashboard-notifications" data-placeholder="notifications">
+              <li class="dashboard-notification dashboard-notification--info">
                 <i class="fa-solid fa-bell"></i>
                 <div>
-                  <p>AMC overdue alert</p>
-                  <span>12 AMC renewals due in 48 hours.</span>
-                </div>
-              </li>
-              <li class="dashboard-notification dashboard-notification--info">
-                <i class="fa-solid fa-plug-circle-check"></i>
-                <div>
-                  <p>Gemini connection verified</p>
-                  <span>Last tested 5 minutes ago.</span>
-                </div>
-              </li>
-              <li class="dashboard-notification dashboard-notification--success">
-                <i class="fa-solid fa-user-gear"></i>
-                <div>
-                  <p>Installer approved</p>
-                  <span>Rohan Singh now has access to maintenance schedules.</span>
+                  <p>No alerts yet.</p>
+                  <span>System notifications will surface here in real time.</span>
                 </div>
               </li>
             </ul>
@@ -558,18 +514,10 @@
 
           <section class="dashboard-panel dashboard-panel--muted">
             <h2>Reminders</h2>
-            <ul class="dashboard-reminders">
+            <ul class="dashboard-reminders" data-placeholder="reminders">
               <li>
-                <p>Review lockout policy quarterly</p>
-                <span>Next due: 14 July</span>
-              </li>
-              <li>
-                <p>Audit subsidy documents</p>
-                <span>Batch upload pending for 6 customers</span>
-              </li>
-              <li>
-                <p>Share onboarding guide with new installers</p>
-                <span>Send email sequence post admin approval</span>
+                <p>No reminders scheduled.</p>
+                <span>Add admin tasks to keep approvals and audits on track.</span>
               </li>
             </ul>
           </section>
@@ -614,13 +562,13 @@
       const quickSearchButton = document.querySelector('[data-open-quick-search]');
 
       const searchIndex = [
-        { category: 'Leads & Customers', title: 'New residential leads (4)', description: 'Captured via PM Surya Ghar landing page', link: '#overview' },
-        { category: 'Leads & Customers', title: 'Customer onboarding queue', description: '3 customers awaiting subsidy verification', link: '#onboarding' },
-        { category: 'Access Control', title: 'Pending installer approvals', description: 'Review documents submitted by employees', link: '#onboarding' },
-        { category: 'Access Control', title: 'Login policy settings', description: 'Adjust retry limits and force logout sessions', link: '#access' },
-        { category: 'System Health', title: 'Activity & error logs', description: 'Export the last 7 days of admin actions', link: '#health' },
-        { category: 'AI Integrations', title: 'Gemini API configuration', description: 'Update API key and model codes for copilots', link: '#ai' },
-        { category: 'Complaints', title: 'AMC renewals due', description: '12 AMC follow-ups pending scheduling', link: '#complaints' },
+        { category: 'Leads & Customers', title: 'New residential leads', description: 'Lead totals appear once CRM sync is connected.', link: '#overview' },
+        { category: 'Leads & Customers', title: 'Customer onboarding queue', description: 'Monitor pending approvals after data refresh.', link: '#onboarding' },
+        { category: 'Access Control', title: 'Pending installer approvals', description: 'Review employee-submitted invitations awaiting admin approval.', link: '#onboarding' },
+        { category: 'Access Control', title: 'Login policy settings', description: 'Adjust retry limits and force logout sessions.', link: '#access' },
+        { category: 'System Health', title: 'Activity & error logs', description: 'Export admin actions and system warnings.', link: '#health' },
+        { category: 'AI Integrations', title: 'Gemini API configuration', description: 'Update API key and model codes for copilots.', link: '#ai' },
+        { category: 'Complaints', title: 'AMC renewals calendar', description: 'Schedule maintenance visits once service data loads.', link: '#complaints' },
       ];
 
       function prefersDark() {
@@ -760,7 +708,7 @@
             const labels = {
               'invite-user': ['Invite user', 'Send invite link to installer or employee for admin approval.', 'success'],
               'view-policies': ['Access policies', 'Review password hashing, CSRF, and lockout configuration.', 'info'],
-              'bulk-approve': ['Bulk approval', 'Batch approve 3 installers with assigned clusters.', 'success'],
+              'bulk-approve': ['Bulk approval', 'Batch approve vetted installers when documentation is complete.', 'success'],
               'reset-locks': ['Locks cleared', 'All locked accounts re-enabled. Notify owners about security review.', 'warning'],
               'force-logout': ['Force logout', 'Every active session will be signed out within 2 minutes.', 'warning'],
               'export-logs': ['Export scheduled', 'System health logs will be emailed to you shortly.', 'info'],
@@ -769,7 +717,7 @@
               'reset-gemini': ['Defaults restored', 'Gemini models reset to recommended defaults.', 'info'],
               'test-gemini': ['Testing Gemini', 'Attempting connection with current credentials…', 'info'],
               'assign-complaint': ['Complaint assigned', 'Ticket owner updated and SLA clock restarted.', 'success'],
-              'view-amc': ['AMC calendar', 'Loading AMC and maintenance visits for this week.', 'info'],
+              'view-amc': ['AMC calendar', 'Loading AMC and maintenance visits after sync.', 'info'],
             };
 
             const payload = labels[action];
@@ -806,7 +754,7 @@
       initTheme();
       renderSearchResults('');
       wireActions();
-      announceToast('Welcome back', 'All systems operational. 12 new approvals waiting.', 'success', { timeout: 7000 });
+      announceToast('Welcome back', 'All systems operational. Awaiting latest records.', 'success', { timeout: 7000 });
     })();
   </script>
 </body>
