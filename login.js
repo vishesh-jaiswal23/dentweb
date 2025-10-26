@@ -2,29 +2,30 @@
   const form = document.getElementById('login-form');
   if (!form) return;
 
-  const ADMIN_EMAIL = 'd.entranchi@gmail.com';
-  const ADMIN_PASSWORD = 'Dent@2025';
-
-  const roleToRoute = {
-    admin: 'admin-dashboard.html',
-    customer: 'customer-dashboard.html',
-    employee: 'employee-dashboard.html',
-    installer: 'installer-dashboard.html',
-    referrer: 'referrer-dashboard.html',
-  };
-
+  const roleInputs = form.querySelectorAll('input[name="role"]');
   const feedbackEl = form.querySelector('[data-login-feedback]');
   const hintEl = form.querySelector('[data-role-hint]');
-  const emailInput = form.querySelector('#login-email');
-  const passwordInput = form.querySelector('#login-password');
-  const roleInputs = form.querySelectorAll('input[name="role"]');
 
   function setHint(role) {
     if (!hintEl) return;
-    if (role === 'admin') {
-      hintEl.textContent = 'Enter your assigned admin email ID and password to continue.';
-    } else {
-      hintEl.textContent = 'Use your registered email ID and password to continue.';
+    switch (role) {
+      case 'admin':
+        hintEl.textContent = 'Administrators must use the credentials issued by Dakshayani Enterprises.';
+        break;
+      case 'customer':
+        hintEl.textContent = 'Customers can sign in with their registered email ID and password.';
+        break;
+      case 'employee':
+        hintEl.textContent = 'Employees use their corporate email ID and secure password.';
+        break;
+      case 'installer':
+        hintEl.textContent = 'Installers should enter the credentials assigned after activation.';
+        break;
+      case 'referrer':
+        hintEl.textContent = 'Referrers can log in with their verified partner credentials.';
+        break;
+      default:
+        hintEl.textContent = 'Use your assigned credentials to access the selected portal.';
     }
   }
 
@@ -38,58 +39,6 @@
     });
   });
 
-  setHint(form.querySelector('input[name="role"]:checked')?.value || 'admin');
-
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-
-    const selectedRole = form.querySelector('input[name="role"]:checked')?.value;
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
-
-    if (!selectedRole || !(selectedRole in roleToRoute)) {
-      return;
-    }
-
-    if (!email || !password) {
-      if (feedbackEl) {
-        feedbackEl.textContent = 'Please enter both your email ID and password to continue.';
-        feedbackEl.classList.add('is-error');
-        feedbackEl.classList.remove('is-success');
-      }
-      return;
-    }
-
-    if (selectedRole === 'admin') {
-      if (email.toLowerCase() !== ADMIN_EMAIL) {
-        if (feedbackEl) {
-          feedbackEl.textContent = 'The admin email ID does not match our records.';
-          feedbackEl.classList.add('is-error');
-          feedbackEl.classList.remove('is-success');
-        }
-        emailInput.focus();
-        return;
-      }
-
-      if (password !== ADMIN_PASSWORD) {
-        if (feedbackEl) {
-          feedbackEl.textContent = 'The admin password is incorrect.';
-          feedbackEl.classList.add('is-error');
-          feedbackEl.classList.remove('is-success');
-        }
-        passwordInput.focus();
-        return;
-      }
-    }
-
-    if (feedbackEl) {
-      feedbackEl.textContent = 'Logging you in…';
-      feedbackEl.classList.remove('is-error');
-      feedbackEl.classList.add('is-success');
-    }
-
-    setTimeout(() => {
-      window.location.href = roleToRoute[selectedRole];
-    }, 300);
-  });
+  const checked = form.querySelector('input[name="role"]:checked');
+  setHint(checked ? checked.value : 'admin');
 })();
