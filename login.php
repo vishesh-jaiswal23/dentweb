@@ -1,3 +1,68 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/bootstrap.php';
+
+start_session();
+$db = get_db();
+
+$scriptDir = str_replace('\\', '/', dirname($_SERVER['PHP_SELF'] ?? ''));
+if ($scriptDir === '/' || $scriptDir === '.') {
+    $scriptDir = '';
+}
+$basePath = rtrim($scriptDir, '/');
+$prefix = $basePath === '' ? '' : $basePath;
+$routeFor = static function (string $path) use ($prefix): string {
+    $clean = ltrim($path, '/');
+    return ($prefix === '' ? '' : $prefix) . '/' . $clean;
+};
+
+$roleRoutes = [
+    'admin' => $routeFor('admin-dashboard.php'),
+    'customer' => $routeFor('customer-dashboard.html'),
+    'employee' => $routeFor('employee-dashboard.html'),
+    'installer' => $routeFor('installer-dashboard.html'),
+    'referrer' => $routeFor('referrer-dashboard.html'),
+];
+
+$error = '';
+$success = '';
+$selectedRole = $_POST['role'] ?? 'admin';
+$emailValue = $_POST['email'] ?? '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $csrfToken = $_POST['csrf_token'] ?? '';
+    if (!verify_csrf_token($csrfToken)) {
+        $error = 'Your session expired. Please refresh and try again.';
+    } else {
+        $selectedRole = $_POST['role'] ?? 'admin';
+        $email = trim($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? '';
+
+        if (!isset($roleRoutes[$selectedRole])) {
+            $error = 'Select a valid portal to continue.';
+        } elseif ($email === '' || $password === '') {
+            $error = 'Enter both your email ID and password.';
+        } else {
+            $user = authenticate_user($email, $password, $selectedRole);
+            if (!$user) {
+                $error = 'The provided credentials were incorrect or the account is inactive.';
+            } else {
+                $_SESSION['user'] = [
+                    'id' => $user['id'],
+                    'full_name' => $user['full_name'],
+                    'email' => $user['email'],
+                    'role_name' => $user['role_name'],
+                ];
+                $success = 'Login successful. Redirecting…';
+                header('Location: ' . $roleRoutes[$selectedRole]);
+                exit;
+            }
+        }
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -52,49 +117,48 @@
             credentials provided to you by Dakshayani Enterprises.
           </p>
 
-          <form id="login-form" class="login-form" novalidate>
+          <form
+            id="login-form"
+            class="login-form"
+            method="post"
+            action="<?= htmlspecialchars($_SERVER['PHP_SELF'] ?? 'login.php', ENT_QUOTES) ?>"
+            novalidate
+          >
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
             <fieldset class="role-options">
               <legend>Portal type</legend>
+              <?php foreach ($roleRoutes as $role => $route): ?>
               <label class="role-option">
-                <input type="radio" name="role" value="admin" checked />
+                <input type="radio" name="role" value="<?= htmlspecialchars($role) ?>" <?= $selectedRole === $role ? 'checked' : '' ?> />
                 <span>
-                  <strong>Admin</strong>
-                  <small>Manage operations, policies, and approvals.</small>
+                  <strong><?= ucfirst($role) ?></strong>
+                  <small>
+                    <?php switch ($role) {
+                        case 'admin':
+                            echo 'Manage operations, policies, and approvals.';
+                            break;
+                        case 'customer':
+                            echo 'Track subsidy status, invoices, and dashboards.';
+                            break;
+                        case 'employee':
+                            echo 'Access field updates, schedules, and documentation.';
+                            break;
+                        case 'installer':
+                            echo 'Review installation checklists and assignments.';
+                            break;
+                        case 'referrer':
+                            echo 'Refer leads and track incentive eligibility.';
+                            break;
+                    } ?>
+                  </small>
                 </span>
               </label>
-              <label class="role-option">
-                <input type="radio" name="role" value="customer" />
-                <span>
-                  <strong>Customer</strong>
-                  <small>Track subsidy status, invoices, and dashboards.</small>
-                </span>
-              </label>
-              <label class="role-option">
-                <input type="radio" name="role" value="employee" />
-                <span>
-                  <strong>Employee</strong>
-                  <small>Access field updates, schedules, and documentation.</small>
-                </span>
-              </label>
-              <label class="role-option">
-                <input type="radio" name="role" value="installer" />
-                <span>
-                  <strong>Installer</strong>
-                  <small>Review installation checklists and assignments.</small>
-                </span>
-              </label>
-              <label class="role-option">
-                <input type="radio" name="role" value="referrer" />
-                <span>
-                  <strong>Referrer</strong>
-                  <small>Refer leads and track incentive eligibility.</small>
-                </span>
-              </label>
+              <?php endforeach; ?>
             </fieldset>
 
             <div class="form-field">
               <label for="login-email">Email ID</label>
-              <input type="email" id="login-email" name="email" placeholder="you@example.com" autocomplete="username" required />
+              <input type="email" id="login-email" name="email" placeholder="you@example.com" autocomplete="username" required value="<?= htmlspecialchars($emailValue, ENT_QUOTES) ?>" />
             </div>
 
             <div class="form-field">
@@ -114,7 +178,9 @@
             </p>
 
             <button type="submit" class="btn btn-primary btn-block">Login</button>
-            <p class="login-feedback" role="status" aria-live="polite" data-login-feedback></p>
+            <p class="login-feedback <?= $error ? 'is-error' : ($success ? 'is-success' : '') ?>" role="status" aria-live="polite" data-login-feedback>
+              <?= htmlspecialchars($error ?: $success, ENT_QUOTES) ?>
+            </p>
           </form>
         </div>
 
