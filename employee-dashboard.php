@@ -167,68 +167,6 @@ $taskColumns = [
     ],
 ];
 
-$activeComplaintsCount = count(array_filter($tickets, static function (array $ticket): bool {
-    return ($ticket['status'] ?? '') !== 'resolved';
-}));
-
-$pendingTasksCount = 0;
-foreach ($taskColumns as $columnKey => $column) {
-    if ($columnKey === 'done') {
-        continue;
-    }
-    $pendingTasksCount += count($column['items']);
-}
-
-$leadsHandledCount = count(array_filter($leadRecords, static function (array $record): bool {
-    return ($record['type'] ?? '') === 'lead';
-}));
-
-$amcRecords = array_values(array_filter($leadRecords, static function (array $record): bool {
-    return stripos($record['statusLabel'] ?? '', 'AMC') !== false;
-}));
-$amcDueSoonCount = count($amcRecords);
-$amcMeta = $amcDueSoonCount > 0
-    ? sprintf('Next visit: %s · %s.', $amcRecords[0]['nextAction'], $amcRecords[0]['description'])
-    : 'No AMC visits scheduled.';
-
-$summaryMetrics = [
-    'activeComplaints' => $activeComplaintsCount,
-    'pendingTasks' => $pendingTasksCount,
-];
-
-$overviewMetrics = [
-    [
-        'icon' => 'fa-solid fa-ticket',
-        'tone' => 'neutral',
-        'title' => 'Active complaints',
-        'value' => $summaryMetrics['activeComplaints'],
-        'meta' => 'Tickets currently assigned to you.',
-        'dataTarget' => 'activeComplaints',
-    ],
-    [
-        'icon' => 'fa-solid fa-list-check',
-        'tone' => 'warning',
-        'title' => 'Pending tasks',
-        'value' => $summaryMetrics['pendingTasks'],
-        'meta' => 'Includes to-do and in-progress activities.',
-        'dataTarget' => 'pendingTasks',
-    ],
-    [
-        'icon' => 'fa-solid fa-user-plus',
-        'tone' => 'neutral',
-        'title' => 'Leads handled',
-        'value' => $leadsHandledCount,
-        'meta' => 'Active prospects owned by the Service desk.',
-    ],
-    [
-        'icon' => 'fa-solid fa-calendar-check',
-        'tone' => 'positive',
-        'title' => 'AMC visits due soon',
-        'value' => $amcDueSoonCount,
-        'meta' => $amcMeta,
-    ],
-];
-
 $taskActivity = [
     ['time' => '2024-05-21T09:45', 'label' => '21 May · 09:45', 'message' => 'You moved <strong>Update ticket attachments</strong> to In Progress.'],
     ['time' => '2024-05-20T17:10', 'label' => '20 May · 17:10', 'message' => 'Marked <strong>Submit AMC checklist</strong> as completed and shared with Admin.'],
@@ -315,9 +253,259 @@ $taskReminders = [
     ['icon' => 'fa-solid fa-user-check', 'message' => 'Share Doranda site entry pass with installer team.'],
 ];
 
+$siteVisits = [
+    [
+        'id' => 'VIS-301',
+        'title' => '5 kW rooftop installation',
+        'customer' => 'Green Valley Apartments',
+        'address' => 'Tower 2, Ranchi · Pin 834001',
+        'scheduled' => '22 May 2024 · 09:30 AM',
+        'checklist' => [
+            'Verify structure alignment and torque settings',
+            'Mount 10 × 500 W panels and connect string DC wiring',
+            'Capture inverter serial number and meter reading',
+        ],
+        'requiredPhotos' => ['Array layout', 'Inverter close-up', 'Net meter panel'],
+        'status' => 'scheduled',
+        'statusLabel' => 'Scheduled',
+        'statusTone' => 'progress',
+        'notes' => 'Commissioning with DISCOM inspector at 13:00 hrs.',
+    ],
+    [
+        'id' => 'VIS-302',
+        'title' => 'Preventive maintenance check',
+        'customer' => 'Skyline Residency',
+        'address' => 'Block B Utility Room, Ranchi',
+        'scheduled' => '23 May 2024 · 11:15 AM',
+        'checklist' => [
+            'Clean modules and check string voltages',
+            'Record inverter voltage and current',
+            'Upload geo-tagged verification photo',
+        ],
+        'requiredPhotos' => ['String voltage screen', 'Array condition'],
+        'status' => 'scheduled',
+        'statusLabel' => 'Scheduled',
+        'statusTone' => 'progress',
+        'notes' => 'Customer contact: Maintenance Desk · +91 99887 22110',
+    ],
+    [
+        'id' => 'VIS-298',
+        'title' => 'On-site troubleshooting',
+        'customer' => 'Meera Housing Society',
+        'address' => 'Block C Terrace, Ranchi',
+        'scheduled' => '21 May 2024 · 03:00 PM',
+        'checklist' => [
+            'Inspect inverter alarms',
+            'Capture thermal image of combiner box',
+            'Update job checklist on completion',
+        ],
+        'requiredPhotos' => ['Combiner box interior'],
+        'status' => 'awaiting_photos',
+        'statusLabel' => 'Awaiting photos',
+        'statusTone' => 'warning',
+        'notes' => 'Awaiting panel photos to close ticket T-205.',
+    ],
+];
+
+$visitActivity = [
+    ['time' => '2024-05-21T12:45', 'label' => '21 May · 12:45', 'message' => 'VIS-298: Uploaded inverter alarm screenshot for Admin review.'],
+    ['time' => '2024-05-20T18:20', 'label' => '20 May · 18:20', 'message' => 'VIS-301 scheduled · Checklist shared with installer team.'],
+];
+
+$documentVault = [
+    [
+        'id' => 'DOC-109',
+        'customer' => 'Green Valley Apartments',
+        'type' => 'Service Photo Set',
+        'filename' => 'green-valley-array-may21.zip',
+        'uploadedBy' => $employeeName,
+        'uploadedAt' => '2024-05-21T13:20',
+        'status' => 'pending',
+        'statusLabel' => 'Pending Admin review',
+        'tone' => 'warning',
+    ],
+    [
+        'id' => 'DOC-105',
+        'customer' => 'Skyline Residency',
+        'type' => 'Maintenance Invoice',
+        'filename' => 'skyline-amc-invoice.pdf',
+        'uploadedBy' => 'Admin (Finance)',
+        'uploadedAt' => '2024-05-18T16:05',
+        'status' => 'approved',
+        'statusLabel' => 'Approved by Admin',
+        'tone' => 'positive',
+    ],
+];
+
+$documentUploadCustomers = [
+    'Green Valley Apartments',
+    'Skyline Residency',
+    'Meera Housing Society',
+];
+
+$subsidyCases = [
+    [
+        'id' => 'PM-78',
+        'customer' => 'Meera Housing Society',
+        'capacity' => '5 kW Rooftop',
+        'stages' => [
+            'applied' => ['label' => 'Applied', 'completed' => true, 'completedAt' => '2024-05-15'],
+            'inspected' => ['label' => 'Inspected', 'completed' => false],
+            'redeemed' => ['label' => 'Redeemed', 'completed' => false],
+        ],
+        'note' => 'Awaiting DISCOM inspection slot confirmation.',
+    ],
+    [
+        'id' => 'PM-82',
+        'customer' => 'Sunrise Apartments',
+        'capacity' => '12 kW Rooftop',
+        'stages' => [
+            'applied' => ['label' => 'Applied', 'completed' => true, 'completedAt' => '2024-05-12'],
+            'inspected' => ['label' => 'Inspected', 'completed' => true, 'completedAt' => '2024-05-19'],
+            'redeemed' => ['label' => 'Redeemed', 'completed' => false],
+        ],
+        'note' => 'Docs ready for Admin final submission.',
+    ],
+];
+
+$subsidyActivity = [
+    ['time' => '2024-05-21T09:05', 'label' => '21 May · 09:05', 'message' => 'Collected inspection checklist for case PM-82 – awaiting Admin validation.'],
+    ['time' => '2024-05-20T15:42', 'label' => '20 May · 15:42', 'message' => 'Submitted rooftop photos for case PM-78 (Applied stage).'],
+];
+
+$warrantyAssets = [
+    [
+        'id' => 'AMC-451',
+        'customer' => 'Skyline Residency',
+        'asset' => 'Sungrow Inverter SG5K-D',
+        'warranty' => 'Warranty till Sep 2026',
+        'nextVisit' => '24 May 2024',
+        'status' => 'due',
+        'statusLabel' => 'Due in 3 days',
+        'tone' => 'waiting',
+        'lastVisit' => '26 May 2023',
+    ],
+    [
+        'id' => 'AMC-458',
+        'customer' => 'Green Valley Apartments',
+        'asset' => 'Adani Solar 5 kW array',
+        'warranty' => 'Module warranty till Jan 2040',
+        'nextVisit' => '21 Jun 2024',
+        'status' => 'scheduled',
+        'statusLabel' => 'Scheduled',
+        'tone' => 'progress',
+        'lastVisit' => '22 Dec 2023',
+    ],
+    [
+        'id' => 'AMC-460',
+        'customer' => 'Meera Housing Society',
+        'asset' => 'Polycab Balance of System',
+        'warranty' => 'AMC valid till Dec 2024',
+        'nextVisit' => '15 May 2024',
+        'status' => 'overdue',
+        'statusLabel' => 'Overdue',
+        'tone' => 'escalated',
+        'lastVisit' => '14 May 2023',
+    ],
+];
+
+$warrantyActivity = [
+    ['time' => '2024-05-21T10:25', 'label' => '21 May · 10:25', 'message' => 'Logged inverter voltage check for Skyline Residency AMC.'],
+    ['time' => '2024-05-20T12:10', 'label' => '20 May · 12:10', 'message' => 'Uploaded filter cleaning photos for Green Valley Apartments.'],
+];
+
+$communicationLogs = [
+    ['time' => '2024-05-21T10:10', 'label' => '21 May · 10:10', 'channel' => 'Call', 'summary' => 'Confirmed AMC visit with Skyline Residency for 24 May.'],
+    ['time' => '2024-05-20T17:55', 'label' => '20 May · 17:55', 'channel' => 'Email', 'summary' => 'Shared inverter troubleshooting steps with Meera Housing Society.'],
+    ['time' => '2024-05-20T09:30', 'label' => '20 May · 09:30', 'channel' => 'Visit', 'summary' => 'Completed site walk-through at Green Valley Apartments.'],
+];
+
 $notifications = [
     ['tone' => 'info', 'icon' => 'fa-solid fa-circle-info', 'title' => 'New SOP uploaded', 'message' => "Admin shared the latest inverter safety SOP. Review before tomorrow's visit."],
     ['tone' => 'warning', 'icon' => 'fa-solid fa-triangle-exclamation', 'title' => 'SLA approaching', 'message' => 'Ticket T-238 follow-up is due in 4 hours.'],
+];
+
+$activeComplaintsCount = count(array_filter($tickets, static function (array $ticket): bool {
+    return ($ticket['status'] ?? '') !== 'resolved';
+}));
+
+$pendingTasksCount = 0;
+foreach ($taskColumns as $columnKey => $column) {
+    if ($columnKey === 'done') {
+        continue;
+    }
+    $pendingTasksCount += count($column['items']);
+}
+
+$scheduledVisitCount = count(array_filter($siteVisits, static function (array $visit): bool {
+    return ($visit['status'] ?? '') !== 'completed';
+}));
+
+$leadsHandledCount = count(array_filter($leadRecords, static function (array $record): bool {
+    return ($record['type'] ?? '') === 'lead';
+}));
+
+$amcDueSoonCount = count(array_filter($warrantyAssets, static function (array $asset): bool {
+    return in_array($asset['status'] ?? '', ['scheduled', 'due', 'overdue'], true);
+}));
+
+$nextAmc = null;
+foreach ($warrantyAssets as $asset) {
+    if (in_array($asset['status'] ?? '', ['overdue', 'due', 'scheduled'], true)) {
+        $nextAmc = $asset;
+        break;
+    }
+}
+
+$amcMeta = $nextAmc
+    ? sprintf('Next visit: %s · %s.', $nextAmc['nextVisit'], $nextAmc['customer'])
+    : 'No AMC visits scheduled.';
+
+$summaryMetrics = [
+    'activeComplaints' => $activeComplaintsCount,
+    'pendingTasks' => $pendingTasksCount,
+    'scheduledVisits' => $scheduledVisitCount,
+];
+
+$overviewMetrics = [
+    [
+        'icon' => 'fa-solid fa-ticket',
+        'tone' => 'neutral',
+        'title' => 'Active complaints',
+        'value' => $summaryMetrics['activeComplaints'],
+        'meta' => 'Tickets currently assigned to you.',
+        'dataTarget' => 'activeComplaints',
+    ],
+    [
+        'icon' => 'fa-solid fa-map-location-dot',
+        'tone' => 'neutral',
+        'title' => 'Scheduled field visits',
+        'value' => $summaryMetrics['scheduledVisits'],
+        'meta' => 'Installations and maintenance visits awaiting completion.',
+        'dataTarget' => 'scheduledVisits',
+    ],
+    [
+        'icon' => 'fa-solid fa-list-check',
+        'tone' => 'warning',
+        'title' => 'Pending tasks',
+        'value' => $summaryMetrics['pendingTasks'],
+        'meta' => 'Includes to-do and in-progress activities.',
+        'dataTarget' => 'pendingTasks',
+    ],
+    [
+        'icon' => 'fa-solid fa-user-plus',
+        'tone' => 'neutral',
+        'title' => 'Leads handled',
+        'value' => $leadsHandledCount,
+        'meta' => 'Active prospects owned by the Service desk.',
+    ],
+    [
+        'icon' => 'fa-solid fa-calendar-check',
+        'tone' => 'positive',
+        'title' => 'AMC visits due soon',
+        'value' => $amcDueSoonCount,
+        'meta' => $amcMeta,
+    ],
 ];
 
 $policyItems = [
@@ -431,6 +619,30 @@ $attachmentIcon = static function (string $filename): string {
           <a href="#leads" class="dashboard-quick-nav__link" data-quick-link>
             <i class="fa-solid fa-users" aria-hidden="true"></i>
             <span>Leads &amp; Follow-ups</span>
+          </a>
+          <a href="#field-work" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i>
+            <span>Field Work</span>
+          </a>
+          <a href="#documents" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+            <span>Documents</span>
+          </a>
+          <a href="#subsidy" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-indian-rupee-sign" aria-hidden="true"></i>
+            <span>Subsidy</span>
+          </a>
+          <a href="#warranty" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-shield-heart" aria-hidden="true"></i>
+            <span>Warranty &amp; AMC</span>
+          </a>
+          <a href="#communication" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-phone-volume" aria-hidden="true"></i>
+            <span>Communication</span>
+          </a>
+          <a href="#ai-assist" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-robot" aria-hidden="true"></i>
+            <span>AI Assistance</span>
           </a>
         </nav>
       </header>
@@ -700,6 +912,383 @@ $attachmentIcon = static function (string $filename): string {
                   </ul>
                 </article>
               </aside>
+            </div>
+          </section>
+
+          <section id="field-work" class="dashboard-section" data-section>
+            <h2>Installation &amp; field work</h2>
+            <p class="dashboard-section-sub">
+              Review every scheduled installation or maintenance visit, capture geo-tags when available, and close assignments
+              so Admin can review commissioning evidence before locking tickets.
+            </p>
+            <div class="visit-layout">
+              <div class="visit-grid">
+                <?php foreach ($siteVisits as $visit): ?>
+                <article
+                  class="visit-card dashboard-panel"
+                  data-visit-card
+                  data-visit-id="<?= htmlspecialchars($visit['id'], ENT_QUOTES) ?>"
+                  data-visit-status="<?= htmlspecialchars($visit['status'], ENT_QUOTES) ?>"
+                  data-visit-customer="<?= htmlspecialchars($visit['customer'], ENT_QUOTES) ?>"
+                >
+                  <header class="visit-card-header">
+                    <div>
+                      <small class="text-xs text-muted"><?= htmlspecialchars($visit['id'], ENT_QUOTES) ?></small>
+                      <h3><?= htmlspecialchars($visit['title'], ENT_QUOTES) ?></h3>
+                      <p class="visit-card-customer"><?= htmlspecialchars($visit['customer'], ENT_QUOTES) ?></p>
+                    </div>
+                    <span
+                      class="dashboard-status dashboard-status--<?= htmlspecialchars($visit['statusTone'] ?? 'progress', ENT_QUOTES) ?>"
+                      data-visit-status
+                    ><?= htmlspecialchars($visit['statusLabel'] ?? 'Scheduled', ENT_QUOTES) ?></span>
+                  </header>
+                  <ul class="visit-meta">
+                    <li><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> <?= htmlspecialchars($visit['scheduled'], ENT_QUOTES) ?></li>
+                    <li><i class="fa-solid fa-location-dot" aria-hidden="true"></i> <?= htmlspecialchars($visit['address'], ENT_QUOTES) ?></li>
+                  </ul>
+                  <div class="visit-block">
+                    <h4>Job checklist</h4>
+                    <ul>
+                      <?php foreach ($visit['checklist'] as $item): ?>
+                      <li><?= htmlspecialchars($item, ENT_QUOTES) ?></li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
+                  <div class="visit-block visit-block--photos">
+                    <h4>Required photos</h4>
+                    <ul>
+                      <?php foreach ($visit['requiredPhotos'] as $photo): ?>
+                      <li><i class="fa-solid fa-camera" aria-hidden="true"></i> <?= htmlspecialchars($photo, ENT_QUOTES) ?></li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
+                  <?php if (!empty($visit['notes'])): ?>
+                  <p class="visit-notes"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <?= htmlspecialchars($visit['notes'], ENT_QUOTES) ?></p>
+                  <?php endif; ?>
+                  <p class="visit-geotag" data-visit-geotag-wrapper hidden>
+                    <i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i>
+                    <span>Geo-tag: <strong data-visit-geotag-label></strong></span>
+                  </p>
+                  <footer class="visit-card-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-visit-geotag>
+                      <i class="fa-solid fa-location-arrow" aria-hidden="true"></i>
+                      Log geo-tag
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" data-visit-complete>
+                      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                      Mark completed
+                    </button>
+                  </footer>
+                </article>
+                <?php endforeach; ?>
+              </div>
+              <aside class="visit-activity-panel dashboard-panel">
+                <h3>Visit updates</h3>
+                <ol class="visit-activity" data-visit-activity>
+                  <?php foreach ($visitActivity as $entry): ?>
+                  <li>
+                    <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
+                    <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
+                  </li>
+                  <?php endforeach; ?>
+                </ol>
+              </aside>
+            </div>
+          </section>
+
+          <section id="documents" class="dashboard-section" data-section>
+            <h2>Document vault access</h2>
+            <p class="dashboard-section-sub">
+              Upload photos, invoices, or forms tied to your assignments. Visibility stays limited to your customers until
+              Admin reviews, versions, and tags each record for the master vault.
+            </p>
+            <div class="document-layout">
+              <div class="dashboard-table-wrapper document-table">
+                <table class="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Document</th>
+                      <th scope="col">Customer</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Uploaded</th>
+                    </tr>
+                  </thead>
+                  <tbody data-document-list>
+                    <?php foreach ($documentVault as $doc): ?>
+                    <?php $docTime = strtotime($doc['uploadedAt'] ?? '') ?: null; ?>
+                    <tr>
+                      <td>
+                        <strong><?= htmlspecialchars($doc['type'], ENT_QUOTES) ?></strong>
+                        <span class="text-xs text-muted d-block"><?= htmlspecialchars($doc['filename'], ENT_QUOTES) ?></span>
+                      </td>
+                      <td><?= htmlspecialchars($doc['customer'], ENT_QUOTES) ?></td>
+                      <td>
+                        <span class="dashboard-status dashboard-status--<?= htmlspecialchars($doc['tone'] ?? 'progress', ENT_QUOTES) ?>">
+                          <?= htmlspecialchars($doc['statusLabel'], ENT_QUOTES) ?>
+                        </span>
+                      </td>
+                      <td>
+                        <?php if ($docTime !== null): ?>
+                        <time datetime="<?= htmlspecialchars($doc['uploadedAt'], ENT_QUOTES) ?>"><?= htmlspecialchars(date('d M · H:i', $docTime), ENT_QUOTES) ?></time>
+                        <?php else: ?>
+                        <span>—</span>
+                        <?php endif; ?>
+                        <span class="text-xs text-muted d-block">by <?= htmlspecialchars($doc['uploadedBy'], ENT_QUOTES) ?></span>
+                      </td>
+                    </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+              <aside class="document-panel dashboard-panel">
+                <h3>Upload to shared vault</h3>
+                <form class="document-form" data-document-form>
+                  <label>
+                    Customer
+                    <select name="customer" required>
+                      <option value="" disabled selected>Select customer</option>
+                      <?php foreach ($documentUploadCustomers as $customer): ?>
+                      <option value="<?= htmlspecialchars($customer, ENT_QUOTES) ?>"><?= htmlspecialchars($customer, ENT_QUOTES) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </label>
+                  <label>
+                    Document type
+                    <input type="text" name="type" placeholder="e.g., Service photos" required />
+                  </label>
+                  <label>
+                    File name
+                    <input type="text" name="filename" placeholder="example-file.jpg" required />
+                  </label>
+                  <label>
+                    Notes for Admin
+                    <textarea name="note" rows="2" placeholder="Explain what this upload covers."></textarea>
+                  </label>
+                  <button type="submit" class="btn btn-primary btn-sm">Submit for approval</button>
+                  <p class="text-xs text-muted mb-0">Admin verifies, tags, and versions files before wider access.</p>
+                </form>
+              </aside>
+            </div>
+          </section>
+
+          <section id="subsidy" class="dashboard-section" data-section>
+            <h2>PM Surya Ghar subsidy workflow</h2>
+            <p class="dashboard-section-sub">
+              Help customers progress through the subsidy stages. Mark Applied or Inspected once documents are complete; Admin
+              advances cases to Redeemed after validating every upload.
+            </p>
+            <div class="subsidy-layout" data-subsidy-board>
+              <?php foreach ($subsidyCases as $case): ?>
+              <article class="subsidy-card dashboard-panel" data-subsidy-case="<?= htmlspecialchars($case['id'], ENT_QUOTES) ?>">
+                <header>
+                  <h3><?= htmlspecialchars($case['customer'], ENT_QUOTES) ?></h3>
+                  <p class="text-sm text-muted">Case <?= htmlspecialchars($case['id'], ENT_QUOTES) ?> · <?= htmlspecialchars($case['capacity'], ENT_QUOTES) ?></p>
+                </header>
+                <ul class="subsidy-stages">
+                  <?php foreach ($case['stages'] as $stageKey => $stage): ?>
+                  <?php $completed = !empty($stage['completed']); ?>
+                  <li
+                    class="subsidy-stage<?= $completed ? ' is-complete' : '' ?>"
+                    data-subsidy-stage="<?= htmlspecialchars($stageKey, ENT_QUOTES) ?>"
+                    data-stage-label="<?= htmlspecialchars($stage['label'], ENT_QUOTES) ?>"
+                    <?= $completed ? ' data-subsidy-completed="true"' : '' ?>
+                  >
+                    <div>
+                      <strong><?= htmlspecialchars($stage['label'], ENT_QUOTES) ?></strong>
+                      <?php if (!empty($stage['completedAt'])): ?>
+                      <span class="text-xs text-muted">Completed <?= htmlspecialchars(date('d M', strtotime($stage['completedAt'])), ENT_QUOTES) ?></span>
+                      <?php endif; ?>
+                    </div>
+                    <?php if ($stageKey !== 'redeemed'): ?>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      data-subsidy-action
+                      data-subsidy-stage="<?= htmlspecialchars($stageKey, ENT_QUOTES) ?>"
+                      data-subsidy-case="<?= htmlspecialchars($case['id'], ENT_QUOTES) ?>"
+                      data-stage-label="<?= htmlspecialchars($stage['label'], ENT_QUOTES) ?>"
+                      <?= $completed ? 'disabled' : '' ?>
+                    ><?= $completed ? 'Completed' : 'Mark complete' ?></button>
+                    <?php else: ?>
+                    <span class="text-xs text-muted">Admin approval required</span>
+                    <?php endif; ?>
+                  </li>
+                  <?php endforeach; ?>
+                </ul>
+                <?php if (!empty($case['note'])): ?>
+                <p class="subsidy-note"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i> <?= htmlspecialchars($case['note'], ENT_QUOTES) ?></p>
+                <?php endif; ?>
+              </article>
+              <?php endforeach; ?>
+            </div>
+            <aside class="dashboard-panel subsidy-activity">
+              <h3>Workflow updates</h3>
+              <ol data-subsidy-activity>
+                <?php foreach ($subsidyActivity as $entry): ?>
+                <li>
+                  <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
+                  <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
+                </li>
+                <?php endforeach; ?>
+              </ol>
+            </aside>
+          </section>
+
+          <section id="warranty" class="dashboard-section" data-section>
+            <h2>Warranty &amp; AMC tracker</h2>
+            <p class="dashboard-section-sub">
+              Monitor service schedules, upload geo-tagged evidence, and highlight issues before they become escalations. Overdue
+              visits appear with alerts until Admin marks them resolved.
+            </p>
+            <div class="warranty-layout">
+              <div class="dashboard-table-wrapper warranty-table">
+                <table class="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Customer</th>
+                      <th scope="col">Asset</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Next visit</th>
+                      <th scope="col">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php foreach ($warrantyAssets as $asset): ?>
+                    <tr
+                      data-warranty-row
+                      data-warranty-id="<?= htmlspecialchars($asset['id'], ENT_QUOTES) ?>"
+                      data-warranty-status="<?= htmlspecialchars($asset['status'], ENT_QUOTES) ?>"
+                      data-warranty-customer="<?= htmlspecialchars($asset['customer'], ENT_QUOTES) ?>"
+                      data-warranty-asset="<?= htmlspecialchars($asset['asset'], ENT_QUOTES) ?>"
+                    >
+                      <td>
+                        <strong><?= htmlspecialchars($asset['customer'], ENT_QUOTES) ?></strong>
+                        <span class="text-xs text-muted d-block">Last visit <?= htmlspecialchars(date('d M Y', strtotime($asset['lastVisit'])), ENT_QUOTES) ?></span>
+                      </td>
+                      <td>
+                        <strong><?= htmlspecialchars($asset['asset'], ENT_QUOTES) ?></strong>
+                        <span class="text-xs text-muted d-block"><?= htmlspecialchars($asset['warranty'], ENT_QUOTES) ?></span>
+                      </td>
+                      <td>
+                        <span class="dashboard-status dashboard-status--<?= htmlspecialchars($asset['tone'] ?? 'progress', ENT_QUOTES) ?>" data-warranty-status-label>
+                          <?= htmlspecialchars($asset['statusLabel'], ENT_QUOTES) ?>
+                        </span>
+                      </td>
+                      <td><?= htmlspecialchars($asset['nextVisit'], ENT_QUOTES) ?></td>
+                      <td>
+                        <button type="button" class="btn btn-secondary btn-sm" data-warranty-log>
+                          <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
+                          Log service update
+                        </button>
+                      </td>
+                    </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+              <aside class="dashboard-panel warranty-activity">
+                <h3>Service visit history</h3>
+                <ol data-warranty-activity>
+                  <?php foreach ($warrantyActivity as $entry): ?>
+                  <li>
+                    <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
+                    <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
+                  </li>
+                  <?php endforeach; ?>
+                </ol>
+              </aside>
+            </div>
+          </section>
+
+          <section id="communication" class="dashboard-section" data-section>
+            <h2>Communication log &amp; follow-ups</h2>
+            <p class="dashboard-section-sub">
+              Maintain an auditable log of calls, emails, and visits. Entries stay visible to Admin, and the system records key
+              ticket or task notes automatically.
+            </p>
+            <div class="communication-layout">
+              <article class="dashboard-panel">
+                <h3>Add log entry</h3>
+                <form class="communication-form" data-communication-form>
+                  <label>
+                    Customer / ticket
+                    <select name="customer" required>
+                      <option value="" disabled selected>Select customer</option>
+                      <?php foreach ($documentUploadCustomers as $customer): ?>
+                      <option value="<?= htmlspecialchars($customer, ENT_QUOTES) ?>"><?= htmlspecialchars($customer, ENT_QUOTES) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </label>
+                  <label>
+                    Channel
+                    <select name="channel" required>
+                      <option value="call">Call</option>
+                      <option value="email">Email</option>
+                      <option value="visit">Visit</option>
+                    </select>
+                  </label>
+                  <label>
+                    Summary
+                    <textarea
+                      name="summary"
+                      rows="3"
+                      placeholder="Document the conversation, commitments, or next steps."
+                      required
+                    ></textarea>
+                  </label>
+                  <button type="submit" class="btn btn-primary btn-sm">Save communication</button>
+                  <p class="text-xs text-muted mb-0">Admins can review these logs anytime.</p>
+                </form>
+              </article>
+              <article class="dashboard-panel communication-history">
+                <h3>Recent communication</h3>
+                <ul class="communication-log" data-communication-log>
+                  <?php foreach ($communicationLogs as $log): ?>
+                  <li>
+                    <div class="communication-log-meta">
+                      <span class="communication-channel communication-channel--<?= htmlspecialchars(strtolower($log['channel']), ENT_QUOTES) ?>">
+                        <?= htmlspecialchars($log['channel'], ENT_QUOTES) ?>
+                      </span>
+                      <time datetime="<?= htmlspecialchars($log['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($log['label'], ENT_QUOTES) ?></time>
+                    </div>
+                    <p><?= htmlspecialchars($log['summary'], ENT_QUOTES) ?></p>
+                  </li>
+                  <?php endforeach; ?>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="ai-assist" class="dashboard-section" data-section>
+            <h2>AI assistance (Gemini)</h2>
+            <p class="dashboard-section-sub">
+              Generate quick summaries, follow-up drafts, or image captions using Admin-approved Gemini models. Requests are
+              logged for compliance before content is shared with customers.
+            </p>
+            <div class="ai-layout">
+              <article class="dashboard-panel">
+                <h3>Request suggestion</h3>
+                <form class="ai-form" data-ai-form>
+                  <label>
+                    Choose tool
+                    <select name="purpose" required>
+                      <option value="summary">Service summary</option>
+                      <option value="followup">Follow-up message</option>
+                      <option value="caption">Image caption</option>
+                    </select>
+                  </label>
+                  <label>
+                    Context / highlights
+                    <textarea name="context" rows="3" placeholder="Describe the service outcome or request from Admin."></textarea>
+                  </label>
+                  <button type="submit" class="btn btn-primary btn-sm">Generate with Gemini</button>
+                  <p class="text-xs text-muted mb-0">All prompts route through Admin-configured Gemini models (Text · Image · TTS).</p>
+                </form>
+              </article>
+              <article class="dashboard-panel ai-output-panel">
+                <h3>AI output</h3>
+                <div class="ai-output" data-ai-output aria-live="polite">Select a tool and provide optional context to begin.</div>
+              </article>
             </div>
           </section>
         </div>
