@@ -249,6 +249,40 @@
         displayAlert(dom.conversionAlert, 'Lead not found.', true);
         return;
       }
+      const customerName = payload.customerName?.trim();
+      if (!customerName) {
+        displayAlert(dom.conversionAlert, 'Customer name is required.', true);
+        return;
+      }
+      const customerEmail = payload.customerEmail?.trim();
+      if (!customerEmail) {
+        displayAlert(dom.conversionAlert, 'Customer email is required.', true);
+        return;
+      }
+      const customerPhone = payload.customerPhone?.trim();
+      if (!customerPhone) {
+        displayAlert(dom.conversionAlert, 'Customer phone is required.', true);
+        return;
+      }
+      const phoneDigits = customerPhone.replace(/\D/g, '');
+      if (phoneDigits.length !== 10) {
+        displayAlert(dom.conversionAlert, 'Customer phone must include 10 digits.', true);
+        return;
+      }
+      const systemSizeValue = payload.systemSize?.trim();
+      if (!systemSizeValue) {
+        displayAlert(dom.conversionAlert, 'System size is required.', true);
+        return;
+      }
+      const systemSize = parseFloat(systemSizeValue);
+      if (!Number.isFinite(systemSize) || systemSize <= 0) {
+        displayAlert(dom.conversionAlert, 'System size must be a positive number.', true);
+        return;
+      }
+      payload.customerName = customerName;
+      payload.customerEmail = customerEmail;
+      payload.customerPhone = customerPhone;
+      payload.systemSize = systemSizeValue;
       if (payload.subsidyStatus !== 'Not Applied' && !payload.applicationNumber?.trim()) {
         displayAlert(dom.conversionAlert, 'Application number is required when subsidy is applied.', true);
         return;
@@ -566,7 +600,7 @@
     data.forEach(([label, value]) => {
       const item = document.createElement('li');
       if (allowHtml) {
-        item.innerHTML = value;
+        item.textContent = value;
       } else {
         item.innerHTML = template(label, value);
       }
