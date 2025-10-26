@@ -26,6 +26,20 @@ $geminiSettings = [
     'imageModel' => get_setting('gemini_image_model') ?? 'gemini-2.5-flash-image',
     'ttsModel' => get_setting('gemini_tts_model') ?? 'gemini-2.5-flash-preview-tts',
 ];
+
+$scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+if ($scriptDir === '/' || $scriptDir === '.') {
+    $scriptDir = '';
+}
+$basePath = rtrim($scriptDir, '/');
+$prefix = $basePath === '' ? '' : $basePath;
+$pathFor = static function (string $path) use ($prefix): string {
+    $clean = ltrim($path, '/');
+    return ($prefix === '' ? '' : $prefix) . '/' . $clean;
+};
+
+$logoutUrl = $pathFor('logout.php');
+$apiBase = $pathFor('api/admin.php');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -82,7 +96,7 @@ $geminiSettings = [
               <span>Auto</span>
             </label>
           </div>
-          <a href="logout.php" class="btn btn-ghost">
+          <a href="<?= htmlspecialchars($logoutUrl, ENT_QUOTES) ?>" class="btn btn-ghost">
             <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
             Log out
           </a>
@@ -163,7 +177,7 @@ $geminiSettings = [
             </li>
           </ul>
           <div class="dashboard-nav-footer">
-            <a class="dashboard-nav-link dashboard-nav-link--logout" href="logout.php">
+            <a class="dashboard-nav-link dashboard-nav-link--logout" href="<?= htmlspecialchars($logoutUrl, ENT_QUOTES) ?>">
               <i class="fa-solid fa-door-open"></i> Sign out
             </a>
           </div>
@@ -627,6 +641,7 @@ $geminiSettings = [
   <script>
   window.DakshayaniAdmin = Object.freeze({
     csrfToken: <?= json_encode($_SESSION["csrf_token"] ?? '') ?>,
+    apiBase: <?= json_encode($apiBase) ?>,
     currentUser: <?= json_encode([
       'id' => $user['id'] ?? null,
       'name' => $user['full_name'] ?? 'Administrator',

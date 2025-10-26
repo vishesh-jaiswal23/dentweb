@@ -4,7 +4,7 @@
   const config = window.DakshayaniAdmin;
   if (!config) return;
 
-  const API_BASE = 'api/admin.php';
+  const API_BASE = config.apiBase || 'api/admin.php';
   const THEME_KEY = 'dakshayani-admin-theme';
   const tabButtons = Array.from(document.querySelectorAll('[data-tab-target]'));
   const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));

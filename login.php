@@ -7,12 +7,23 @@ require_once __DIR__ . '/includes/bootstrap.php';
 start_session();
 $db = get_db();
 
+$scriptDir = str_replace('\\', '/', dirname($_SERVER['PHP_SELF'] ?? ''));
+if ($scriptDir === '/' || $scriptDir === '.') {
+    $scriptDir = '';
+}
+$basePath = rtrim($scriptDir, '/');
+$prefix = $basePath === '' ? '' : $basePath;
+$routeFor = static function (string $path) use ($prefix): string {
+    $clean = ltrim($path, '/');
+    return ($prefix === '' ? '' : $prefix) . '/' . $clean;
+};
+
 $roleRoutes = [
-    'admin' => 'admin-dashboard.php',
-    'customer' => 'customer-dashboard.html',
-    'employee' => 'employee-dashboard.html',
-    'installer' => 'installer-dashboard.html',
-    'referrer' => 'referrer-dashboard.html',
+    'admin' => $routeFor('admin-dashboard.php'),
+    'customer' => $routeFor('customer-dashboard.html'),
+    'employee' => $routeFor('employee-dashboard.html'),
+    'installer' => $routeFor('installer-dashboard.html'),
+    'referrer' => $routeFor('referrer-dashboard.html'),
 ];
 
 $error = '';
@@ -106,7 +117,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             credentials provided to you by Dakshayani Enterprises.
           </p>
 
-          <form id="login-form" class="login-form" method="post" action="login.php" novalidate>
+          <form
+            id="login-form"
+            class="login-form"
+            method="post"
+            action="<?= htmlspecialchars($_SERVER['PHP_SELF'] ?? 'login.php', ENT_QUOTES) ?>"
+            novalidate
+          >
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
             <fieldset class="role-options">
               <legend>Portal type</legend>
