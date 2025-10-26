@@ -1,8 +1,11 @@
 <?php
 require_once __DIR__ . '/../common/config.php';
 require_once __DIR__ . '/../common/auth.php';
+require_once __DIR__ . '/../common/dashboard.php';
+
 portal_require_role(['referrer']);
 $user = portal_current_user();
+$config = portal_dashboard_config('referrer', $user ?? []);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -20,25 +23,10 @@ $user = portal_current_user();
   <body>
     <header class="site-header"></header>
     <main>
-      <section class="section" style="padding:3rem 0 2rem;">
-        <div class="container">
-          <div class="head">
-            <span class="badge">Dashboard</span>
-            <h1>Hello, <?php echo htmlspecialchars($user['name'] ?? 'Referrer'); ?></h1>
-            <p class="sub">Referrer workspace (empty state). Features coming soon.</p>
-          </div>
-
-          <div class="card" style="padding:1.5rem; margin-top:1rem;">
-            <p>We will add lead submissions, payout tracking, and status.</p>
-          </div>
-
-          <div style="margin-top:1rem;">
-            <a href="<?php echo htmlspecialchars(portal_url('logout.php')); ?>" class="btn"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
-          </div>
-        </div>
-      </section>
+      <?php portal_render_dashboard($config); ?>
     </main>
     <footer class="site-footer"></footer>
     <script src="/script.js" defer></script>
+    <script src="/users/common/dashboard.js" defer></script>
   </body>
-  </html>
+</html>
