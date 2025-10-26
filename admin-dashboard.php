@@ -20,6 +20,11 @@ $lastBackup = $systemMetrics['last_backup'] ?? 'Not recorded';
 $errorCount = $systemMetrics['errors_24h'] ?? '0';
 $diskUsage = $systemMetrics['disk_usage'] ?? 'Normal';
 $uptime = $systemMetrics['uptime'] ?? 'Unknown';
+$retentionSettings = [
+    'archiveDays' => (int) ($systemMetrics['retention_archive_days'] ?? 90),
+    'purgeDays' => (int) ($systemMetrics['retention_purge_days'] ?? 180),
+    'includeAudit' => ($systemMetrics['retention_include_audit'] ?? '1') !== '0',
+];
 $geminiSettings = [
     'apiKey' => get_setting('gemini_api_key') ?? '',
     'textModel' => get_setting('gemini_text_model') ?? 'gemini-2.5-flash',
@@ -195,6 +200,222 @@ $crmData = [
             'systemSize' => '3 kW',
             'installationDate' => date('Y-m-d', strtotime('-3 days')),
             'leadReference' => 'Lead #L-095',
+        ],
+    ],
+];
+
+$installationJobs = [
+    [
+        'id' => 'INST-2401',
+        'customer' => 'Meena Gupta',
+        'systemSize' => '5 kW rooftop',
+        'location' => 'Harmu Housing Colony, Ranchi',
+        'installerId' => 'inst-priya',
+        'installerName' => 'Priya Singh',
+        'scheduledAt' => date('c', strtotime('2024-11-05 10:00:00')),
+        'status' => 'scheduled',
+        'checklist' => [
+            'photos' => false,
+            'confirmation' => false,
+            'photosReceivedAt' => null,
+            'confirmedAt' => null,
+        ],
+        'notes' => 'Net-metered rooftop — capture inverter serial number and module layout photos.',
+    ],
+    [
+        'id' => 'INST-2389',
+        'customer' => 'Rajesh Patel',
+        'systemSize' => '3 kW residential',
+        'location' => 'Morabadi, Ranchi',
+        'installerId' => 'inst-kavya',
+        'installerName' => 'Kavya Patel',
+        'scheduledAt' => date('c', strtotime('-3 days 11:00:00')),
+        'status' => 'completed',
+        'completedAt' => date('c', strtotime('-3 days 17:15:00')),
+        'checklist' => [
+            'photos' => true,
+            'confirmation' => true,
+            'photosReceivedAt' => date('c', strtotime('-3 days 14:45:00')),
+            'confirmedAt' => date('c', strtotime('-3 days 16:10:00')),
+        ],
+        'notes' => 'Customer signed AMC along with warranty registration.',
+        'warrantyReference' => 'WAR-1021',
+        'amcReference' => 'AMC-0778',
+    ],
+];
+
+$installationWarranties = [
+    [
+        'id' => 'WAR-1021',
+        'customer' => 'Rajesh Patel',
+        'product' => '3 kW rooftop kit',
+        'registeredOn' => date('Y-m-d', strtotime('-3 days')),
+        'expiresOn' => date('Y-m-d', strtotime('+5 years -3 days')),
+        'status' => 'Active',
+        'amcId' => 'AMC-0778',
+    ],
+    [
+        'id' => 'WAR-0998',
+        'customer' => 'Anita Sharma',
+        'product' => '5 kW Surya Ghar system',
+        'registeredOn' => date('Y-m-d', strtotime('-45 days')),
+        'expiresOn' => date('Y-m-d', strtotime('+5 years -45 days')),
+        'status' => 'Active',
+        'amcId' => 'AMC-0741',
+    ],
+];
+
+$installationAmc = [
+    [
+        'id' => 'AMC-0778',
+        'customer' => 'Rajesh Patel',
+        'plan' => 'Annual maintenance',
+        'nextVisit' => date('Y-m-d', strtotime('+362 days')),
+        'lastVisit' => date('Y-m-d', strtotime('-3 days')),
+        'status' => 'scheduled',
+        'notes' => 'Confirm cleaning kit availability before visit.',
+    ],
+    [
+        'id' => 'AMC-0741',
+        'customer' => 'Anita Sharma',
+        'plan' => 'Annual maintenance',
+        'nextVisit' => date('Y-m-d', strtotime('+320 days')),
+        'lastVisit' => date('Y-m-d', strtotime('-45 days')),
+        'status' => 'upcoming',
+        'notes' => 'Share performance report with customer before visit.',
+    ],
+    [
+        'id' => 'AMC-0719',
+        'customer' => 'Mahesh Gupta',
+        'plan' => 'Quarterly preventive check',
+        'nextVisit' => date('Y-m-d', strtotime('-6 days')),
+        'lastVisit' => date('Y-m-d', strtotime('-98 days')),
+        'status' => 'overdue',
+        'notes' => 'Escalated reminder — visit overdue by 6 days.',
+    ],
+];
+
+$installations = [
+    'jobs' => $installationJobs,
+    'warranties' => $installationWarranties,
+    'amc' => $installationAmc,
+];
+
+$analytics = [
+    'kpis' => [
+        [
+            'id' => 'complaint_resolution',
+            'label' => 'Average complaint resolution time',
+            'value' => '1.8 days',
+            'change' => '-0.3 days vs last month',
+        ],
+        [
+            'id' => 'installer_productivity',
+            'label' => 'Installer productivity',
+            'value' => '6.4 jobs / team / week',
+            'change' => '+12% vs target',
+        ],
+        [
+            'id' => 'lead_conversion',
+            'label' => 'Lead conversion rate',
+            'value' => '32%',
+            'change' => '+4 pts vs last quarter',
+        ],
+        [
+            'id' => 'defect_rate',
+            'label' => 'Defect rate',
+            'value' => '0.8%',
+            'change' => '-0.2 pts vs last quarter',
+        ],
+    ],
+    'installerProductivity' => [
+        [
+            'name' => 'Priya Singh',
+            'installations' => 14,
+            'amcVisits' => 6,
+        ],
+        [
+            'name' => 'Kavya Patel',
+            'installations' => 12,
+            'amcVisits' => 5,
+        ],
+        [
+            'name' => 'Aarav Mehta',
+            'installations' => 9,
+            'amcVisits' => 7,
+        ],
+    ],
+    'funnel' => [
+        [
+            'stage' => 'Leads captured',
+            'value' => 148,
+            'conversion' => '—',
+        ],
+        [
+            'stage' => 'Qualified',
+            'value' => 102,
+            'conversion' => '69%',
+        ],
+        [
+            'stage' => 'Proposal sent',
+            'value' => 71,
+            'conversion' => '47%',
+        ],
+        [
+            'stage' => 'Closed won',
+            'value' => 48,
+            'conversion' => '32%',
+        ],
+    ],
+];
+
+$governance = [
+    'roleMatrix' => [
+        [
+            'role' => 'Administrator',
+            'users' => 3,
+            'lastReview' => date('Y-m-d', strtotime('-3 days')),
+            'owner' => 'Operations',
+        ],
+        [
+            'role' => 'Installer',
+            'users' => 14,
+            'lastReview' => date('Y-m-d', strtotime('-8 days')),
+            'owner' => 'Field Services',
+        ],
+        [
+            'role' => 'Customer',
+            'users' => 238,
+            'lastReview' => date('Y-m-d', strtotime('-1 day')),
+            'owner' => 'Customer Success',
+        ],
+    ],
+    'pendingReviews' => [
+        [
+            'id' => 'GOV-501',
+            'item' => 'Referrer payout policy update',
+            'due' => date('Y-m-d', strtotime('+2 days')),
+            'owner' => 'Seema Rao',
+        ],
+        [
+            'id' => 'GOV-502',
+            'item' => 'Monthly access audit sign-off',
+            'due' => date('Y-m-d', strtotime('+5 days')),
+            'owner' => 'Rohan Iyer',
+        ],
+    ],
+    'activityLogs' => [
+        [
+            'id' => 'LOG-1042',
+            'description' => 'Monthly activity export generated for management board.',
+            'timestamp' => date('c', strtotime('-4 days')),
+            'actor' => 'System automation',
+        ],
+        [
+            'id' => 'LOG-1043',
+            'description' => 'Error log archive created for retention policy compliance.',
+            'timestamp' => date('c', strtotime('-1 day')),
+            'actor' => 'Administrator',
         ],
     ],
 ];
@@ -407,6 +628,11 @@ for ($i = 0; $i < 14; $i++) {
               </button>
             </li>
             <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="analytics">
+                <i class="fa-solid fa-chart-pie"></i> Analytics &amp; KPIs
+              </button>
+            </li>
+            <li>
               <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="onboarding">
                 <i class="fa-solid fa-user-plus"></i> Onboarding &amp; Approvals
               </button>
@@ -414,6 +640,11 @@ for ($i = 0; $i < 14; $i++) {
             <li>
               <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="tasks">
                 <i class="fa-solid fa-list-check"></i> Tasks &amp; My Work
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="installations">
+                <i class="fa-solid fa-solar-panel"></i> Installations &amp; AMC
               </button>
             </li>
             <li>
@@ -448,17 +679,22 @@ for ($i = 0; $i < 14; $i++) {
             </li>
             <li>
               <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="health">
-                <i class="fa-solid fa-heart-pulse"></i> System Health
+                <i class="fa-solid fa-heart-pulse"></i> Backups &amp; Health
               </button>
             </li>
             <li>
               <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="ai">
-                <i class="fa-solid fa-robot"></i> Gemini AI Provider
+                <i class="fa-solid fa-robot"></i> AI Content Studio
               </button>
             </li>
             <li>
               <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="complaints">
                 <i class="fa-solid fa-headset"></i> Complaints &amp; Service
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="governance">
+                <i class="fa-solid fa-scale-balanced"></i> Governance &amp; Compliance
               </button>
             </li>
             <li>
@@ -510,6 +746,107 @@ for ($i = 0; $i < 14; $i++) {
                   <p class="dashboard-card-value" data-metric="subsidy"><?= htmlspecialchars($subsidyPipeline, ENT_QUOTES) ?></p>
                   <p class="dashboard-card-meta">Financial progress appears when subsidy data loads.</p>
                 </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="analytics" role="tabpanel" data-tab-panel hidden>
+            <h2>Analytics &amp; KPIs</h2>
+            <p class="dashboard-section-sub">
+              Visualise operational throughput, installer productivity, subsidy funnel performance, and complaint resolution speed
+              with export-ready summaries.
+            </p>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Executive KPI highlights</h3>
+                <ul class="dashboard-list" data-analytics-kpis>
+                  <li class="dashboard-list-empty">
+                    <p class="primary">No KPI metrics loaded.</p>
+                    <p class="secondary">Live analytics service will hydrate this section.</p>
+                  </li>
+                </ul>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-chart-simple" aria-hidden="true"></i>
+                  Example: Average complaint resolution time currently <strong>1.8 days</strong> and trending downward month on month.
+                </p>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Installer productivity</h3>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Installer</th>
+                        <th scope="col">Installs (30d)</th>
+                        <th scope="col">AMC visits</th>
+                      </tr>
+                    </thead>
+                    <tbody data-analytics-installer>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="3">No installer metrics recorded.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-user-helmet-safety" aria-hidden="true"></i>
+                  Track utilisation to balance installation versus AMC commitments per crew.
+                </p>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Lead conversion funnel</h3>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Stage</th>
+                        <th scope="col">Volume</th>
+                        <th scope="col">Conversion</th>
+                      </tr>
+                    </thead>
+                    <tbody data-analytics-funnel>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="3">Waiting on CRM sync.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-timeline" aria-hidden="true"></i>
+                  Follow subsidy funnel drop-off to focus on stalled proposals before deadlines.
+                </p>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Reporting</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Export format
+                    <select name="kpiExport">
+                      <option value="xlsx">Excel workbook</option>
+                      <option value="csv">CSV</option>
+                      <option value="pdf">PDF dashboard</option>
+                    </select>
+                  </label>
+                  <label>
+                    Period
+                    <select name="kpiPeriod">
+                      <option value="monthly" selected>Last month</option>
+                      <option value="quarterly">Quarter to date</option>
+                      <option value="yearly">Financial year</option>
+                    </select>
+                  </label>
+                </div>
+                <div>
+                  <button type="button" class="btn btn-secondary" data-action="export-kpi">
+                    <i class="fa-solid fa-file-export" aria-hidden="true"></i>
+                    Export KPI report
+                  </button>
+                  <button type="button" class="btn btn-ghost" data-action="refresh-kpi">Refresh data</button>
+                </div>
+                <div class="dashboard-inline-status" data-analytics-status hidden></div>
               </article>
             </div>
           </section>
@@ -771,6 +1108,124 @@ for ($i = 0; $i < 14; $i++) {
                   <i class="fa-solid fa-user-group" aria-hidden="true"></i>
                   Quickly assess utilisation before assigning the next ticket or inspection.
                 </p>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="installations" role="tabpanel" data-tab-panel hidden>
+            <h2>Installation, warranty &amp; AMC orchestration</h2>
+            <p class="dashboard-section-sub">
+              Assign field crews, capture photo checklists, activate warranty cards, and keep AMC visits on schedule from one place.
+            </p>
+            <div class="dashboard-profile-grid">
+              <form class="dashboard-form" data-installation-form>
+                <h3>Assign installation visit</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Customer name
+                    <input type="text" name="customer" placeholder="Meena Gupta" required />
+                  </label>
+                  <label>
+                    System size
+                    <input type="text" name="systemSize" placeholder="5 kW rooftop" required />
+                  </label>
+                  <label>
+                    Site location
+                    <input type="text" name="location" placeholder="Ranchi, Jharkhand" required />
+                  </label>
+                  <label>
+                    Installer
+                    <select name="installer" required data-installation-assignee>
+                      <option value="">Select installer…</option>
+                    </select>
+                  </label>
+                  <label>
+                    Visit date
+                    <input type="date" name="visitDate" required />
+                  </label>
+                  <label>
+                    Visit time
+                    <input type="time" name="visitTime" value="10:00" required />
+                  </label>
+                </div>
+                <label>
+                  Notes for crew
+                  <textarea name="notes" rows="3" placeholder="Upload inverter photos, checklist confirmations, and customer signature."></textarea>
+                </label>
+                <div class="dashboard-form-note">
+                  <i class="fa-solid fa-calendar-check" aria-hidden="true"></i>
+                  Example: Assign installation visit for <strong>Customer Meena Gupta</strong> on <strong>05-Nov</strong> with instant AMC activation after completion.
+                </div>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Schedule visit</button>
+                  <button type="reset" class="btn btn-ghost">Reset</button>
+                </div>
+              </form>
+
+              <article class="dashboard-form">
+                <h3>Installation queue</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Progress
+                    <input type="text" data-installation-summary value="0/0 completed" readonly />
+                  </label>
+                  <label>
+                    Photo checklist status
+                    <input type="text" data-installation-checklist value="0 pending" readonly />
+                  </label>
+                </div>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Visit</th>
+                        <th scope="col">Installer</th>
+                        <th scope="col">Schedule</th>
+                        <th scope="col">Checklist</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody data-installation-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="6">No installation visits planned.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Warranty register</h3>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Warranty ID</th>
+                        <th scope="col">Customer</th>
+                        <th scope="col">Product</th>
+                        <th scope="col">Registered</th>
+                        <th scope="col">Expires</th>
+                        <th scope="col">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody data-warranty-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="6">No warranties activated yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>AMC schedule &amp; reminders</h3>
+                <ul class="dashboard-reminders" data-amc-list>
+                  <li>
+                    <p>No AMC visits scheduled.</p>
+                    <span>Complete an installation to auto-create the AMC plan.</span>
+                  </li>
+                </ul>
               </article>
             </div>
           </section>
@@ -1225,8 +1680,8 @@ for ($i = 0; $i < 14; $i++) {
           </section>
 
           <section class="dashboard-section" id="health" role="tabpanel" data-tab-panel hidden>
-            <h2>System health</h2>
-            <p class="dashboard-section-sub">Monitor uptime, SLA breaches, and exportable audit trails for every user action.</p>
+            <h2>Backups, retention &amp; system health</h2>
+            <p class="dashboard-section-sub">Monitor uptime, backups, retention windows, and exportable audit trails for every user action.</p>
             <div class="dashboard-profile-grid">
               <article class="dashboard-form">
                 <h3>Health summary</h3>
@@ -1261,6 +1716,100 @@ for ($i = 0; $i < 14; $i++) {
                 </div>
               </article>
 
+              <form class="dashboard-form" data-backup-form>
+                <h3>Backup controls</h3>
+                <p>Trigger an on-demand backup or confirm when the last snapshot was captured.</p>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Last backup timestamp
+                    <input type="text" value="<?= htmlspecialchars($lastBackup, ENT_QUOTES) ?>" readonly data-backup-last />
+                  </label>
+                  <label>
+                    Storage remaining
+                    <input type="text" value="<?= htmlspecialchars($diskUsage, ENT_QUOTES) ?>" readonly data-backup-storage />
+                  </label>
+                </div>
+                <div>
+                  <button type="button" class="btn btn-secondary" data-action="run-backup">
+                    <i class="fa-solid fa-cloud-arrow-up" aria-hidden="true"></i>
+                    Run backup now
+                  </button>
+                  <button type="button" class="btn btn-ghost" data-action="verify-backup">Verify latest backup</button>
+                </div>
+                <div class="dashboard-inline-status" data-backup-status hidden></div>
+              </form>
+
+              <form class="dashboard-form" data-backup-schedule-form>
+                <h3>Auto-backup schedule</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Frequency
+                    <select name="backupFrequency" required>
+                      <option value="nightly" selected>Nightly</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                  </label>
+                  <label>
+                    Backup time
+                    <input type="time" name="backupTime" value="02:00" required />
+                  </label>
+                </div>
+                <label>
+                  Notification email
+                  <input type="email" name="backupEmail" placeholder="ops@dentweb.in" value="ops@dentweb.in" required />
+                </label>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Save schedule</button>
+                  <button type="reset" class="btn btn-ghost">Reset</button>
+                </div>
+                <div class="dashboard-inline-status" data-backup-schedule-status hidden></div>
+              </form>
+
+              <form class="dashboard-form" data-retention-form>
+                <h3>Retention policy</h3>
+                <p>Archive operational logs after 90 days and automatically purge older data for compliance.</p>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Archive after (days)
+                    <input
+                      type="number"
+                      name="archiveDays"
+                      min="30"
+                      max="365"
+                      value="<?= htmlspecialchars((string) $retentionSettings['archiveDays'], ENT_QUOTES) ?>"
+                      required
+                      data-retention-archive
+                    />
+                  </label>
+                  <label>
+                    Purge after (days)
+                    <input
+                      type="number"
+                      name="purgeDays"
+                      min="60"
+                      max="730"
+                      value="<?= htmlspecialchars((string) $retentionSettings['purgeDays'], ENT_QUOTES) ?>"
+                      required
+                      data-retention-purge
+                    />
+                  </label>
+                </div>
+                <label class="dashboard-toggle">
+                  <input type="checkbox" name="includeAudit" value="1" <?= $retentionSettings['includeAudit'] ? 'checked' : '' ?> data-retention-audit />
+                  <span>Include audit log archives</span>
+                </label>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-box-archive" aria-hidden="true"></i>
+                  Logs archive after <?= htmlspecialchars((string) $retentionSettings['archiveDays'], ENT_QUOTES) ?> days and purge after <?= htmlspecialchars((string) $retentionSettings['purgeDays'], ENT_QUOTES) ?> days by default.
+                </p>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Save retention rule</button>
+                  <button type="reset" class="btn btn-ghost">Reset</button>
+                </div>
+                <div class="dashboard-inline-status" data-retention-status hidden></div>
+              </form>
+
               <article class="dashboard-form">
                 <h3>Recent activity feed</h3>
                 <ul class="dashboard-notifications" data-placeholder="activity-feed">
@@ -1277,9 +1826,9 @@ for ($i = 0; $i < 14; $i++) {
           </section>
 
           <section class="dashboard-section" id="ai" role="tabpanel" data-tab-panel hidden>
-            <h2>Gemini AI provider settings</h2>
+            <h2>AI-generated content (blogs, images, audio)</h2>
             <p class="dashboard-section-sub">
-              Manage secure API keys and model codes for text, image, and TTS interactions used across internal copilots.
+              Draft posts, generate cover art, produce narrations, and manage Gemini API credentials from one workspace.
             </p>
             <form class="dashboard-form" data-gemini-form>
               <h3>API credentials</h3>
@@ -1328,6 +1877,131 @@ for ($i = 0; $i < 14; $i++) {
                 </button>
               </div>
             </form>
+
+            <div class="dashboard-profile-grid">
+              <form class="dashboard-form" data-ai-blog-form>
+                <h3>Generate AI-assisted blog</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Topic
+                    <input type="text" name="topic" value="Solar Benefits in Jharkhand" placeholder="Enter topic" required data-ai-topic />
+                  </label>
+                  <label>
+                    Tone
+                    <select name="tone" data-ai-tone>
+                      <option value="informative" selected>Informative</option>
+                      <option value="conversational">Conversational</option>
+                      <option value="technical">Technical</option>
+                      <option value="promotional">Promotional</option>
+                    </select>
+                  </label>
+                  <label>
+                    Target length (words)
+                    <input type="number" name="length" min="200" max="1500" value="650" data-ai-length />
+                  </label>
+                  <label>
+                    Focus keywords
+                    <input type="text" name="keywords" placeholder="PM Surya Ghar, net metering" data-ai-keywords />
+                  </label>
+                </div>
+                <label>
+                  Outline hints
+                  <textarea name="outline" rows="3" placeholder="Add sections or bullet points you want the draft to include." data-ai-outline></textarea>
+                </label>
+                <div>
+                  <button type="submit" class="btn btn-secondary" data-action="generate-blog">Generate draft</button>
+                  <button type="button" class="btn btn-ghost" data-action="clear-blog">Clear</button>
+                  <button type="button" class="btn btn-tertiary" data-action="publish-blog">
+                    <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+                    Publish to blog
+                  </button>
+                </div>
+                <div class="dashboard-ai-preview" data-ai-blog-preview>
+                  <p class="dashboard-muted">Draft output will appear here for preview and editing.</p>
+                </div>
+                <div class="dashboard-inline-status" data-ai-status hidden></div>
+              </form>
+
+              <article class="dashboard-form">
+                <h3>Cover image generation</h3>
+                <p>Use the configured image model to render a banner-ready creative.</p>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Prompt
+                    <input type="text" value="Sunlit rooftop solar panels in Ranchi" data-ai-image-prompt />
+                  </label>
+                  <label>
+                    Aspect ratio
+                    <select data-ai-image-aspect>
+                      <option value="16:9" selected>16:9</option>
+                      <option value="1:1">1:1</option>
+                      <option value="4:5">4:5</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="dashboard-ai-figure">
+                  <img
+                    data-ai-image
+                    src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'><rect fill='%23eef2ff' width='120' height='80'/><text x='60' y='44' font-size='10' text-anchor='middle' fill='%234256b6'>AI Cover Preview</text></svg>"
+                    alt="AI generated cover preview"
+                  />
+                </div>
+                <div>
+                  <button type="button" class="btn btn-secondary" data-action="generate-image">Generate cover image</button>
+                  <button type="button" class="btn btn-ghost" data-action="download-image">Download</button>
+                </div>
+                <div class="dashboard-inline-status" data-ai-image-status hidden></div>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Audio narration (TTS)</h3>
+                <p>Request a narration track that pairs with the generated blog.</p>
+                <label>
+                  Voice style
+                  <select data-ai-voice>
+                    <option value="neutral" selected>Neutral professional</option>
+                    <option value="friendly">Friendly Hindi-English mix</option>
+                    <option value="youthful">Youthful energy</option>
+                  </select>
+                </label>
+                <div>
+                  <button type="button" class="btn btn-secondary" data-action="generate-audio">
+                    <i class="fa-solid fa-wave-square" aria-hidden="true"></i>
+                    Generate narration
+                  </button>
+                  <button type="button" class="btn btn-ghost" data-action="download-audio">Download</button>
+                </div>
+                <audio data-ai-audio controls hidden></audio>
+                <div class="dashboard-inline-status" data-ai-audio-status hidden></div>
+              </article>
+
+              <form class="dashboard-form" data-ai-schedule-form>
+                <h3>Auto-blog scheduling</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label class="dashboard-toggle">
+                    <input type="checkbox" name="autoblog" value="1" data-ai-autoblog-toggle />
+                    <span>Enable daily auto-generation</span>
+                  </label>
+                  <label>
+                    Publish time
+                    <input type="time" name="autoblogTime" value="09:00" data-ai-autoblog-time disabled />
+                  </label>
+                </div>
+                <label>
+                  Content theme rotation
+                  <select name="autoblogTheme" data-ai-autoblog-theme disabled>
+                    <option value="regional" selected>Regional success stories</option>
+                    <option value="technical">Technical explainers</option>
+                    <option value="policy">Policy &amp; subsidy updates</option>
+                  </select>
+                </label>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Save schedule</button>
+                  <button type="reset" class="btn btn-ghost">Reset</button>
+                </div>
+                <div class="dashboard-inline-status" data-ai-schedule-status hidden></div>
+              </form>
+            </div>
           </section>
 
           <section class="dashboard-section" id="complaints" role="tabpanel" data-tab-panel hidden>
@@ -1398,6 +2072,76 @@ for ($i = 0; $i < 14; $i++) {
                     <span>Schedule AMC or maintenance follow-ups from the service module.</span>
                   </li>
                 </ul>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="governance" role="tabpanel" data-tab-panel hidden>
+            <h2>Governance &amp; compliance oversight</h2>
+            <p class="dashboard-section-sub">
+              Review user-role coverage, outstanding approvals, and log exports to keep the organisation audit ready.
+            </p>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-form">
+                <h3>Role coverage matrix</h3>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Role</th>
+                        <th scope="col">Users</th>
+                        <th scope="col">Last review</th>
+                        <th scope="col">Owner</th>
+                      </tr>
+                    </thead>
+                    <tbody data-governance-role-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="4">No governance data available.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Pending governance reviews</h3>
+                <ul class="dashboard-list" data-governance-review-list>
+                  <li class="dashboard-list-empty">
+                    <p class="primary">No pending reviews.</p>
+                    <p class="secondary">Change requests will surface here for approval.</p>
+                  </li>
+                </ul>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+                  Examples include access attestations, referrer payout audits, and compliance acknowledgements.
+                </p>
+              </article>
+
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Activity &amp; export trail</h3>
+                <ul class="dashboard-list" data-governance-activity-list>
+                  <li class="dashboard-list-empty">
+                    <p class="primary">No governance activity logged.</p>
+                    <p class="secondary">Monthly exports, approvals, and escalations will appear here.</p>
+                  </li>
+                </ul>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Management reporting</h3>
+                <p>Compile the monthly activity pack with access logs, backup confirmations, and subsidy approvals.</p>
+                <div>
+                  <button type="button" class="btn btn-secondary" data-action="governance-export">
+                    <i class="fa-solid fa-file-shield" aria-hidden="true"></i>
+                    Download governance bundle
+                  </button>
+                  <button type="button" class="btn btn-ghost" data-action="governance-refresh">Refresh insights</button>
+                </div>
+                <div class="dashboard-inline-status" data-governance-status hidden></div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i>
+                  Example: Export monthly activity and error logs for the management board submission.
+                </p>
               </article>
             </div>
           </section>
@@ -1502,7 +2246,11 @@ for ($i = 0; $i < 14; $i++) {
     dataQuality: <?= json_encode($dataQuality) ?>,
     crm: <?= json_encode($crmData) ?>,
     referrers: <?= json_encode($referrers) ?>,
-    subsidy: <?= json_encode(['applications' => $subsidyApplications]) ?>
+    subsidy: <?= json_encode(['applications' => $subsidyApplications]) ?>,
+    installations: <?= json_encode($installations) ?>,
+    analytics: <?= json_encode($analytics) ?>,
+    governance: <?= json_encode($governance) ?>,
+    retention: <?= json_encode($retentionSettings) ?>
   });
 </script>
 <script src="admin-dashboard.js" defer></script>

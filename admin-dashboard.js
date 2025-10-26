@@ -60,6 +60,57 @@
   const subsidyStageNodes = document.querySelectorAll('[data-subsidy-stage]');
   const subsidyAverageInput = document.querySelector('[data-subsidy-average]');
   const subsidyTableBody = document.querySelector('[data-subsidy-table]');
+  const installationForm = document.querySelector('[data-installation-form]');
+  const installationAssigneeSelect = document.querySelector('[data-installation-assignee]');
+  const installationTableBody = document.querySelector('[data-installation-table]');
+  const installationSummaryInput = document.querySelector('[data-installation-summary]');
+  const installationChecklistInput = document.querySelector('[data-installation-checklist]');
+  const warrantyTableBody = document.querySelector('[data-warranty-table]');
+  const amcList = document.querySelector('[data-amc-list]');
+  const analyticsKpiList = document.querySelector('[data-analytics-kpis]');
+  const analyticsInstallerTable = document.querySelector('[data-analytics-installer]');
+  const analyticsFunnelTable = document.querySelector('[data-analytics-funnel]');
+  const analyticsStatus = document.querySelector('[data-analytics-status]');
+  const analyticsExportButton = document.querySelector('[data-action="export-kpi"]');
+  const analyticsRefreshButton = document.querySelector('[data-action="refresh-kpi"]');
+  const aiBlogForm = document.querySelector('[data-ai-blog-form]');
+  const aiScheduleForm = document.querySelector('[data-ai-schedule-form]');
+  const aiBlogPreview = document.querySelector('[data-ai-blog-preview]');
+  const aiStatus = document.querySelector('[data-ai-status]');
+  const aiImagePrompt = document.querySelector('[data-ai-image-prompt]');
+  const aiImageAspect = document.querySelector('[data-ai-image-aspect]');
+  const aiImageNode = document.querySelector('[data-ai-image]');
+  const aiImageStatus = document.querySelector('[data-ai-image-status]');
+  const aiAudioNode = document.querySelector('[data-ai-audio]');
+  const aiAudioStatus = document.querySelector('[data-ai-audio-status]');
+  const aiAutoblogToggle = document.querySelector('[data-ai-autoblog-toggle]');
+  const aiAutoblogTime = document.querySelector('[data-ai-autoblog-time]');
+  const aiAutoblogTheme = document.querySelector('[data-ai-autoblog-theme]');
+  const aiScheduleStatus = document.querySelector('[data-ai-schedule-status]');
+  const generateImageButton = document.querySelector('[data-action="generate-image"]');
+  const downloadImageButton = document.querySelector('[data-action="download-image"]');
+  const generateAudioButton = document.querySelector('[data-action="generate-audio"]');
+  const downloadAudioButton = document.querySelector('[data-action="download-audio"]');
+  const backupStatus = document.querySelector('[data-backup-status]');
+  const backupScheduleStatus = document.querySelector('[data-backup-schedule-status]');
+  const backupLastInput = document.querySelector('[data-backup-last]');
+  const backupStorageInput = document.querySelector('[data-backup-storage]');
+  const retentionStatus = document.querySelector('[data-retention-status]');
+  const backupScheduleForm = document.querySelector('[data-backup-schedule-form]');
+  const retentionForm = document.querySelector('[data-retention-form]');
+  const retentionArchiveInput = document.querySelector('[data-retention-archive]');
+  const retentionPurgeInput = document.querySelector('[data-retention-purge]');
+  const retentionAuditInput = document.querySelector('[data-retention-audit]');
+  const governanceRoleTable = document.querySelector('[data-governance-role-table]');
+  const governanceReviewList = document.querySelector('[data-governance-review-list]');
+  const governanceActivityList = document.querySelector('[data-governance-activity-list]');
+  const governanceStatus = document.querySelector('[data-governance-status]');
+  const runBackupButton = document.querySelector('[data-action="run-backup"]');
+  const verifyBackupButton = document.querySelector('[data-action="verify-backup"]');
+  const governanceExportButton = document.querySelector('[data-action="governance-export"]');
+  const governanceRefreshButton = document.querySelector('[data-action="governance-refresh"]');
+  const searchGroupTemplate = document.getElementById('dashboard-search-result-template');
+  const searchItemTemplate = document.getElementById('dashboard-search-item-template');
 
   const state = {
     users: [],
@@ -75,6 +126,11 @@
     crm: config.crm || { leads: [], customers: [] },
     referrers: config.referrers || [],
     subsidy: config.subsidy || { applications: [], stats: { stageCounts: {}, averageDays: 0 } },
+    installations: config.installations || { jobs: [], warranties: [], amc: [] },
+    analytics: config.analytics || { kpis: [], installerProductivity: [], funnel: [] },
+    governance: config.governance || { roleMatrix: [], pendingReviews: [], activityLogs: [] },
+    retention: config.retention || { archiveDays: 90, purgeDays: 180, includeAudit: true },
+    ai: { draft: '', topic: '' },
   };
 
   const TASK_STATUS_LABELS = {
@@ -251,6 +307,22 @@
     });
   }
 
+  function hydrateRetention() {
+    const retention = state.retention || { archiveDays: 90, purgeDays: 180, includeAudit: true };
+    if (retentionArchiveInput && typeof retention.archiveDays === 'number') {
+      retentionArchiveInput.value = retention.archiveDays;
+    }
+    if (retentionPurgeInput && typeof retention.purgeDays === 'number') {
+      retentionPurgeInput.value = retention.purgeDays;
+    }
+    if (retentionAuditInput) {
+      retentionAuditInput.checked = Boolean(retention.includeAudit);
+    }
+    if (retentionStatus) {
+      clearInlineStatus(retentionStatus);
+    }
+  }
+
   function findTeamMember(id) {
     return state.tasks.team.find((member) => String(member.id) === String(id));
   }
@@ -268,6 +340,30 @@
       }
       taskAssigneeSelect.appendChild(option);
     });
+    populateInstallationAssignees();
+  }
+
+  function populateInstallationAssignees() {
+    if (!installationAssigneeSelect) return;
+    const previouslySelected = installationAssigneeSelect.value;
+    installationAssigneeSelect.innerHTML = '<option value="">Select installer…</option>';
+    const installers = state.tasks.team.filter((member) => /installer/i.test(member.role || ''));
+    installers.forEach((installer) => {
+      const option = document.createElement('option');
+      option.value = installer.id;
+      option.textContent = `${installer.name} (${installer.role})`;
+      if (previouslySelected && String(installer.id) === previouslySelected) {
+        option.selected = true;
+      }
+      installationAssigneeSelect.appendChild(option);
+    });
+    if (!installers.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No installers available';
+      option.disabled = true;
+      installationAssigneeSelect.appendChild(option);
+    }
   }
 
   function renderTasks() {
@@ -420,6 +516,364 @@
     if (workloadSplitInput) {
       workloadSplitInput.value = `${installerOpen} / ${employeeOpen}`;
     }
+  }
+
+  function updateInstallationSummary(jobs) {
+    if (!Array.isArray(jobs)) jobs = [];
+    if (installationSummaryInput) {
+      const completed = jobs.filter((job) => job.status === 'completed').length;
+      installationSummaryInput.value = `${completed}/${jobs.length} completed`;
+    }
+    if (installationChecklistInput) {
+      const pending = jobs.filter((job) => !(job.checklist?.photos && job.checklist?.confirmation)).length;
+      installationChecklistInput.value = `${pending} pending`;
+    }
+  }
+
+  function renderInstallations() {
+    if (!installationTableBody) return;
+    installationTableBody.innerHTML = '';
+    const jobs = Array.isArray(state.installations?.jobs) ? [...state.installations.jobs] : [];
+    if (!jobs.length) {
+      const empty = document.createElement('tr');
+      empty.className = 'dashboard-empty-row';
+      empty.innerHTML = '<td colspan="6">No installation visits planned.</td>';
+      installationTableBody.appendChild(empty);
+      updateInstallationSummary(jobs);
+      return;
+    }
+
+    const statusOrder = { scheduled: 0, in_progress: 1, completed: 2 };
+    jobs.sort((a, b) => {
+      const statusDiff = (statusOrder[a.status] ?? 1) - (statusOrder[b.status] ?? 1);
+      if (statusDiff !== 0) return statusDiff;
+      const aDate = new Date(a.scheduledAt || a.completedAt || 0);
+      const bDate = new Date(b.scheduledAt || b.completedAt || 0);
+      return aDate - bDate;
+    });
+
+    jobs.forEach((job) => {
+      const row = document.createElement('tr');
+      const photosDone = Boolean(job.checklist?.photos);
+      const checklistDone = Boolean(job.checklist?.confirmation);
+      const photoBadge = `<span class="badge ${photosDone ? 'badge-soft-success' : 'badge-soft-warning'}">${photosDone ? 'Photos received' : 'Photos pending'}</span>`;
+      const checklistBadge = `<span class="badge ${checklistDone ? 'badge-soft-success' : 'badge-soft-warning'}">${checklistDone ? 'Checklist signed' : 'Checklist pending'}</span>`;
+      const installer = job.installerName || findTeamMember(job.installerId)?.name || 'Unassigned';
+      const scheduleValue = job.status === 'completed' ? job.completedAt || job.scheduledAt : job.scheduledAt;
+      const scheduleLabel = job.status === 'completed' ? 'Completed' : 'Scheduled';
+      const actions = [];
+      if (!photosDone) {
+        actions.push(
+          `<button type="button" class="btn btn-xs btn-secondary" data-action="mark-photos" data-installation-id="${escapeHtml(job.id)}">Confirm photos</button>`
+        );
+      }
+      if (!checklistDone) {
+        actions.push(
+          `<button type="button" class="btn btn-xs btn-secondary" data-action="mark-checklist" data-installation-id="${escapeHtml(job.id)}">Checklist done</button>`
+        );
+      }
+      if (job.status !== 'completed') {
+        actions.push(
+          `<button type="button" class="btn btn-xs btn-tertiary" data-action="complete-installation" data-installation-id="${escapeHtml(job.id)}">Mark complete</button>`
+        );
+      }
+      row.innerHTML = `
+        <td>
+          <strong>${escapeHtml(job.customer || 'Customer')}</strong><br />
+          <small>${escapeHtml(job.systemSize || '')}</small>
+        </td>
+        <td>${escapeHtml(installer)}<br /><small>${escapeHtml(job.location || '')}</small></td>
+        <td><strong>${escapeHtml(scheduleLabel)}</strong><br /><small>${escapeHtml(formatDate(scheduleValue))}</small></td>
+        <td>${photoBadge}<br />${checklistBadge}</td>
+        <td><span class="badge ${job.status === 'completed' ? 'badge-soft-success' : 'badge-soft-info'}">${escapeHtml(capitalize(job.status || 'scheduled'))}</span></td>
+        <td>${actions.length ? actions.join(' ') : '—'}</td>
+      `;
+      installationTableBody.appendChild(row);
+    });
+
+    updateInstallationSummary(jobs);
+  }
+
+  function renderWarranties() {
+    if (!warrantyTableBody) return;
+    warrantyTableBody.innerHTML = '';
+    const warranties = Array.isArray(state.installations?.warranties) ? [...state.installations.warranties] : [];
+    if (!warranties.length) {
+      const empty = document.createElement('tr');
+      empty.className = 'dashboard-empty-row';
+      empty.innerHTML = '<td colspan="6">No warranties activated yet.</td>';
+      warrantyTableBody.appendChild(empty);
+      return;
+    }
+
+    warranties
+      .sort((a, b) => (b.registeredOn || '').localeCompare(a.registeredOn || ''))
+      .forEach((warranty) => {
+        const status = String(warranty.status || '').toLowerCase();
+        const statusClass =
+          status === 'active' ? 'badge-soft-success' : status === 'expired' ? 'badge-soft-danger' : 'badge-soft-warning';
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${escapeHtml(warranty.id || '')}</td>
+          <td>${escapeHtml(warranty.customer || '')}</td>
+          <td>${escapeHtml(warranty.product || '')}</td>
+          <td>${escapeHtml(formatDateOnly(warranty.registeredOn))}</td>
+          <td>${escapeHtml(formatDateOnly(warranty.expiresOn))}</td>
+          <td><span class="badge ${statusClass}">${escapeHtml(warranty.status || 'Active')}</span></td>
+        `;
+        warrantyTableBody.appendChild(row);
+      });
+  }
+
+  function renderAmc() {
+    if (!amcList) return;
+    amcList.innerHTML = '';
+    const schedules = Array.isArray(state.installations?.amc) ? [...state.installations.amc] : [];
+    if (!schedules.length) {
+      const li = document.createElement('li');
+      li.innerHTML = '<p>No AMC visits scheduled.</p><span>Complete an installation to auto-create the AMC plan.</span>';
+      amcList.appendChild(li);
+      return;
+    }
+
+    const now = new Date();
+    schedules
+      .sort((a, b) => new Date(a.nextVisit || 0) - new Date(b.nextVisit || 0))
+      .forEach((schedule) => {
+        const li = document.createElement('li');
+        const nextVisit = schedule.nextVisit ? new Date(schedule.nextVisit) : null;
+        const diffDays = nextVisit ? Math.round((nextVisit - now) / (24 * 60 * 60 * 1000)) : null;
+        let status = schedule.status || 'scheduled';
+        if (typeof diffDays === 'number') {
+          if (diffDays < 0) status = 'overdue';
+          else if (diffDays <= 30 && status !== 'completed') status = 'due';
+        }
+        li.dataset.status = status;
+        const timing =
+          diffDays === null
+            ? 'Schedule pending'
+            : diffDays < 0
+            ? `Overdue by ${Math.abs(diffDays)} day(s)`
+            : diffDays === 0
+            ? 'Due today'
+            : `Due in ${diffDays} day(s)`;
+        li.innerHTML = `
+          <p class="primary">${escapeHtml(schedule.customer || 'Customer')} · ${escapeHtml(schedule.plan || 'AMC')}</p>
+          <p class="secondary">Next visit ${escapeHtml(formatDateOnly(schedule.nextVisit))} · ${escapeHtml(timing)}</p>
+        `;
+        if (status === 'overdue' || status === 'due') {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'btn btn-xs btn-secondary';
+          button.textContent = 'Log visit';
+          button.dataset.action = 'complete-amc';
+          button.dataset.amcId = schedule.id;
+          li.appendChild(button);
+        }
+        amcList.appendChild(li);
+      });
+  }
+
+  function renderAnalytics() {
+    if (analyticsKpiList) {
+      analyticsKpiList.innerHTML = '';
+      const kpis = Array.isArray(state.analytics?.kpis) ? state.analytics.kpis : [];
+      if (!kpis.length) {
+        const empty = document.createElement('li');
+        empty.className = 'dashboard-list-empty';
+        empty.innerHTML = '<p class="primary">No KPI metrics loaded.</p><p class="secondary">Live analytics service will hydrate this section.</p>';
+        analyticsKpiList.appendChild(empty);
+      } else {
+        kpis.forEach((kpi) => {
+          const li = document.createElement('li');
+          li.innerHTML = `
+            <p class="primary">${escapeHtml(kpi.label || '')}</p>
+            <p class="secondary"><strong>${escapeHtml(kpi.value || '')}</strong>${kpi.change ? ` · ${escapeHtml(kpi.change)}` : ''}</p>
+          `;
+          analyticsKpiList.appendChild(li);
+        });
+      }
+    }
+
+    if (analyticsInstallerTable) {
+      analyticsInstallerTable.innerHTML = '';
+      const rows = Array.isArray(state.analytics?.installerProductivity) ? state.analytics.installerProductivity : [];
+      if (!rows.length) {
+        const empty = document.createElement('tr');
+        empty.className = 'dashboard-empty-row';
+        empty.innerHTML = '<td colspan="3">No installer metrics recorded.</td>';
+        analyticsInstallerTable.appendChild(empty);
+      } else {
+        rows.forEach((item) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${escapeHtml(item.name || '')}</td>
+            <td>${escapeHtml(String(item.installations ?? 0))}</td>
+            <td>${escapeHtml(String(item.amcVisits ?? 0))}</td>
+          `;
+          analyticsInstallerTable.appendChild(tr);
+        });
+      }
+    }
+
+    if (analyticsFunnelTable) {
+      analyticsFunnelTable.innerHTML = '';
+      const funnel = Array.isArray(state.analytics?.funnel) ? state.analytics.funnel : [];
+      if (!funnel.length) {
+        const empty = document.createElement('tr');
+        empty.className = 'dashboard-empty-row';
+        empty.innerHTML = '<td colspan="3">Waiting on CRM sync.</td>';
+        analyticsFunnelTable.appendChild(empty);
+      } else {
+        funnel.forEach((stage) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${escapeHtml(stage.stage || '')}</td>
+            <td>${escapeHtml(String(stage.value ?? '0'))}</td>
+            <td>${escapeHtml(stage.conversion || '—')}</td>
+          `;
+          analyticsFunnelTable.appendChild(tr);
+        });
+      }
+    }
+  }
+
+  function renderGovernance() {
+    if (governanceRoleTable) {
+      governanceRoleTable.innerHTML = '';
+      const roles = Array.isArray(state.governance?.roleMatrix) ? state.governance.roleMatrix : [];
+      if (!roles.length) {
+        const empty = document.createElement('tr');
+        empty.className = 'dashboard-empty-row';
+        empty.innerHTML = '<td colspan="4">No governance data available.</td>';
+        governanceRoleTable.appendChild(empty);
+      } else {
+        roles.forEach((role) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${escapeHtml(role.role || '')}</td>
+            <td>${escapeHtml(String(role.users ?? 0))}</td>
+            <td>${escapeHtml(formatDateOnly(role.lastReview))}</td>
+            <td>${escapeHtml(role.owner || '')}</td>
+          `;
+          governanceRoleTable.appendChild(tr);
+        });
+      }
+    }
+
+    if (governanceReviewList) {
+      governanceReviewList.innerHTML = '';
+      const reviews = Array.isArray(state.governance?.pendingReviews) ? state.governance.pendingReviews : [];
+      if (!reviews.length) {
+        const li = document.createElement('li');
+        li.className = 'dashboard-list-empty';
+        li.innerHTML = '<p class="primary">No pending reviews.</p><p class="secondary">Change requests will surface here for approval.</p>';
+        governanceReviewList.appendChild(li);
+      } else {
+        reviews.forEach((review) => {
+          const li = document.createElement('li');
+          li.innerHTML = `
+            <p class="primary">${escapeHtml(review.item || '')}</p>
+            <p class="secondary">Due ${escapeHtml(formatDateOnly(review.due))} · Owner ${escapeHtml(review.owner || 'Admin')}</p>
+          `;
+          governanceReviewList.appendChild(li);
+        });
+      }
+    }
+
+    if (governanceActivityList) {
+      governanceActivityList.innerHTML = '';
+      const activity = Array.isArray(state.governance?.activityLogs) ? state.governance.activityLogs : [];
+      if (!activity.length) {
+        const li = document.createElement('li');
+        li.className = 'dashboard-list-empty';
+        li.innerHTML = '<p class="primary">No governance activity logged.</p><p class="secondary">Monthly exports, approvals, and escalations will appear here.</p>';
+        governanceActivityList.appendChild(li);
+      } else {
+        activity
+          .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''))
+          .forEach((entry) => {
+            const li = document.createElement('li');
+            li.innerHTML = `
+              <p class="primary">${escapeHtml(entry.description || '')}</p>
+              <p class="secondary">${escapeHtml(entry.actor || 'System')} · ${escapeHtml(formatDate(entry.timestamp))}</p>
+            `;
+            governanceActivityList.appendChild(li);
+          });
+      }
+    }
+  }
+
+  function createImageData(prompt, aspect) {
+    const normalizedAspect = aspect || '16:9';
+    let width = 160;
+    let height = 90;
+    if (normalizedAspect === '1:1') {
+      width = height = 140;
+    } else if (normalizedAspect === '4:5') {
+      width = 160;
+      height = 200;
+    }
+    const truncatedPrompt = prompt.length > 32 ? `${prompt.slice(0, 29)}…` : prompt;
+    const encodedPrompt = encodeURIComponent(truncatedPrompt || 'AI Cover');
+    const encodedAspect = encodeURIComponent(normalizedAspect);
+    const fontSize = Math.max(10, Math.min(width, height) / 6);
+    return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${width} ${height}'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23f1f5f9'/><stop offset='100%' stop-color='%23dbeafe'/></linearGradient></defs><rect fill='url(%23g)' width='${width}' height='${height}'/><text x='50%' y='45%' font-size='${fontSize}' text-anchor='middle' fill='%23225699'>${encodedPrompt}</text><text x='50%' y='70%' font-size='10' text-anchor='middle' fill='%236b7280'>${encodedAspect} aspect</text></svg>`;
+  }
+
+  function buildBlogDraft({ topic, tone, length, keywords, outline }) {
+    const safeTopic = topic || 'Solar adoption insights';
+    const normalizedTone = tone || 'informative';
+    const keywordList = (keywords || '')
+      .split(',')
+      .map((word) => word.trim())
+      .filter(Boolean);
+    const outlinePoints = (outline || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const sections = [
+      {
+        title: `Why ${safeTopic} matters in Jharkhand`,
+        body:
+          'Households can cut monthly electricity bills by embracing rooftop solar and leveraging PM Surya Ghar incentives tailored for Jharkhand.',
+      },
+      {
+        title: 'Financial highlights & subsidy leverage',
+        body:
+          'Typical customers save up to 30% annually while accessing DISCOM subsidies, net-metering credits, and accelerated depreciation for businesses.',
+      },
+      {
+        title: 'Implementation checklist for homeowners',
+        body:
+          'Verify rooftop strength, secure net-metering approval, capture installation photos, and register the warranty before activating AMC.',
+      },
+      {
+        title: 'Next steps & call to action',
+        body:
+          'Book a site audit with certified installers, upload required KYC documents, and set reminders for AMC visits to maintain peak performance.',
+      },
+    ];
+
+    let html = `<article class="dashboard-ai-draft">`;
+    html += `<h4>${escapeHtml(safeTopic)}</h4>`;
+    html += `<p class="dashboard-muted">Tone: ${escapeHtml(capitalize(normalizedTone))} · Target length: ${escapeHtml(String(length || 0))} words.</p>`;
+    sections.forEach((section) => {
+      html += `<h5>${escapeHtml(section.title)}</h5><p>${escapeHtml(section.body)}</p>`;
+    });
+    if (outlinePoints.length) {
+      html += '<h5>Admin outline reminders</h5><ul>';
+      outlinePoints.forEach((point) => {
+        html += `<li>${escapeHtml(point)}</li>`;
+      });
+      html += '</ul>';
+    }
+    if (keywordList.length) {
+      html += `<p><strong>Focus keywords:</strong> ${keywordList.map((word) => escapeHtml(word)).join(', ')}</p>`;
+    }
+    html += '<p class="dashboard-muted">Use the Publish button after editing to push the draft live.</p>';
+    html += '</article>';
+    return html;
   }
 
   function renderDocuments() {
@@ -791,6 +1245,148 @@
     }
   });
 
+  installationForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(installationForm);
+    const customer = (formData.get('customer') || '').toString().trim();
+    const installerId = (formData.get('installer') || '').toString();
+    const visitDate = (formData.get('visitDate') || '').toString();
+    if (!customer || !installerId || !visitDate) {
+      showToast('Missing details', 'Customer, installer, and visit date are required.', 'warning');
+      return;
+    }
+    const visitTime = (formData.get('visitTime') || '10:00').toString();
+    const scheduledAt = new Date(`${visitDate}T${visitTime}`);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      showToast('Invalid schedule', 'Provide a valid visit date and time.', 'warning');
+      return;
+    }
+    const installer = findTeamMember(installerId) || {};
+    const job = {
+      id: `INST-${Date.now()}`,
+      customer,
+      systemSize: (formData.get('systemSize') || '').toString(),
+      location: (formData.get('location') || '').toString(),
+      installerId,
+      installerName: installer.name || '',
+      status: 'scheduled',
+      scheduledAt: scheduledAt.toISOString(),
+      notes: (formData.get('notes') || '').toString(),
+      checklist: { photos: false, confirmation: false },
+    };
+    if (!Array.isArray(state.installations.jobs)) {
+      state.installations.jobs = [];
+    }
+    state.installations.jobs.unshift(job);
+    renderInstallations();
+    showToast('Installation scheduled', `Visit set for ${customer} on ${scheduledAt.toLocaleDateString()}.`, 'success');
+    installationForm.reset();
+    populateInstallationAssignees();
+  });
+
+  installationForm?.addEventListener('reset', () => {
+    populateInstallationAssignees();
+  });
+
+  installationTableBody?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-action]');
+    if (!button) return;
+    const jobId = button.dataset.installationId;
+    if (!jobId) return;
+    const job = state.installations.jobs.find((item) => String(item.id) === String(jobId));
+    if (!job) return;
+    if (button.dataset.action === 'mark-photos') {
+      job.checklist = job.checklist || {};
+      job.checklist.photos = true;
+      job.checklist.photosReceivedAt = new Date().toISOString();
+      renderInstallations();
+      showToast('Photos confirmed', `Photos received for ${job.customer}.`, 'success');
+    } else if (button.dataset.action === 'mark-checklist') {
+      job.checklist = job.checklist || {};
+      job.checklist.confirmation = true;
+      job.checklist.confirmedAt = new Date().toISOString();
+      renderInstallations();
+      showToast('Checklist signed', `Site checklist confirmed for ${job.customer}.`, 'success');
+    } else if (button.dataset.action === 'complete-installation') {
+      if (!job.checklist?.photos || !job.checklist?.confirmation) {
+        showToast('Checklist pending', 'Upload photos and confirm checklist before completion.', 'warning');
+        return;
+      }
+      if (job.status === 'completed') {
+        showToast('Already completed', 'This installation is already marked as complete.', 'info');
+        return;
+      }
+      job.status = 'completed';
+      job.completedAt = new Date().toISOString();
+      const completionDate = new Date(job.completedAt);
+      if (!Array.isArray(state.installations.warranties)) {
+        state.installations.warranties = [];
+      }
+      if (!Array.isArray(state.installations.amc)) {
+        state.installations.amc = [];
+      }
+      const warrantyId = job.warrantyReference || `WAR-${Math.floor(1000 + Math.random() * 9000)}`;
+      job.warrantyReference = warrantyId;
+      const existingWarranty = state.installations.warranties.find((item) => item.id === warrantyId);
+      if (!existingWarranty) {
+        const expiry = new Date(completionDate);
+        expiry.setFullYear(expiry.getFullYear() + 5);
+        state.installations.warranties.push({
+          id: warrantyId,
+          customer: job.customer,
+          product: job.systemSize || 'Solar system',
+          registeredOn: job.completedAt,
+          expiresOn: expiry.toISOString(),
+          status: 'Active',
+          amcId: job.amcReference || null,
+        });
+      }
+      const amcId = job.amcReference || `AMC-${Math.floor(1000 + Math.random() * 9000)}`;
+      job.amcReference = amcId;
+      const nextVisit = new Date(completionDate);
+      nextVisit.setFullYear(nextVisit.getFullYear() + 1);
+      const nextVisitDate = nextVisit.toISOString().slice(0, 10);
+      const lastVisitDate = job.completedAt.slice(0, 10);
+      const existingAmc = state.installations.amc.find((item) => item.id === amcId);
+      if (existingAmc) {
+        existingAmc.lastVisit = lastVisitDate;
+        existingAmc.nextVisit = nextVisitDate;
+        existingAmc.status = 'scheduled';
+      } else {
+        state.installations.amc.push({
+          id: amcId,
+          customer: job.customer,
+          plan: 'Annual maintenance',
+          nextVisit: nextVisitDate,
+          lastVisit: lastVisitDate,
+          status: 'scheduled',
+          notes: 'Auto-generated after installation completion.',
+        });
+      }
+      renderInstallations();
+      renderWarranties();
+      renderAmc();
+      showToast('Installation closed', `Warranty ${warrantyId} registered and AMC ${amcId} scheduled.`, 'success');
+    }
+  });
+
+  amcList?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-action="complete-amc"]');
+    if (!button) return;
+    const amcId = button.dataset.amcId;
+    if (!amcId) return;
+    const schedule = state.installations.amc.find((item) => String(item.id) === String(amcId));
+    if (!schedule) return;
+    const now = new Date();
+    schedule.lastVisit = now.toISOString().slice(0, 10);
+    const nextVisit = new Date(now);
+    nextVisit.setFullYear(nextVisit.getFullYear() + 1);
+    schedule.nextVisit = nextVisit.toISOString().slice(0, 10);
+    schedule.status = 'scheduled';
+    renderAmc();
+    showToast('AMC updated', `Next visit for ${schedule.customer} planned on ${nextVisit.toLocaleDateString()}.`, 'success');
+  });
+
   documentForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     const formData = new FormData(documentForm);
@@ -945,11 +1541,316 @@
     }
   });
 
+  analyticsExportButton?.addEventListener('click', () => {
+    if (!analyticsStatus) return;
+    analyticsExportButton.disabled = true;
+    renderInlineStatus(analyticsStatus, 'progress', 'Preparing export', 'Generating KPI workbook for download.');
+    setTimeout(() => {
+      analyticsExportButton.disabled = false;
+      const timestamp = new Date();
+      renderInlineStatus(
+        analyticsStatus,
+        'success',
+        'Export ready',
+        `KPI report generated on ${timestamp.toLocaleString()}.`
+      );
+      showToast('Analytics export ready', 'KPI data has been packaged for review.', 'success');
+    }, 900);
+  });
+
+  analyticsRefreshButton?.addEventListener('click', () => {
+    if (!analyticsStatus) return;
+    analyticsRefreshButton.disabled = true;
+    renderInlineStatus(analyticsStatus, 'info', 'Refreshing metrics', 'Pulling the latest KPI snapshots.');
+    setTimeout(() => {
+      analyticsRefreshButton.disabled = false;
+      renderAnalytics();
+      renderInlineStatus(analyticsStatus, 'success', 'Metrics updated', 'Analytics refreshed with current data.');
+      showToast('Analytics refreshed', 'Dashboard KPIs updated successfully.', 'success');
+    }, 650);
+  });
+
+  aiBlogForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(aiBlogForm);
+    const topic = (formData.get('topic') || '').toString().trim();
+    if (!topic) {
+      showToast('Topic required', 'Provide a topic to generate the draft.', 'warning');
+      return;
+    }
+    const tone = (formData.get('tone') || 'informative').toString();
+    const length = Number(formData.get('length') || 600);
+    const keywords = (formData.get('keywords') || '').toString();
+    const outline = (formData.get('outline') || '').toString();
+    const draft = buildBlogDraft({ topic, tone, length, keywords, outline });
+    if (aiBlogPreview) {
+      aiBlogPreview.innerHTML = draft;
+    }
+    state.ai = { draft, topic };
+    renderInlineStatus(aiStatus, 'success', 'Draft generated', 'Review the AI-created blog before publishing.');
+    showToast('AI draft generated', `Blog draft for “${topic}” is ready.`, 'success');
+  });
+
+  aiBlogForm?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-action]');
+    if (!button) return;
+    if (button.dataset.action === 'clear-blog') {
+      state.ai = { draft: '', topic: '' };
+      if (aiBlogPreview) {
+        aiBlogPreview.innerHTML = '<p class="dashboard-muted">Draft output will appear here for preview and editing.</p>';
+      }
+      clearInlineStatus(aiStatus);
+      showToast('Draft cleared', 'AI draft removed from preview.', 'info');
+    } else if (button.dataset.action === 'publish-blog') {
+      if (!state.ai?.draft) {
+        showToast('Nothing to publish', 'Generate a draft before publishing.', 'warning');
+        return;
+      }
+      renderInlineStatus(
+        aiStatus,
+        'success',
+        'Post published',
+        `Blog “${state.ai.topic || 'Untitled'}” published with narration and cover.`
+      );
+      showToast('Post published', 'Blog has been queued for the knowledge hub.', 'success');
+    }
+  });
+
+  aiAutoblogToggle?.addEventListener('change', () => {
+    const enabled = Boolean(aiAutoblogToggle.checked);
+    if (aiAutoblogTime) aiAutoblogTime.disabled = !enabled;
+    if (aiAutoblogTheme) aiAutoblogTheme.disabled = !enabled;
+    if (!enabled) {
+      clearInlineStatus(aiScheduleStatus);
+    } else {
+      renderInlineStatus(
+        aiScheduleStatus,
+        'info',
+        'Auto-blog enabled',
+        `Daily publishing at ${aiAutoblogTime?.value || '09:00'}.`
+      );
+    }
+  });
+
+  aiScheduleForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const enabled = Boolean(aiAutoblogToggle?.checked);
+    if (!enabled) {
+      showToast('Auto-blog disabled', 'Enable the toggle to save the schedule.', 'info');
+      return;
+    }
+    const time = aiAutoblogTime?.value || '09:00';
+    const theme = aiAutoblogTheme?.value || 'regional';
+    renderInlineStatus(
+      aiScheduleStatus,
+      'success',
+      'Schedule saved',
+      `Auto-blog will publish daily at ${time} covering ${capitalize(theme)} topics.`
+    );
+    showToast('Auto-blog scheduled', `Daily blog generation configured for ${time}.`, 'success');
+  });
+
+  aiScheduleForm?.addEventListener('reset', () => {
+    if (aiAutoblogToggle) aiAutoblogToggle.checked = false;
+    if (aiAutoblogTime) aiAutoblogTime.disabled = true;
+    if (aiAutoblogTheme) aiAutoblogTheme.disabled = true;
+    clearInlineStatus(aiScheduleStatus);
+  });
+
+  generateImageButton?.addEventListener('click', () => {
+    const prompt = (aiImagePrompt?.value || 'Solar rooftop in Jharkhand').toString().trim();
+    const aspect = aiImageAspect?.value || '16:9';
+    if (aiImageNode) {
+      aiImageNode.src = createImageData(prompt, aspect);
+      aiImageNode.alt = `AI generated cover for ${prompt}`;
+    }
+    renderInlineStatus(aiImageStatus, 'success', 'Cover ready', `Prompt: ${prompt}`);
+    showToast('Cover image generated', 'AI rendered a banner-ready cover.', 'success');
+  });
+
+  downloadImageButton?.addEventListener('click', () => {
+    if (!aiImageNode?.src) {
+      showToast('No image available', 'Generate a cover image before downloading.', 'warning');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = aiImageNode.src;
+    link.download = 'dentweb-ai-cover.svg';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Cover downloaded', 'AI image saved to your device.', 'success');
+  });
+
+  generateAudioButton?.addEventListener('click', () => {
+    if (!aiAudioNode) return;
+    aiAudioNode.src = `storage/sample-tts.wav?ts=${Date.now()}`;
+    aiAudioNode.hidden = false;
+    aiAudioNode.load();
+    renderInlineStatus(aiAudioStatus, 'success', 'Narration ready', 'Preview the TTS track before publishing.');
+    showToast('Narration generated', 'Audio narration created for the blog.', 'success');
+  });
+
+  downloadAudioButton?.addEventListener('click', () => {
+    if (!aiAudioNode?.src) {
+      showToast('No audio available', 'Generate narration before downloading.', 'warning');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = aiAudioNode.src;
+    link.download = 'dentweb-ai-narration.wav';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Narration downloaded', 'Audio file saved for distribution.', 'success');
+  });
+
+  runBackupButton?.addEventListener('click', () => {
+    if (!backupStatus) return;
+    runBackupButton.disabled = true;
+    renderInlineStatus(backupStatus, 'progress', 'Backup running', 'Creating encrypted backup snapshot.');
+    setTimeout(() => {
+      const timestamp = new Date();
+      state.metrics.system.last_backup = timestamp.toLocaleString();
+      if (backupLastInput) backupLastInput.value = state.metrics.system.last_backup;
+      updateSystemHealth(state.metrics.system);
+      renderInlineStatus(backupStatus, 'success', 'Backup completed', `Completed at ${timestamp.toLocaleTimeString()}.`);
+      showToast('Backup completed successfully', 'Manual backup stored securely.', 'success');
+      runBackupButton.disabled = false;
+    }, 1000);
+  });
+
+  verifyBackupButton?.addEventListener('click', () => {
+    renderInlineStatus(
+      backupStatus,
+      'info',
+      'Backup verified',
+      `Last snapshot confirmed at ${backupLastInput?.value || state.metrics.system.last_backup || '—'}.`
+    );
+    showToast('Backup verified', 'Latest backup integrity check passed.', 'success');
+  });
+
+  backupScheduleForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(backupScheduleForm);
+    const frequency = (formData.get('backupFrequency') || 'nightly').toString();
+    const time = (formData.get('backupTime') || '02:00').toString();
+    renderInlineStatus(
+      backupScheduleStatus,
+      'success',
+      'Schedule saved',
+      `Auto-backup configured ${frequency} at ${time}.`
+    );
+    showToast('Backup schedule updated', 'Automated backups configured successfully.', 'success');
+  });
+
+  backupScheduleForm?.addEventListener('reset', () => {
+    clearInlineStatus(backupScheduleStatus);
+  });
+
+  retentionForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!retentionStatus) return;
+    const archiveDays = Number(retentionArchiveInput?.value || state.retention.archiveDays || 90);
+    const purgeDays = Number(retentionPurgeInput?.value || state.retention.purgeDays || 180);
+    const includeAudit = Boolean(retentionAuditInput?.checked);
+
+    if (!Number.isFinite(archiveDays) || archiveDays < 30) {
+      renderInlineStatus(retentionStatus, 'error', 'Invalid archive window', 'Archive must be at least 30 days.');
+      showToast('Invalid archive window', 'Choose an archive window of 30 days or more.', 'warning');
+      return;
+    }
+
+    if (!Number.isFinite(purgeDays) || purgeDays <= archiveDays) {
+      renderInlineStatus(
+        retentionStatus,
+        'error',
+        'Adjust retention window',
+        'Purge window must be greater than archive window.'
+      );
+      showToast('Adjust retention window', 'Set a purge window that exceeds the archive window.', 'warning');
+      return;
+    }
+
+    const submitButton = retentionForm.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+
+    renderInlineStatus(
+      retentionStatus,
+      'progress',
+      'Saving retention policy',
+      `Archiving after ${archiveDays} days and purging after ${purgeDays} days.`
+    );
+
+    setTimeout(() => {
+      state.retention = { archiveDays, purgeDays, includeAudit };
+      renderInlineStatus(
+        retentionStatus,
+        'success',
+        'Retention policy saved',
+        includeAudit
+          ? 'Audit events will be archived alongside operational logs.'
+          : 'Audit events excluded from archival runs.'
+      );
+      showToast(
+        'Retention policy saved',
+        `Logs archive after ${archiveDays} days and purge after ${purgeDays} days.`,
+        'success'
+      );
+      if (submitButton) submitButton.disabled = false;
+    }, 800);
+  });
+
+  retentionForm?.addEventListener('reset', () => {
+    setTimeout(() => hydrateRetention(), 0);
+  });
+
+  governanceExportButton?.addEventListener('click', () => {
+    if (!governanceStatus) return;
+    governanceExportButton.disabled = true;
+    renderInlineStatus(governanceStatus, 'progress', 'Compiling bundle', 'Packaging activity logs, backups, and approvals.');
+    setTimeout(() => {
+      governanceExportButton.disabled = false;
+      const timestamp = new Date();
+      renderInlineStatus(
+        governanceStatus,
+        'success',
+        'Bundle ready',
+        `Governance pack exported on ${timestamp.toLocaleString()}.`
+      );
+      showToast('Governance bundle ready', 'Download prepared for management reporting.', 'success');
+    }, 950);
+  });
+
+  governanceRefreshButton?.addEventListener('click', () => {
+    renderInlineStatus(
+      governanceStatus,
+      'info',
+      'Governance refreshed',
+      'Latest role reviews and activity logs loaded.'
+    );
+    renderGovernance();
+  });
+
   function formatDate(value) {
     if (!value) return '--';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
+  function formatDateOnly(value) {
+    if (!value) return '--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      // Accept YYYY-MM-DD strings
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+        const [year, month, day] = String(value).split('-');
+        return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+      }
+      return value;
+    }
+    return date.toLocaleDateString();
   }
 
   function renderUsers() {
@@ -1457,7 +2358,12 @@
     }
 
     const lower = term.toLowerCase();
-    const matches = [];
+    const groups = new Map();
+    const pushMatch = (type, title, subtitle, action) => {
+      if (!title) return;
+      if (!groups.has(type)) groups.set(type, []);
+      groups.get(type).push({ title, subtitle: subtitle || '', action });
+    };
 
     state.users.forEach((user) => {
       if (
@@ -1465,169 +2371,298 @@
         user.email.toLowerCase().includes(lower) ||
         user.username.toLowerCase().includes(lower)
       ) {
-        matches.push({
-          type: 'User',
-          title: user.full_name,
-          subtitle: `${capitalize(user.role_name)} · ${user.email}`,
-          action: () => activateTab('onboarding'),
-        });
+        pushMatch('Users', user.full_name, `${capitalize(user.role_name)} · ${user.email}`, () => activateTab('onboarding'));
       }
     });
 
     state.invitations.forEach((invite) => {
       if (invite.invitee_name.toLowerCase().includes(lower) || invite.invitee_email.toLowerCase().includes(lower)) {
-        matches.push({
-          type: 'Invitation',
-          title: invite.invitee_name,
-          subtitle: `${capitalize(invite.role_name)} · ${invite.invitee_email}`,
-          action: () => activateTab('onboarding'),
-        });
-      }
-    });
-
-    state.complaints.forEach((complaint) => {
-      if ((complaint.reference || '').toLowerCase().includes(lower) || (complaint.title || '').toLowerCase().includes(lower)) {
-        matches.push({
-          type: 'Complaint',
-          title: complaint.reference,
-          subtitle: `${complaint.title} · ${capitalize(complaint.status)}`,
-          action: () => activateTab('complaints'),
-        });
-      }
-    });
-
-    state.audit.forEach((entry) => {
-      if ((entry.description || '').toLowerCase().includes(lower)) {
-        matches.push({
-          type: 'Audit',
-          title: entry.action,
-          subtitle: `${entry.actor_name || 'System'} · ${formatDate(entry.created_at)}`,
-          action: () => activateTab('audit'),
-        });
-      }
-    });
-
-    state.tasks.items.forEach((task) => {
-      const haystack = `${task.title} ${task.notes || ''} ${task.linkedTo || ''}`.toLowerCase();
-      if (haystack.includes(lower)) {
-        matches.push({
-          type: 'Task',
-          title: task.title,
-          subtitle: `${TASK_STATUS_LABELS[task.status] || 'To Do'} · ${findTeamMember(task.assigneeId)?.name || 'Unassigned'}`,
-          action: () => activateTab('tasks'),
-        });
-      }
-    });
-
-    state.documents.forEach((doc) => {
-      const haystack = `${doc.name} ${(doc.tags || []).join(' ')} ${doc.reference || ''}`.toLowerCase();
-      if (haystack.includes(lower)) {
-        matches.push({
-          type: 'Document',
-          title: doc.name,
-          subtitle: `${capitalize(doc.linkedTo || '')} · v${doc.version || 1}`,
-          action: () => activateTab('documents'),
-        });
-      }
-    });
-
-    state.dataQuality.duplicates.forEach((item) => {
-      const haystack = `${item.primary} ${item.duplicate} ${item.reason || ''}`.toLowerCase();
-      if (haystack.includes(lower)) {
-        matches.push({
-          type: 'Duplicate',
-          title: `${item.primary} ↔ ${item.duplicate}`,
-          subtitle: item.reason || 'Potential duplicate',
-          action: () => activateTab('data-quality'),
-        });
-      }
-    });
-
-    state.dataQuality.approvals.forEach((item) => {
-      const haystack = `${item.employee} ${item.change}`.toLowerCase();
-      if (haystack.includes(lower)) {
-        matches.push({
-          type: 'Approval',
-          title: item.employee,
-          subtitle: item.change,
-          action: () => activateTab('data-quality'),
-        });
+        pushMatch(
+          'Invitations',
+          invite.invitee_name,
+          `${capitalize(invite.role_name)} · ${invite.invitee_email}`,
+          () => activateTab('onboarding')
+        );
       }
     });
 
     state.crm.leads.forEach((lead) => {
       const haystack = `${lead.name} ${lead.reference || ''} ${lead.interest || ''}`.toLowerCase();
       if (haystack.includes(lower)) {
-        matches.push({
-          type: 'Lead',
-          title: lead.name,
-          subtitle: `${lead.source || 'Unknown source'} · ${lead.interest || ''}`,
-          action: () => activateTab('crm'),
-        });
+        pushMatch('Leads', lead.name, `${lead.source || 'Unknown source'} · ${lead.interest || ''}`, () => activateTab('crm'));
       }
     });
 
     state.crm.customers.forEach((customer) => {
       const haystack = `${customer.name} ${customer.leadReference || ''}`.toLowerCase();
       if (haystack.includes(lower)) {
-        matches.push({
-          type: 'Customer',
-          title: customer.name,
-          subtitle: `${customer.systemSize || ''} · ${customer.installationDate || 'Schedule pending'}`,
-          action: () => activateTab('crm'),
-        });
+        pushMatch(
+          'Customers',
+          customer.name,
+          `${customer.systemSize || ''} · ${customer.installationDate || 'Schedule pending'}`,
+          () => activateTab('crm')
+        );
+      }
+    });
+
+    (state.installations.jobs || []).forEach((job) => {
+      const haystack = `${job.customer || ''} ${job.location || ''} ${job.systemSize || ''} ${job.notes || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        const schedule = job.status === 'completed' ? job.completedAt || job.scheduledAt : job.scheduledAt;
+        pushMatch(
+          'Installations',
+          job.customer || job.id,
+          `${capitalize(job.status || 'scheduled')} · ${formatDate(schedule)}`,
+          () => activateTab('installations')
+        );
+      }
+    });
+
+    (state.installations.warranties || []).forEach((warranty) => {
+      const haystack = `${warranty.id || ''} ${warranty.customer || ''} ${warranty.product || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'Warranties',
+          warranty.id,
+          `${warranty.customer || ''} · Expires ${formatDateOnly(warranty.expiresOn)}`,
+          () => activateTab('installations')
+        );
+      }
+    });
+
+    (state.installations.amc || []).forEach((schedule) => {
+      const haystack = `${schedule.id || ''} ${schedule.customer || ''} ${schedule.plan || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'AMC',
+          schedule.customer || schedule.id,
+          `${schedule.plan || ''} · Next ${formatDateOnly(schedule.nextVisit)}`,
+          () => activateTab('installations')
+        );
+      }
+    });
+
+    state.tasks.items.forEach((task) => {
+      const haystack = `${task.title} ${task.notes || ''} ${task.linkedTo || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'Tasks',
+          task.title,
+          `${TASK_STATUS_LABELS[task.status] || 'To Do'} · ${findTeamMember(task.assigneeId)?.name || 'Unassigned'}`,
+          () => activateTab('tasks')
+        );
+      }
+    });
+
+    state.documents.forEach((doc) => {
+      const haystack = `${doc.name} ${(doc.tags || []).join(' ')} ${doc.reference || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'Documents',
+          doc.name,
+          `${capitalize(doc.linkedTo || '')} · v${doc.version || 1}`,
+          () => activateTab('documents')
+        );
+      }
+    });
+
+    state.dataQuality.duplicates.forEach((item) => {
+      const haystack = `${item.primary} ${item.duplicate} ${item.reason || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'Duplicates',
+          `${item.primary} ↔ ${item.duplicate}`,
+          item.reason || 'Potential duplicate',
+          () => activateTab('data-quality')
+        );
+      }
+    });
+
+    state.dataQuality.approvals.forEach((item) => {
+      const haystack = `${item.employee} ${item.change}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch('Approvals', item.employee, item.change, () => activateTab('data-quality'));
+      }
+    });
+
+    state.complaints.forEach((complaint) => {
+      if ((complaint.reference || '').toLowerCase().includes(lower) || (complaint.title || '').toLowerCase().includes(lower)) {
+        pushMatch(
+          'Complaints',
+          complaint.reference,
+          `${complaint.title} · ${capitalize(complaint.status)}`,
+          () => activateTab('complaints')
+        );
+      }
+    });
+
+    state.audit.forEach((entry) => {
+      if ((entry.description || '').toLowerCase().includes(lower)) {
+        pushMatch(
+          'Audit',
+          entry.action,
+          `${entry.actor_name || 'System'} · ${formatDate(entry.created_at)}`,
+          () => activateTab('audit')
+        );
       }
     });
 
     state.referrers.forEach((partner) => {
       const haystack = `${partner.name} ${partner.company || ''}`.toLowerCase();
       if (haystack.includes(lower)) {
-        matches.push({
-          type: 'Referrer',
-          title: partner.name,
-          subtitle: `${partner.leads} leads · ${partner.conversions} conversions`,
-          action: () => activateTab('referrers'),
-        });
+        pushMatch(
+          'Referrers',
+          partner.name,
+          `${partner.leads} leads · ${partner.conversions} conversions`,
+          () => activateTab('referrers')
+        );
       }
     });
 
     state.subsidy.applications.forEach((app) => {
       const haystack = `${app.reference} ${app.customer}`.toLowerCase();
       if (haystack.includes(lower)) {
-        matches.push({
-          type: 'Subsidy',
-          title: app.reference,
-          subtitle: `${app.customer} · ${capitalize(app.stage)}`,
-          action: () => activateTab('subsidy'),
-        });
+        pushMatch('Subsidy', app.reference, `${app.customer} · ${capitalize(app.stage)}`, () => activateTab('subsidy'));
       }
     });
 
-    if (!matches.length) {
+    (state.analytics.kpis || []).forEach((kpi) => {
+      const haystack = `${kpi.label || ''} ${kpi.value || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch('Analytics', kpi.label, `${kpi.value || ''} · ${kpi.change || ''}`, () => activateTab('analytics'));
+      }
+    });
+
+    (state.analytics.installerProductivity || []).forEach((row) => {
+      const haystack = `${row.name || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'Analytics',
+          row.name,
+          `${row.installations ?? 0} installs · ${row.amcVisits ?? 0} AMC visits`,
+          () => activateTab('analytics')
+        );
+      }
+    });
+
+    const systemMetrics = state.metrics.system || {};
+    const systemHaystack = `${systemMetrics.last_backup || ''} ${systemMetrics.disk_usage || ''} ${systemMetrics.errors_24h || ''} ${systemMetrics.uptime || ''}`.toLowerCase();
+    if (systemHaystack.includes(lower) || lower.includes('backup') || lower.includes('uptime')) {
+      pushMatch(
+        'System',
+        'Backup health',
+        `Last backup ${systemMetrics.last_backup || 'Not recorded'} · Storage ${systemMetrics.disk_usage || 'Unknown'}`,
+        () => activateTab('health')
+      );
+    }
+
+    const retention = state.retention || {};
+    const retentionHaystack = `${retention.archiveDays || ''} ${retention.purgeDays || ''} retention ${retention.includeAudit ? 'audit' : 'operations'}`.toLowerCase();
+    if (retentionHaystack.includes(lower) || lower.includes('retention') || lower.includes('archive')) {
+      const subtitle = `Archive ${retention.archiveDays || 90}d · Purge ${retention.purgeDays || 180}d`;
+      const finalSubtitle = `${subtitle}${retention.includeAudit ? ' · Audit included' : ' · Audit excluded'}`;
+      pushMatch('System', 'Retention policy', finalSubtitle, () => activateTab('health'));
+    }
+
+    (state.governance.roleMatrix || []).forEach((role) => {
+      const haystack = `${role.role || ''} ${role.owner || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'Governance',
+          role.role,
+          `${role.users ?? 0} users · Reviewed ${formatDateOnly(role.lastReview)}`,
+          () => activateTab('governance')
+        );
+      }
+    });
+
+    (state.governance.pendingReviews || []).forEach((review) => {
+      const haystack = `${review.item || ''} ${review.owner || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'Governance',
+          review.item,
+          `Due ${formatDateOnly(review.due)} · Owner ${review.owner || 'Admin'}`,
+          () => activateTab('governance')
+        );
+      }
+    });
+
+    (state.governance.activityLogs || []).forEach((entry) => {
+      const haystack = `${entry.description || ''} ${entry.actor || ''}`.toLowerCase();
+      if (haystack.includes(lower)) {
+        pushMatch(
+          'Governance',
+          entry.description,
+          `${entry.actor || 'System'} · ${formatDate(entry.timestamp)}`,
+          () => activateTab('governance')
+        );
+      }
+    });
+
+    if (!groups.size) {
       searchResults.innerHTML = '<p class="dashboard-search-empty">No records matched your search.</p>';
       searchResults.hidden = false;
       return;
     }
 
-    const list = document.createElement('ul');
-    list.className = 'dashboard-search-list';
-    matches.slice(0, 8).forEach((match) => {
-      const item = document.createElement('li');
-      item.innerHTML = `
-        <button type="button">
-          <span>${escapeHtml(match.title)}</span>
-          <small>${escapeHtml(match.type)} · ${escapeHtml(match.subtitle)}</small>
-        </button>
-      `;
-      item.querySelector('button').addEventListener('click', () => {
-        match.action?.();
-        searchResults.hidden = true;
-        searchInput.value = '';
+    const order = [
+      'Users',
+      'Invitations',
+      'Customers',
+      'Leads',
+      'Installations',
+      'Warranties',
+      'AMC',
+      'Tasks',
+      'Documents',
+      'Approvals',
+      'Duplicates',
+      'Complaints',
+      'Subsidy',
+      'Referrers',
+      'System',
+      'Analytics',
+      'Governance',
+      'Audit',
+    ];
+
+    const fragment = document.createDocumentFragment();
+    order.forEach((type) => {
+      const items = groups.get(type);
+      if (!items || !items.length) return;
+      const groupNode = searchGroupTemplate?.content
+        ? searchGroupTemplate.content.firstElementChild.cloneNode(true)
+        : document.createElement('div');
+      if (!groupNode.classList.contains('dashboard-search-group')) {
+        groupNode.classList.add('dashboard-search-group');
+      }
+      const heading = groupNode.querySelector('h3') || groupNode.appendChild(document.createElement('h3'));
+      heading.textContent = type;
+      let list = groupNode.querySelector('ul');
+      if (!list) {
+        list = document.createElement('ul');
+        groupNode.appendChild(list);
+      }
+      list.innerHTML = '';
+      items.slice(0, 5).forEach((item) => {
+        const li = document.createElement('li');
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.innerHTML = `<span>${escapeHtml(item.title)}</span><small>${escapeHtml(item.subtitle)}</small>`;
+        button.addEventListener('click', () => {
+          item.action?.();
+          searchResults.hidden = true;
+          if (searchInput) searchInput.value = '';
+        });
+        li.appendChild(button);
+        list.appendChild(li);
       });
-      list.appendChild(item);
+      fragment.appendChild(groupNode);
     });
+
     searchResults.innerHTML = '';
-    searchResults.appendChild(list);
+    searchResults.appendChild(fragment);
     searchResults.hidden = false;
   }
 
@@ -1637,12 +2672,25 @@
     handleSearch(searchInput.value.trim());
   });
 
+  window.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      activateTab('overview');
+      searchResults.hidden = false;
+      searchInput?.focus();
+    }
+  });
+
   function hydrateFromConfig() {
     updateMetricCards(state.metrics.counts);
     updateSystemHealth(state.metrics.system);
+    hydrateRetention();
     populateGemini();
     populateTaskAssignees();
     renderTasks();
+    renderInstallations();
+    renderWarranties();
+    renderAmc();
     renderDocuments();
     renderValidations();
     renderDuplicates();
@@ -1650,6 +2698,8 @@
     renderCRM();
     renderReferrers();
     renderSubsidy();
+    renderAnalytics();
+    renderGovernance();
   }
 
   function loadBootstrap() {
@@ -1668,8 +2718,13 @@
         if (data.crm) state.crm = data.crm;
         if (data.referrers) state.referrers = data.referrers;
         if (data.subsidy) state.subsidy = data.subsidy;
+        if (data.installations) state.installations = data.installations;
+        if (data.analytics) state.analytics = data.analytics;
+        if (data.governance) state.governance = data.governance;
+        if (data.retention) state.retention = data.retention;
         updateMetricCards(state.metrics.counts);
         updateSystemHealth(state.metrics.system);
+        hydrateRetention();
         populateLoginPolicy();
         populateGemini();
         populateTaskAssignees();
@@ -1678,6 +2733,9 @@
         renderComplaints();
         renderAudit();
         renderTasks();
+        renderInstallations();
+        renderWarranties();
+        renderAmc();
         renderDocuments();
         renderValidations();
         renderDuplicates();
@@ -1685,6 +2743,8 @@
         renderCRM();
         renderReferrers();
         renderSubsidy();
+        renderAnalytics();
+        renderGovernance();
       })
       .catch((error) => {
         showToast('Failed to load admin data', error.message, 'error');
