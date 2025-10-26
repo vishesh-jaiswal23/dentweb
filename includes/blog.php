@@ -207,8 +207,8 @@ SELECT
     blog_posts.cover_image_alt,
     blog_posts.author_name,
     blog_posts.published_at,
-    GROUP_CONCAT(DISTINCT blog_tags.name, '\u0001') AS tag_names,
-    GROUP_CONCAT(DISTINCT blog_tags.slug, '\u0001') AS tag_slugs
+    GROUP_CONCAT(blog_tags.name, '\u0001') AS tag_names,
+    GROUP_CONCAT(blog_tags.slug, '\u0001') AS tag_slugs
 FROM blog_posts
 LEFT JOIN blog_post_tags ON blog_post_tags.post_id = blog_posts.id
 LEFT JOIN blog_tags ON blog_tags.id = blog_post_tags.tag_id
@@ -270,8 +270,8 @@ function blog_get_post_by_slug(PDO $db, string $slug, bool $includeDrafts = fals
     $stmt = $db->prepare(<<<'SQL'
 SELECT
     blog_posts.*, 
-    GROUP_CONCAT(DISTINCT blog_tags.name, '\u0001') AS tag_names,
-    GROUP_CONCAT(DISTINCT blog_tags.slug, '\u0001') AS tag_slugs
+    GROUP_CONCAT(blog_tags.name, '\u0001') AS tag_names,
+    GROUP_CONCAT(blog_tags.slug, '\u0001') AS tag_slugs
 FROM blog_posts
 LEFT JOIN blog_post_tags ON blog_post_tags.post_id = blog_posts.id
 LEFT JOIN blog_tags ON blog_tags.id = blog_post_tags.tag_id
@@ -576,7 +576,7 @@ SQL
 function blog_get_post_by_id(PDO $db, int $postId): array
 {
     $stmt = $db->prepare(<<<'SQL'
-SELECT blog_posts.*, GROUP_CONCAT(DISTINCT blog_tags.name, '\u0001') AS tag_names
+SELECT blog_posts.*, GROUP_CONCAT(blog_tags.name, '\u0001') AS tag_names
 FROM blog_posts
 LEFT JOIN blog_post_tags ON blog_post_tags.post_id = blog_posts.id
 LEFT JOIN blog_tags ON blog_tags.id = blog_post_tags.tag_id
