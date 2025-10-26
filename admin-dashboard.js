@@ -109,6 +109,13 @@
   const verifyBackupButton = document.querySelector('[data-action="verify-backup"]');
   const governanceExportButton = document.querySelector('[data-action="governance-export"]');
   const governanceRefreshButton = document.querySelector('[data-action="governance-refresh"]');
+  const blogTableBody = document.querySelector('[data-blog-post-table]');
+  const blogNewButton = document.querySelector('[data-blog-new]');
+  const blogForm = document.querySelector('[data-blog-form]');
+  const blogStatus = document.querySelector('[data-blog-status]');
+  const blogPublishButton = document.querySelector('[data-blog-publish]');
+  const blogArchiveButton = document.querySelector('[data-blog-archive]');
+  const blogResetButton = document.querySelector('[data-blog-reset]');
   const searchGroupTemplate = document.getElementById('dashboard-search-result-template');
   const searchItemTemplate = document.getElementById('dashboard-search-item-template');
 
@@ -131,6 +138,12 @@
     governance: config.governance || { roleMatrix: [], pendingReviews: [], activityLogs: [] },
     retention: config.retention || { archiveDays: 90, purgeDays: 180, includeAudit: true },
     ai: { draft: '', topic: '' },
+  };
+
+  const blogState = {
+    posts: [],
+    editingId: null,
+    editingStatus: 'draft',
   };
 
   const TASK_STATUS_LABELS = {
@@ -802,6 +815,272 @@
           });
       }
     }
+  }
+
+  function normalizeBlogPost(post = {}) {
+    return {
+      id: Number(post.id) || 0,
+      title: post.title || '',
+      slug: post.slug || '',
+      excerpt: post.excerpt || '',
+      status: (post.status || 'draft').toLowerCase(),
+      publishedAt: post.publishedAt || post.published_at || '',
+      updatedAt: post.updatedAt || post.updated_at || '',
+      authorName: post.authorName || post.author_name || '',
+      coverImage: post.coverImage || post.cover_image || '',
+      coverImageAlt: post.coverImageAlt || post.cover_image_alt || '',
+      tags: Array.isArray(post.tags)
+        ? post.tags
+            .map((tag) => (typeof tag === 'string' ? tag : (tag && (tag.name || tag.slug)) || ''))
+            .filter(Boolean)
+        : [],
+      body: post.body || post.body_html || '',
+    };
+  }
+
+  function syncBlogState() {
+    state.blog = state.blog || {};
+    state.blog.posts = blogState.posts;
+  }
+
+  function updateBlogActions() {
+    if (blogPublishButton) {
+      blogPublishButton.disabled = !blogState.editingId;
+      blogPublishButton.textContent = blogState.editingStatus === 'published' ? 'Unpublish' : 'Publish';
+    }
+    if (blogArchiveButton) {
+      blogArchiveButton.disabled = !blogState.editingId || blogState.editingStatus === 'archived';
+      blogArchiveButton.textContent = blogState.editingStatus === 'archived' ? 'Archived' : 'Archive';
+    }
+  }
+
+  function renderBlogPosts() {
+    if (!blogTableBody) return;
+    blogTableBody.innerHTML = '';
+    const posts = [...blogState.posts].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    if (!posts.length) {
+      const row = document.createElement('tr');
+      row.className = 'dashboard-empty-row';
+      row.innerHTML = '<td colspan="5">No blog posts yet. Create one to get started.</td>';
+      blogTableBody.appendChild(row);
+      return;
+    }
+
+    posts.forEach((post) => {
+      const tr = document.createElement('tr');
+      const tags = post.tags.length ? `Tags: ${escapeHtml(post.tags.join(', '))}` : '';
+      const statusLabel = capitalize(post.status || 'draft');
+      const updated = post.updatedAt ? formatDateOnly(post.updatedAt) : '--';
+      const published = post.publishedAt ? formatDateOnly(post.publishedAt) : '--';
+      const actions = [];
+      actions.push(
+        `<button type="button" class="btn btn-ghost btn-sm" data-blog-action="edit" data-blog-id="${post.id}">Edit</button>`
+      );
+      if (post.status === 'published') {
+        actions.push(
+          `<button type="button" class="btn btn-ghost btn-sm" data-blog-action="toggle" data-blog-id="${post.id}" data-blog-publish="0">Unpublish</button>`
+        );
+      } else {
+        actions.push(
+          `<button type="button" class="btn btn-ghost btn-sm" data-blog-action="toggle" data-blog-id="${post.id}" data-blog-publish="1">Publish</button>`
+        );
+      }
+      actions.push(
+        `<button type="button" class="btn btn-ghost btn-sm" data-blog-action="archive" data-blog-id="${post.id}" ${post.status === 'archived' ? 'disabled' : ''}>Archive</button>`
+      );
+
+      tr.innerHTML = `
+        <td>
+          <strong>${escapeHtml(post.title || 'Untitled')}</strong><br />
+          <small>${escapeHtml(post.slug || '')}${tags ? ` · ${tags}` : ''}</small>
+        </td>
+        <td>${escapeHtml(statusLabel)}</td>
+        <td>${escapeHtml(updated)}</td>
+        <td>${escapeHtml(published)}</td>
+        <td>${actions.join(' ')}</td>
+      `;
+      blogTableBody.appendChild(tr);
+    });
+  }
+
+  function resetBlogForm({ focusTitle = false } = {}) {
+    if (!blogForm) return;
+    blogForm.reset();
+    blogState.editingId = null;
+    blogState.editingStatus = 'draft';
+    updateBlogActions();
+    clearInlineStatus(blogStatus);
+    if (focusTitle) {
+      blogForm.querySelector('[name="title"]')?.focus();
+    }
+  }
+
+  function populateBlogForm(post) {
+    if (!blogForm) return;
+    blogForm.reset();
+    blogState.editingId = post.id || null;
+    blogState.editingStatus = post.status || 'draft';
+    const idField = blogForm.querySelector('[name="id"]');
+    const titleField = blogForm.querySelector('[name="title"]');
+    const slugField = blogForm.querySelector('[name="slug"]');
+    const authorField = blogForm.querySelector('[name="author"]');
+    const tagsField = blogForm.querySelector('[name="tags"]');
+    const coverField = blogForm.querySelector('[name="cover"]');
+    const coverAltField = blogForm.querySelector('[name="coverAlt"]');
+    const excerptField = blogForm.querySelector('[name="excerpt"]');
+    const bodyField = blogForm.querySelector('[name="body"]');
+    if (idField) idField.value = post.id ? String(post.id) : '';
+    if (titleField) titleField.value = post.title || '';
+    if (slugField) slugField.value = post.slug || '';
+    if (authorField) authorField.value = post.authorName || '';
+    if (tagsField) tagsField.value = post.tags.join(', ');
+    if (coverField) coverField.value = post.coverImage || '';
+    if (coverAltField) coverAltField.value = post.coverImageAlt || '';
+    if (excerptField) excerptField.value = post.excerpt || '';
+    if (bodyField) bodyField.value = post.body || '';
+    updateBlogActions();
+  }
+
+  function collectBlogFormData() {
+    if (!blogForm) return null;
+    const formData = new FormData(blogForm);
+    const tags = String(formData.get('tags') || '')
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    return {
+      id: blogState.editingId || undefined,
+      title: String(formData.get('title') || '').trim(),
+      slug: String(formData.get('slug') || '').trim(),
+      excerpt: String(formData.get('excerpt') || '').trim(),
+      body: String(formData.get('body') || ''),
+      authorName: String(formData.get('author') || '').trim(),
+      coverImage: String(formData.get('cover') || '').trim(),
+      coverImageAlt: String(formData.get('coverAlt') || '').trim(),
+      tags,
+      status: blogState.editingStatus || 'draft',
+    };
+  }
+
+  function upsertBlogPost(post) {
+    const index = blogState.posts.findIndex((item) => item.id === post.id);
+    if (index >= 0) {
+      blogState.posts[index] = post;
+    } else {
+      blogState.posts.push(post);
+    }
+    syncBlogState();
+  }
+
+  function saveBlogPost({ silent = false, showProgress = true } = {}) {
+    if (!blogForm) return Promise.reject(new Error('Blog editor unavailable.'));
+    if (!blogForm.reportValidity()) {
+      renderInlineStatus(blogStatus, 'error', 'Missing information', 'Fill out the required fields before saving.');
+      return Promise.reject(new Error('Validation failed'));
+    }
+    const payload = collectBlogFormData();
+    if (!payload) {
+      return Promise.reject(new Error('Unable to read form data'));
+    }
+    if (showProgress) {
+      renderInlineStatus(blogStatus, 'progress', 'Saving draft…', 'Applying changes to the blog post.');
+    }
+    return api('save-blog-post', { method: 'POST', body: payload })
+      .then(({ post }) => {
+        const normalized = normalizeBlogPost(post);
+        blogState.editingId = normalized.id;
+        blogState.editingStatus = normalized.status;
+        upsertBlogPost(normalized);
+        renderBlogPosts();
+        populateBlogForm(normalized);
+        if (!silent) {
+          renderInlineStatus(blogStatus, 'success', 'Draft saved', 'Latest content stored safely.');
+        } else if (showProgress) {
+          clearInlineStatus(blogStatus);
+        }
+        return normalized;
+      })
+      .catch((error) => {
+        renderInlineStatus(blogStatus, 'error', 'Save failed', error.message || 'Unable to save the post.');
+        throw error;
+      });
+  }
+
+  function handleBlogPublish() {
+    if (!blogForm) return;
+    saveBlogPost({ silent: true, showProgress: false })
+      .then(() => {
+        if (!blogState.editingId) {
+          renderInlineStatus(blogStatus, 'error', 'Save required', 'Create the draft before publishing.');
+          return;
+        }
+        const publish = blogState.editingStatus !== 'published';
+        renderInlineStatus(
+          blogStatus,
+          'progress',
+          publish ? 'Publishing post…' : 'Unpublishing post…',
+          publish ? 'Making the post visible on the public blog.' : 'Hiding the post from the public blog.'
+        );
+        return api('publish-blog-post', {
+          method: 'POST',
+          body: { id: blogState.editingId, publish },
+        })
+          .then(({ post }) => {
+            const normalized = normalizeBlogPost(post);
+            blogState.editingId = normalized.id;
+            blogState.editingStatus = normalized.status;
+            upsertBlogPost(normalized);
+            renderBlogPosts();
+            populateBlogForm(normalized);
+            renderInlineStatus(
+              blogStatus,
+              'success',
+              publish ? 'Post published' : 'Post unpublished',
+              publish ? 'The article now appears on the public blog.' : 'The article no longer appears on the public blog.'
+            );
+          })
+          .catch((error) => {
+            renderInlineStatus(
+              blogStatus,
+              'error',
+              publish ? 'Publish failed' : 'Update failed',
+              error.message || 'Unable to update publish status.'
+            );
+          });
+      })
+      .catch(() => {});
+  }
+
+  function handleBlogArchive() {
+    if (!blogForm) return;
+    saveBlogPost({ silent: true, showProgress: false })
+      .then(() => {
+        if (!blogState.editingId) {
+          renderInlineStatus(blogStatus, 'error', 'Select a post', 'Save the draft before archiving.');
+          return;
+        }
+        if (!window.confirm('Archive this post? It will no longer appear on the public blog.')) {
+          return;
+        }
+        renderInlineStatus(blogStatus, 'progress', 'Archiving post…', 'Removing the article from the public blog.');
+        return api('archive-blog-post', {
+          method: 'POST',
+          body: { id: blogState.editingId },
+        })
+          .then(({ post }) => {
+            const normalized = normalizeBlogPost(post);
+            blogState.editingId = normalized.id;
+            blogState.editingStatus = normalized.status;
+            upsertBlogPost(normalized);
+            renderBlogPosts();
+            populateBlogForm(normalized);
+            renderInlineStatus(blogStatus, 'info', 'Post archived', 'The article remains internal until republished.');
+          })
+          .catch((error) => {
+            renderInlineStatus(blogStatus, 'error', 'Archive failed', error.message || 'Unable to archive the post.');
+          });
+      })
+      .catch(() => {});
   }
 
   function createImageData(prompt, aspect) {
@@ -1832,6 +2111,116 @@
     renderGovernance();
   });
 
+  blogNewButton?.addEventListener('click', () => {
+    resetBlogForm({ focusTitle: true });
+    blogForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  blogResetButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    resetBlogForm({ focusTitle: true });
+  });
+
+  blogForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    saveBlogPost();
+  });
+
+  blogPublishButton?.addEventListener('click', () => {
+    handleBlogPublish();
+  });
+
+  blogArchiveButton?.addEventListener('click', () => {
+    handleBlogArchive();
+  });
+
+  blogTableBody?.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-blog-action]') : null;
+    if (!target) return;
+    const id = Number(target.dataset.blogId);
+    if (!id) return;
+    const post = blogState.posts.find((item) => item.id === id);
+    if (!post) return;
+
+    const action = target.dataset.blogAction;
+    if (action === 'edit') {
+      populateBlogForm(post);
+      clearInlineStatus(blogStatus);
+      blogForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (action === 'toggle') {
+      const publish = target.dataset.blogPublish !== '0';
+      renderInlineStatus(
+        blogStatus,
+        'progress',
+        publish ? 'Publishing post…' : 'Unpublishing post…',
+        publish ? 'Making the post visible on the public blog.' : 'Hiding the post from the public blog.'
+      );
+      api('publish-blog-post', {
+        method: 'POST',
+        body: { id, publish },
+      })
+        .then(({ post: updated }) => {
+          const normalized = normalizeBlogPost(updated);
+          upsertBlogPost(normalized);
+          renderBlogPosts();
+          if (blogState.editingId === id) {
+            blogState.editingStatus = normalized.status;
+            populateBlogForm(normalized);
+          } else {
+            updateBlogActions();
+          }
+          renderInlineStatus(
+            blogStatus,
+            'success',
+            publish ? 'Post published' : 'Post unpublished',
+            publish ? 'The article now appears on the public blog.' : 'The article no longer appears on the public blog.'
+          );
+        })
+        .catch((error) => {
+          renderInlineStatus(
+            blogStatus,
+            'error',
+            publish ? 'Publish failed' : 'Update failed',
+            error.message || 'Unable to update publish status.'
+          );
+        });
+      return;
+    }
+
+    if (action === 'archive') {
+      if (post.status === 'archived') {
+        renderInlineStatus(blogStatus, 'info', 'Already archived', 'Select Publish to restore the post.');
+        return;
+      }
+      if (!window.confirm('Archive this post? It will no longer appear on the public blog.')) {
+        return;
+      }
+      renderInlineStatus(blogStatus, 'progress', 'Archiving post…', 'Removing the article from the public blog.');
+      api('archive-blog-post', {
+        method: 'POST',
+        body: { id },
+      })
+        .then(({ post: updated }) => {
+          const normalized = normalizeBlogPost(updated);
+          upsertBlogPost(normalized);
+          renderBlogPosts();
+          if (blogState.editingId === id) {
+            blogState.editingStatus = normalized.status;
+            populateBlogForm(normalized);
+          } else {
+            updateBlogActions();
+          }
+          renderInlineStatus(blogStatus, 'info', 'Post archived', 'The article remains internal until republished.');
+        })
+        .catch((error) => {
+          renderInlineStatus(blogStatus, 'error', 'Archive failed', error.message || 'Unable to archive the post.');
+        });
+    }
+  });
+
   function formatDate(value) {
     if (!value) return '--';
     const date = new Date(value);
@@ -2700,6 +3089,15 @@
     renderSubsidy();
     renderAnalytics();
     renderGovernance();
+    if (config.blog?.posts) {
+      blogState.posts = config.blog.posts.map(normalizeBlogPost);
+    } else {
+      blogState.posts = [];
+    }
+    syncBlogState();
+    state.blog = config.blog || { posts: [] };
+    renderBlogPosts();
+    resetBlogForm();
   }
 
   function loadBootstrap() {
@@ -2722,6 +3120,15 @@
         if (data.analytics) state.analytics = data.analytics;
         if (data.governance) state.governance = data.governance;
         if (data.retention) state.retention = data.retention;
+        if (data.blog?.posts) {
+          blogState.posts = data.blog.posts.map(normalizeBlogPost);
+        }
+        if (data.blog) {
+          state.blog = data.blog;
+        } else {
+          state.blog = { posts: [] };
+        }
+        syncBlogState();
         updateMetricCards(state.metrics.counts);
         updateSystemHealth(state.metrics.system);
         hydrateRetention();
@@ -2745,6 +3152,18 @@
         renderSubsidy();
         renderAnalytics();
         renderGovernance();
+        renderBlogPosts();
+        if (blogState.editingId) {
+          const current = blogState.posts.find((post) => post.id === blogState.editingId);
+          if (current) {
+            blogState.editingStatus = current.status;
+            populateBlogForm(current);
+          } else {
+            resetBlogForm();
+          }
+        } else {
+          resetBlogForm();
+        }
       })
       .catch((error) => {
         showToast('Failed to load admin data', error.message, 'error');
