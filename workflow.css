@@ -1,18 +1,19 @@
-:root {
-  --workflow-hero-bg: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 64, 175, 0.9));
-  --workflow-card-border: rgba(148, 163, 184, 0.28);
-  --workflow-card-bg: #ffffff;
-  --workflow-muted: #64748b;
-  --workflow-success: #15803d;
-  --workflow-warning: #c2410c;
-  --workflow-critical: #dc2626;
-  --workflow-info: #0f172a;
-  --workflow-highlight: rgba(59, 130, 246, 0.1);
+.portal-embedded-app--workflow {
+  --workflow-hero-bg: linear-gradient(135deg, rgba(37, 99, 235, 0.58), rgba(12, 74, 110, 0.38));
+  --workflow-card-border: rgba(148, 163, 184, 0.24);
+  --workflow-card-bg: rgba(15, 23, 42, 0.82);
+  --workflow-surface-soft: rgba(15, 23, 42, 0.68);
+  --workflow-muted: rgba(203, 213, 225, 0.78);
+  --workflow-success: #34d399;
+  --workflow-warning: #fbbf24;
+  --workflow-critical: #f87171;
+  --workflow-info: #93c5fd;
+  --workflow-highlight: rgba(37, 99, 235, 0.18);
 }
 
 .workflow-main {
-  background: var(--base-50);
-  color: var(--base-900);
+  background: transparent;
+  color: #e2e8f0;
 }
 
 .workflow-hero {
@@ -769,6 +770,207 @@
 .error-log time {
   font-size: 0.75rem;
   color: var(--workflow-muted);
+}
+
+.portal-embedded-app--workflow .badge {
+  background: rgba(37, 99, 235, 0.22);
+  color: #bfdbfe;
+}
+
+.portal-embedded-app--workflow .metric-card,
+.portal-embedded-app--workflow .card,
+.portal-embedded-app--workflow .task-column,
+.portal-embedded-app--workflow .task-card,
+.portal-embedded-app--workflow .document-card,
+.portal-embedded-app--workflow .approval-card,
+.portal-embedded-app--workflow .checklist-log li,
+.portal-embedded-app--workflow .amc-list li,
+.portal-embedded-app--workflow .backup-history li,
+.portal-embedded-app--workflow .alert-panel li,
+.portal-embedded-app--workflow .duplicate-review,
+.portal-embedded-app--workflow .notifications-panel,
+.portal-embedded-app--workflow .analytics-highlight,
+.portal-embedded-app--workflow .resilience-grid > article,
+.portal-embedded-app--workflow .post-sale-layout > article,
+.portal-embedded-app--workflow .observability-grid > article,
+.portal-embedded-app--workflow .activity-log li,
+.portal-embedded-app--workflow .error-log li {
+  background: var(--workflow-card-bg);
+  border-color: var(--workflow-card-border);
+  color: #f8fafc;
+  box-shadow: 0 18px 40px -32px rgba(2, 6, 23, 0.95);
+}
+
+.portal-embedded-app--workflow .workflow-hero__points li,
+.portal-embedded-app--workflow .workflow-main p,
+.portal-embedded-app--workflow .workflow-main li,
+.portal-embedded-app--workflow .workflow-main label,
+.portal-embedded-app--workflow .workflow-main span {
+  color: var(--workflow-muted);
+}
+
+.portal-embedded-app--workflow .workflow-main strong,
+.portal-embedded-app--workflow .workflow-main h3,
+.portal-embedded-app--workflow .workflow-main h4 {
+  color: #f8fafc;
+}
+
+.portal-embedded-app--workflow .form-control,
+.portal-embedded-app--workflow select,
+.portal-embedded-app--workflow textarea,
+.portal-embedded-app--workflow input,
+.portal-embedded-app--workflow .toggle-group input {
+  background: var(--workflow-surface-soft);
+  border: 1px solid var(--workflow-card-border);
+  color: #f8fafc;
+  box-shadow: none;
+}
+
+.portal-embedded-app--workflow .form-control:focus,
+.portal-embedded-app--workflow select:focus,
+.portal-embedded-app--workflow textarea:focus,
+.portal-embedded-app--workflow input:focus {
+  border-color: rgba(96, 165, 250, 0.8);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+  outline: none;
+}
+
+.portal-embedded-app--workflow .form-alert {
+  background: rgba(37, 99, 235, 0.12);
+  border: 1px solid rgba(37, 99, 235, 0.32);
+  color: #cbd5f5;
+}
+
+.portal-embedded-app--workflow .form-alert.is-success {
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #bbf7d0;
+}
+
+.portal-embedded-app--workflow .form-alert.is-error {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #fecaca;
+}
+
+.portal-embedded-app--workflow .ticket-table th,
+.portal-embedded-app--workflow .ticket-table td {
+  color: var(--workflow-muted);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.portal-embedded-app--workflow .ticket-table tbody tr:hover,
+.portal-embedded-app--workflow .ticket-table tbody tr.is-active {
+  background: var(--workflow-highlight);
+}
+
+.portal-embedded-app--workflow .status-new {
+  background: rgba(59, 130, 246, 0.22);
+  color: #dbeafe;
+}
+
+.portal-embedded-app--workflow .status-in-progress {
+  background: rgba(251, 191, 36, 0.22);
+  color: #fef08a;
+}
+
+.portal-embedded-app--workflow .status-waiting {
+  background: rgba(94, 234, 212, 0.18);
+  color: #99f6e4;
+}
+
+.portal-embedded-app--workflow .status-resolved {
+  background: rgba(34, 197, 94, 0.2);
+  color: #bbf7d0;
+}
+
+.portal-embedded-app--workflow .priority-chip {
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.portal-embedded-app--workflow .priority-critical {
+  background: rgba(248, 113, 113, 0.22);
+  color: #fecaca;
+}
+
+.portal-embedded-app--workflow .priority-high {
+  background: rgba(251, 191, 36, 0.24);
+  color: #fde68a;
+}
+
+.portal-embedded-app--workflow .priority-medium {
+  background: rgba(59, 130, 246, 0.22);
+  color: #bfdbfe;
+}
+
+.portal-embedded-app--workflow .priority-low {
+  background: rgba(34, 197, 94, 0.22);
+  color: #86efac;
+}
+
+.portal-embedded-app--workflow .tag-chip {
+  background: rgba(15, 118, 110, 0.22);
+  color: #5eead4;
+}
+
+.portal-embedded-app--workflow .document-actions .status-badge {
+  background: rgba(37, 99, 235, 0.24);
+  color: #dbeafe;
+}
+
+.portal-embedded-app--workflow .timeline {
+  border-left: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.portal-embedded-app--workflow .timeline__item::before {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.9), rgba(148, 163, 184, 0.6));
+}
+
+.portal-embedded-app--workflow .progress-track {
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.portal-embedded-app--workflow .progress-track__bar {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(14, 165, 233, 0.7));
+}
+
+.portal-embedded-app--workflow .empty-state {
+  background: rgba(15, 23, 42, 0.68);
+  border-color: rgba(148, 163, 184, 0.25);
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.portal-embedded-app--workflow .task-card textarea,
+.portal-embedded-app--workflow textarea {
+  background: var(--workflow-surface-soft);
+  border-color: var(--workflow-card-border);
+  color: #f8fafc;
+}
+
+.portal-embedded-app--workflow .task-card footer,
+.portal-embedded-app--workflow .approval-card footer {
+  border-top: 1px dashed rgba(148, 163, 184, 0.18);
+  padding-top: 0.75rem;
+}
+
+.portal-embedded-app--workflow .anomaly-list li {
+  background: rgba(248, 113, 113, 0.16);
+  border-left-color: rgba(248, 113, 113, 0.6);
+  color: #fecaca;
+}
+
+.portal-embedded-app--workflow .alert-panel__item {
+  background: var(--workflow-card-bg);
+  border-color: var(--workflow-card-border);
+  box-shadow: none;
+}
+
+.portal-embedded-app--workflow .alert-panel__item small {
+  color: var(--workflow-muted);
+}
+
+.portal-embedded-app--workflow .notifications-panel {
+  border: 1px solid var(--workflow-card-border);
 }
 
 @media (max-width: 1024px) {
