@@ -93,6 +93,7 @@
   const downloadImageButton = document.querySelector('[data-action="download-image"]');
   const generateAudioButton = document.querySelector('[data-action="generate-audio"]');
   const downloadAudioButton = document.querySelector('[data-action="download-audio"]');
+  const AUTOBLOG_THEME_POOL = ['regional', 'technical', 'policy'];
   const backupStatus = document.querySelector('[data-backup-status]');
   const backupScheduleStatus = document.querySelector('[data-backup-schedule-status]');
   const backupLastInput = document.querySelector('[data-backup-last]');
@@ -153,7 +154,7 @@
     governance: config.governance || { roleMatrix: [], pendingReviews: [], activityLogs: [] },
     retention: config.retention || { archiveDays: 90, purgeDays: 180, includeAudit: true },
     ai: { ...DEFAULT_AI_STATE },
-    aiAutoblog: { enabled: false, theme: 'regional', time: '09:00' },
+    aiAutoblog: { enabled: false, theme: 'regional', time: '09:00', lastRandomTheme: null },
   };
 
   const blogState = {
@@ -1236,6 +1237,29 @@
     return imageData;
   }
 
+  function pickRandomTheme(previousTheme) {
+    const pool = AUTOBLOG_THEME_POOL.slice();
+    if (!pool.length) {
+      return 'regional';
+    }
+    let choices = pool;
+    if (previousTheme && pool.length > 1) {
+      const filtered = pool.filter((theme) => theme !== previousTheme);
+      if (filtered.length) {
+        choices = filtered;
+      }
+    }
+    const index = Math.floor(Math.random() * choices.length);
+    return choices[index];
+  }
+
+  function describeAutoblogRotation(theme, latestTheme) {
+    if (theme === 'random') {
+      return latestTheme ? `rotating themes (latest: ${capitalize(latestTheme)})` : 'rotating themes';
+    }
+    return `${capitalize(theme)} topics`;
+  }
+
   function queueAiDraftForReview() {
     const details = extractAiDraftDetails();
     if (!details) {
@@ -1293,10 +1317,12 @@
     autoblogTimer = null;
     const normalizedTheme = theme || 'regional';
     const scheduleTime = time || '09:00';
+    const previousRandomTheme = state.aiAutoblog?.lastRandomTheme || null;
+    const actualTheme = normalizedTheme === 'random' ? pickRandomTheme(previousRandomTheme) : normalizedTheme;
     const now = new Date();
     const dateLabel = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
-    const topic = `${capitalize(normalizedTheme)} insights – ${dateLabel}`;
-    const keywordTags = [capitalize(normalizedTheme), 'Scheduled'];
+    const topic = `${capitalize(actualTheme)} insights – ${dateLabel}`;
+    const keywordTags = [capitalize(actualTheme), 'Scheduled'];
     const body = buildBlogDraft({
       topic,
       tone: 'informative',
@@ -1304,8 +1330,9 @@
       keywords: keywordTags.join(', '),
       outline: '',
     });
-    const excerpt = buildExcerptFromHtml(body, `Automated ${normalizedTheme} insights for Dentweb readers.`);
-    const coverPrompt = `${capitalize(normalizedTheme)} solar blog illustration ${now.getFullYear()}`;
+    const excerpt = buildExcerptFromHtml(body, `Automated ${capitalize(actualTheme)} insights for Dentweb readers.`);
+    const monthLabel = now.toLocaleDateString('en-IN', { month: 'long' });
+    const coverPrompt = `${capitalize(actualTheme)} solar blog illustration ${monthLabel} ${now.getFullYear()}`;
     const coverImage = createImageData(coverPrompt, '16:9');
     const payload = {
       title: topic,
@@ -1336,14 +1363,20 @@
           theme: normalizedTheme,
           time: scheduleTime,
           lastPublishedAt: new Date().toISOString(),
+          lastRandomTheme: normalizedTheme === 'random' ? actualTheme : null,
         };
+        const descriptor = describeAutoblogRotation(normalizedTheme, actualTheme);
         renderInlineStatus(
           aiScheduleStatus,
           'success',
           'Schedule active',
-          `Daily ${capitalize(normalizedTheme)} posts will publish automatically at ${scheduleTime}. Latest article went live.`
+          `Daily ${descriptor} will publish automatically at ${scheduleTime}. Latest article went live.`
         );
-        showToast('Scheduled blog published', `Auto-blog “${normalized.title}” published without review.`, 'success');
+        showToast(
+          'Scheduled blog published',
+          `Auto-blog “${normalized.title}” published without review with a ${capitalize(actualTheme)} focus.`,
+          'success'
+        );
       })
       .catch((error) => {
         renderInlineStatus(
@@ -2055,7 +2088,7 @@
     const formData = new FormData(aiBlogForm);
     const topic = (formData.get('topic') || '').toString().trim();
     if (!topic) {
-      showToast('Topic required', 'Provide a topic to generate the draft.', 'warning');
+      showToast('Idea required', 'Describe what you want Gemini to cover before generating a draft.', 'warning');
       return;
     }
     const tone = (formData.get('tone') || 'informative').toString();
@@ -2067,7 +2100,7 @@
     if (aiBlogPreview) {
       aiBlogPreview.innerHTML = draft;
     }
-    const promptFallback = (aiImagePrompt?.value || topic || '').toString().trim();
+    const promptFallback = (aiImagePrompt?.value || topic || 'Solar leadership story').toString().trim();
     const aspectFallback = aiImageAspect?.value || state.ai.coverAspect || '16:9';
     state.ai = {
       ...state.ai,
@@ -2078,16 +2111,29 @@
       outline,
       keywords,
       keywordsText: keywordsInput,
-      coverPrompt: state.ai.coverPrompt || promptFallback,
-      coverAspect: state.ai.coverAspect || aspectFallback,
+      coverPrompt: promptFallback,
+      coverAspect: aspectFallback,
     };
+    const coverImage = ensureAiCoverImage({ title: topic, prompt: promptFallback, aspect: aspectFallback });
+    if (aiImagePrompt) {
+      aiImagePrompt.value = promptFallback;
+    }
+    if (coverImage && aiImageNode) {
+      aiImageNode.alt = `Gemini generated cover for ${topic}`;
+    }
+    renderInlineStatus(
+      aiImageStatus,
+      'success',
+      'Cover paired automatically',
+      `Gemini rendered artwork for “${topic}”.`
+    );
     renderInlineStatus(
       aiStatus,
       'success',
-      'Draft generated',
-      'Review the Gemini-created blog before routing it for publishing.'
+      'Draft ready for review',
+      'Gemini prepared the article and cover. Review it before routing to Blog Publishing.'
     );
-    showToast('AI draft generated', `Blog draft for “${topic}” is ready.`, 'success');
+    showToast('Draft & cover generated', `Gemini drafted “${topic}” and paired a cover image.`, 'success');
   });
 
   aiBlogForm?.addEventListener('click', (event) => {
@@ -2097,6 +2143,9 @@
       state.ai = { ...DEFAULT_AI_STATE };
       if (aiBlogPreview) {
         aiBlogPreview.innerHTML = '<p class="dashboard-muted">Draft output will appear here for preview and editing.</p>';
+      }
+      if (aiImagePrompt) {
+        aiImagePrompt.value = 'Sunlit rooftop solar panels in Ranchi';
       }
       if (aiImageNode) {
         if (defaultAiImageSrc) aiImageNode.src = defaultAiImageSrc;
@@ -2118,11 +2167,15 @@
     const enabled = Boolean(aiAutoblogToggle.checked);
     if (aiAutoblogTime) aiAutoblogTime.disabled = !enabled;
     if (aiAutoblogTheme) aiAutoblogTheme.disabled = !enabled;
+    const previousRandomTheme = state.aiAutoblog?.lastRandomTheme || null;
+    const selectedTheme = aiAutoblogTheme?.value || state.aiAutoblog?.theme || 'regional';
+    const scheduleTime = aiAutoblogTime?.value || state.aiAutoblog?.time || '09:00';
     state.aiAutoblog = {
       ...(state.aiAutoblog || {}),
       enabled,
-      time: aiAutoblogTime?.value || state.aiAutoblog?.time || '09:00',
-      theme: aiAutoblogTheme?.value || state.aiAutoblog?.theme || 'regional',
+      time: scheduleTime,
+      theme: selectedTheme,
+      lastRandomTheme: enabled ? previousRandomTheme : null,
     };
     if (!enabled) {
       if (autoblogTimer) {
@@ -2131,11 +2184,12 @@
       }
       clearInlineStatus(aiScheduleStatus);
     } else {
+      const descriptor = describeAutoblogRotation(selectedTheme);
       renderInlineStatus(
         aiScheduleStatus,
         'info',
         'Auto-blog enabled',
-        `Daily publishing at ${state.aiAutoblog.time || '09:00'}.`
+        `Daily ${descriptor} will publish at ${scheduleTime}.`
       );
     }
   });
@@ -2150,18 +2204,28 @@
     }
     const time = aiAutoblogTime?.value || '09:00';
     const theme = aiAutoblogTheme?.value || 'regional';
-    state.aiAutoblog = { enabled: true, time, theme };
+    const previousRandomTheme = state.aiAutoblog?.lastRandomTheme || null;
+    state.aiAutoblog = {
+      enabled: true,
+      time,
+      theme,
+      lastRandomTheme: theme === 'random' ? previousRandomTheme : null,
+    };
     if (autoblogTimer) {
       clearTimeout(autoblogTimer);
       autoblogTimer = null;
     }
+    const descriptor = describeAutoblogRotation(
+      theme,
+      theme === 'random' ? null : state.aiAutoblog.lastRandomTheme
+    );
     renderInlineStatus(
       aiScheduleStatus,
       'progress',
       'Schedule saved',
-      `Auto-blog will publish daily at ${time} covering ${capitalize(theme)} topics.`
+      `Auto-blog will publish daily at ${time} covering ${descriptor}.`
     );
-    showToast('Auto-blog scheduled', `Daily blog generation configured for ${time}.`, 'success');
+    showToast('Auto-blog scheduled', `Daily ${descriptor} configured for ${time}.`, 'success');
     autoblogTimer = window.setTimeout(() => {
       runScheduledAutoblogPublish({ theme, time });
     }, 400);
@@ -2171,7 +2235,7 @@
     if (aiAutoblogToggle) aiAutoblogToggle.checked = false;
     if (aiAutoblogTime) aiAutoblogTime.disabled = true;
     if (aiAutoblogTheme) aiAutoblogTheme.disabled = true;
-    state.aiAutoblog = { enabled: false, theme: 'regional', time: '09:00' };
+    state.aiAutoblog = { enabled: false, theme: 'regional', time: '09:00', lastRandomTheme: null };
     if (autoblogTimer) {
       clearTimeout(autoblogTimer);
       autoblogTimer = null;
@@ -2188,8 +2252,8 @@
       aiImageNode.alt = `Gemini generated cover for ${prompt}`;
     }
     state.ai = { ...state.ai, coverImage: imageData, coverPrompt: prompt, coverAspect: aspect };
-    renderInlineStatus(aiImageStatus, 'success', 'Gemini cover ready', `Prompt: ${prompt}`);
-    showToast('Cover image generated', 'Gemini rendered a banner-ready cover.', 'success');
+    renderInlineStatus(aiImageStatus, 'success', 'Cover refreshed', `Prompt: ${prompt}`);
+    showToast('Cover image regenerated', 'Gemini rendered a new banner-ready cover.', 'success');
   });
 
   downloadImageButton?.addEventListener('click', () => {

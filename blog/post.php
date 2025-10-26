@@ -52,6 +52,37 @@ $tags = array_map(static fn ($tag) => is_array($tag) ? $tag['name'] : $tag, $pos
 $adjacent = blog_get_adjacent_posts($db, (int) $post['id']);
 $related = blog_related_posts($db, (int) $post['id'], 3);
 
+if (isset($_GET['format']) && $_GET['format'] === 'json') {
+    $imageForJson = $post['cover_image'] ?? $coverImage;
+    if ($imageForJson !== null && $imageForJson !== '' && !preg_match('#^(https?:|data:)#i', (string) $imageForJson)) {
+        $imageForJson = absolute_url('/' . ltrim((string) $imageForJson, '/'));
+    }
+    if ($imageForJson === '') {
+        $imageForJson = null;
+    }
+    header('Content-Type: application/json');
+    echo json_encode([
+        'status' => 'ok',
+        'post' => [
+            'id' => (int) ($post['id'] ?? 0),
+            'title' => $post['title'] ?? '',
+            'slug' => $post['slug'] ?? $slug,
+            'excerpt' => $post['excerpt'] ?? '',
+            'body_html' => $post['body_html'] ?? '',
+            'cover_image' => $imageForJson,
+            'cover_image_alt' => $coverAltText,
+            'author_name' => $post['author_name'] ?? '',
+            'published_at' => $post['published_at'] ?? '',
+            'updated_at' => $post['updated_at'] ?? '',
+            'published_ist' => format_ist($post['published_at'] ?? ''),
+            'updated_ist' => format_ist($post['updated_at'] ?? ''),
+            'tags' => $post['tags'] ?? [],
+            'canonical_url' => $canonicalUrl,
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 function render_not_found(): void
 {
     http_response_code(404);

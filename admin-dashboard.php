@@ -1980,8 +1980,15 @@ for ($i = 0; $i < 14; $i++) {
                 <h3>Generate AI-assisted blog</h3>
                 <div class="dashboard-form-grid dashboard-form-grid--two">
                   <label>
-                    Topic
-                    <input type="text" name="topic" value="Solar Benefits in Jharkhand" placeholder="Enter topic" required data-ai-topic />
+                    Describe what you want to post about
+                    <input
+                      type="text"
+                      name="topic"
+                      value="Solar Benefits in Jharkhand"
+                      placeholder="Share the idea, audience, or outcome you want Gemini to cover"
+                      required
+                      data-ai-topic
+                    />
                   </label>
                   <label>
                     Tone
@@ -2021,7 +2028,7 @@ for ($i = 0; $i < 14; $i++) {
 
               <article class="dashboard-form">
                 <h3>Cover image generation</h3>
-                <p>Use the configured image model to render a banner-ready creative.</p>
+                <p>Gemini now pairs a cover with every draft automatically. Regenerate it here if you want a fresh visual.</p>
                 <div class="dashboard-form-grid dashboard-form-grid--two">
                   <label>
                     Prompt
@@ -2044,7 +2051,7 @@ for ($i = 0; $i < 14; $i++) {
                   />
                 </div>
                 <div>
-                  <button type="button" class="btn btn-secondary" data-action="generate-image">Generate cover image</button>
+                  <button type="button" class="btn btn-secondary" data-action="generate-image">Regenerate cover image</button>
                   <button type="button" class="btn btn-ghost" data-action="download-image">Download</button>
                 </div>
                 <div class="dashboard-inline-status" data-ai-image-status hidden></div>
@@ -2090,6 +2097,7 @@ for ($i = 0; $i < 14; $i++) {
                     <option value="regional" selected>Regional success stories</option>
                     <option value="technical">Technical explainers</option>
                     <option value="policy">Policy &amp; subsidy updates</option>
+                    <option value="random">Random rotation</option>
                   </select>
                 </label>
                 <div>

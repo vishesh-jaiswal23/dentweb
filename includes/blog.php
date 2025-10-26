@@ -298,9 +298,9 @@ function blog_get_latest_update(PDO $db): ?string
 function blog_get_post_by_slug(PDO $db, string $slug, bool $includeDrafts = false): ?array
 {
     $condition = $includeDrafts ? '1=1' : "blog_posts.status = 'published'";
-    $stmt = $db->prepare(<<<'SQL'
+    $stmt = $db->prepare(<<<SQL
 SELECT
-    blog_posts.*, 
+    blog_posts.*,
     GROUP_CONCAT(blog_tags.name, '\u0001') AS tag_names,
     GROUP_CONCAT(blog_tags.slug, '\u0001') AS tag_slugs
 FROM blog_posts

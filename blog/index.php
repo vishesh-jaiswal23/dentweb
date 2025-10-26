@@ -181,9 +181,30 @@ if ($tag !== '') {
         .blog-pagination .current { background: var(--base-900); color: #fff; }
         .tag-cloud { display: flex; gap: 0.5rem; flex-wrap: wrap; }
         .tag-chip { display: inline-flex; align-items: center; gap: 0.3rem; border-radius: 999px; padding: 0.3rem 0.8rem; background: rgba(37, 99, 235, 0.12); color: #1d4ed8; font-size: 0.85rem; font-weight: 600; }
+        body.modal-open { overflow: hidden; }
+        .blog-modal { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 1.5rem; z-index: 1000; }
+        .blog-modal[hidden] { display: none; }
+        .blog-modal__backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.55); }
+        .blog-modal__dialog { position: relative; z-index: 1; background: #fff; border-radius: 1.5rem; max-width: min(960px, 100%); width: 100%; max-height: 90vh; overflow: hidden; box-shadow: 0 32px 80px -40px rgba(15, 23, 42, 0.55); display: grid; grid-template-rows: auto 1fr; }
+        .blog-modal__close { position: absolute; top: 1rem; right: 1rem; border: none; background: rgba(15, 23, 42, 0.08); color: var(--base-700); width: 2.5rem; height: 2.5rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s ease; }
+        .blog-modal__close:hover, .blog-modal__close:focus { background: rgba(15, 23, 42, 0.18); outline: none; }
+        .blog-modal__scroll { overflow-y: auto; padding: 2.5rem 3rem 2.75rem; display: grid; gap: 1.5rem; }
+        .blog-modal__content-wrap { display: grid; gap: 1.5rem; }
+        .blog-modal__header { display: grid; gap: 0.75rem; }
+        .blog-modal__meta { color: var(--base-500); font-weight: 600; display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+        .blog-modal__hero { width: 100%; border-radius: 1.25rem; object-fit: cover; max-height: 360px; }
+        .blog-modal__tags { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .blog-modal__tags span { background: rgba(37, 99, 235, 0.12); color: #1d4ed8; border-radius: 999px; padding: 0.35rem 0.9rem; font-size: 0.85rem; font-weight: 600; }
+        .blog-modal__content { display: grid; gap: 1rem; line-height: 1.7; color: var(--base-700); }
+        .blog-modal__content h2, .blog-modal__content h3, .blog-modal__content h4 { margin-top: 1.5rem; color: var(--base-900); }
+        .blog-modal__loader, .blog-modal__error { text-align: center; padding: 2rem 1rem; border-radius: 1rem; background: rgba(15, 23, 42, 0.04); color: var(--base-600); font-weight: 600; display: grid; gap: 0.5rem; justify-items: center; }
+        .blog-modal__loader[hidden], .blog-modal__error[hidden] { display: none; }
         @media (max-width: 680px) {
             .blog-filters form { grid-template-columns: 1fr; }
             .blog-card img { height: 200px; }
+            .blog-modal__dialog { max-height: 100vh; border-radius: 1.1rem; }
+            .blog-modal__scroll { padding: 2rem 1.5rem 2.25rem; }
+            .blog-modal__hero { max-height: 220px; }
         }
     </style>
 </head>
@@ -273,7 +294,14 @@ if ($tag !== '') {
                                         <?php endforeach; ?>
                                     </div>
                                 <?php endif; ?>
-                                <a class="btn btn-secondary" href="<?= htmlspecialchars('post.php?slug=' . urlencode($post['slug']), ENT_QUOTES | ENT_HTML5) ?>">Read more</a>
+                                <a
+                                    class="btn btn-secondary"
+                                    href="<?= htmlspecialchars('post.php?slug=' . urlencode($post['slug']), ENT_QUOTES | ENT_HTML5) ?>"
+                                    data-read-more
+                                    data-post-slug="<?= htmlspecialchars($post['slug'], ENT_QUOTES | ENT_HTML5) ?>"
+                                    aria-haspopup="dialog"
+                                    aria-controls="blog-modal"
+                                >Read more</a>
                             </div>
                         </article>
                     <?php endforeach; ?>
@@ -312,8 +340,210 @@ if ($tag !== '') {
             <?php endif; ?>
         </div>
     </section>
+
+    <div class="blog-modal" id="blog-modal" data-blog-modal hidden>
+        <div class="blog-modal__backdrop" data-blog-modal-overlay></div>
+        <article class="blog-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="blog-modal-title" tabindex="-1" data-blog-modal-dialog>
+            <button type="button" class="blog-modal__close" data-blog-modal-close aria-label="Close blog post">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+            <div class="blog-modal__scroll">
+                <div class="blog-modal__loader" data-blog-modal-loader role="status">
+                    <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+                    <span>Loading post…</span>
+                </div>
+                <div class="blog-modal__error" data-blog-modal-error hidden role="alert">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                    <p>We couldn’t load this post. Please try again in a moment.</p>
+                </div>
+                <div class="blog-modal__content-wrap" data-blog-modal-content hidden>
+                    <header class="blog-modal__header">
+                        <p class="blog-modal__meta" data-blog-modal-meta></p>
+                        <h2 id="blog-modal-title" data-blog-modal-title></h2>
+                        <div class="blog-modal__tags" data-blog-modal-tags></div>
+                    </header>
+                    <img class="blog-modal__hero" data-blog-modal-hero alt="" hidden />
+                    <div class="blog-modal__content" data-blog-modal-body></div>
+                </div>
+            </div>
+        </article>
+    </div>
 </main>
 <footer class="site-footer"></footer>
 <script src="../script.js" defer></script>
+<script>
+    (function () {
+        const modal = document.querySelector('[data-blog-modal]');
+        if (!modal) return;
+        const dialog = modal.querySelector('[data-blog-modal-dialog]');
+        const overlay = modal.querySelector('[data-blog-modal-overlay]');
+        const closeButton = modal.querySelector('[data-blog-modal-close]');
+        const loader = modal.querySelector('[data-blog-modal-loader]');
+        const errorNode = modal.querySelector('[data-blog-modal-error]');
+        const contentWrap = modal.querySelector('[data-blog-modal-content]');
+        const titleNode = modal.querySelector('[data-blog-modal-title]');
+        const metaNode = modal.querySelector('[data-blog-modal-meta]');
+        const tagsNode = modal.querySelector('[data-blog-modal-tags]');
+        const heroNode = modal.querySelector('[data-blog-modal-hero]');
+        const bodyNode = modal.querySelector('[data-blog-modal-body]');
+        const scrollContainer = modal.querySelector('.blog-modal__scroll');
+        let lastFocused = null;
+
+        function resetModalState() {
+            if (contentWrap) contentWrap.hidden = true;
+            if (loader) loader.hidden = false;
+            if (errorNode) errorNode.hidden = true;
+            if (titleNode) titleNode.textContent = '';
+            if (metaNode) metaNode.textContent = '';
+            if (tagsNode) tagsNode.innerHTML = '';
+            if (bodyNode) bodyNode.innerHTML = '';
+            if (heroNode) {
+                heroNode.hidden = true;
+                heroNode.removeAttribute('src');
+                heroNode.alt = '';
+            }
+            if (dialog) dialog.setAttribute('aria-busy', 'true');
+        }
+
+        function showError(message) {
+            if (loader) loader.hidden = true;
+            if (errorNode) {
+                errorNode.hidden = false;
+                const paragraph = errorNode.querySelector('p');
+                if (paragraph) {
+                    paragraph.textContent = message;
+                }
+            }
+            if (contentWrap) contentWrap.hidden = true;
+            if (dialog) dialog.removeAttribute('aria-busy');
+        }
+
+        function renderTags(tags) {
+            if (!tagsNode) return;
+            tagsNode.innerHTML = '';
+            const list = Array.isArray(tags) ? tags : [];
+            list.forEach((tag) => {
+                const label = typeof tag === 'string' ? tag : (tag && tag.name);
+                if (!label) return;
+                const chip = document.createElement('span');
+                chip.textContent = label;
+                tagsNode.appendChild(chip);
+            });
+        }
+
+        function renderPost(post) {
+            if (!post) {
+                showError('We couldn’t load this post. Please try again in a moment.');
+                return;
+            }
+            if (loader) loader.hidden = true;
+            if (errorNode) errorNode.hidden = true;
+            if (contentWrap) contentWrap.hidden = false;
+            if (dialog) dialog.removeAttribute('aria-busy');
+            if (titleNode) titleNode.textContent = post.title || 'Blog post';
+            if (metaNode) {
+                const metaParts = [];
+                if (post.published_ist) {
+                    metaParts.push(`Published ${post.published_ist} IST`);
+                }
+                if (post.updated_ist && post.updated_ist !== post.published_ist) {
+                    metaParts.push(`Updated ${post.updated_ist} IST`);
+                }
+                if (post.author_name) {
+                    metaParts.push(`By ${post.author_name}`);
+                }
+                metaNode.textContent = metaParts.join(' · ');
+            }
+            if (heroNode) {
+                if (post.cover_image) {
+                    heroNode.src = post.cover_image;
+                    heroNode.alt = post.cover_image_alt || post.title || 'Blog cover image';
+                    heroNode.hidden = false;
+                } else {
+                    heroNode.hidden = true;
+                    heroNode.removeAttribute('src');
+                }
+            }
+            renderTags(post.tags);
+            if (bodyNode) {
+                bodyNode.innerHTML = post.body_html || '';
+            }
+            if (scrollContainer) scrollContainer.scrollTo(0, 0);
+        }
+
+        function closeModal() {
+            modal.hidden = true;
+            document.body.classList.remove('modal-open');
+            if (dialog) dialog.removeAttribute('aria-busy');
+            if (scrollContainer) scrollContainer.scrollTo(0, 0);
+            resetModalState();
+            if (lastFocused && typeof lastFocused.focus === 'function') {
+                lastFocused.focus();
+            }
+            lastFocused = null;
+        }
+
+        function openModal(slug, trigger) {
+            if (!slug) return;
+            lastFocused = trigger || document.activeElement;
+            modal.hidden = false;
+            document.body.classList.add('modal-open');
+            resetModalState();
+            if (dialog) {
+                window.requestAnimationFrame(() => {
+                    dialog.focus();
+                });
+            }
+            fetch(`post.php?slug=${encodeURIComponent(slug)}&format=json`, {
+                headers: { Accept: 'application/json' },
+            })
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error('Failed to load');
+                    }
+                    return response.json();
+                })
+                .then((payload) => {
+                    if (!payload || payload.status !== 'ok' || !payload.post) {
+                        throw new Error('Invalid payload');
+                    }
+                    renderPost(payload.post);
+                })
+                .catch(() => {
+                    showError('We couldn’t load this post. Please try again in a moment.');
+                });
+        }
+
+        document.addEventListener('click', (event) => {
+            const trigger = event.target.closest('[data-read-more]');
+            if (!trigger) return;
+            const slug = trigger.getAttribute('data-post-slug');
+            if (!slug) return;
+            event.preventDefault();
+            openModal(slug, trigger);
+        });
+
+        if (closeButton) {
+            closeButton.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeModal();
+            });
+        }
+
+        if (overlay) {
+            overlay.addEventListener('click', (event) => {
+                event.preventDefault();
+                closeModal();
+            });
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !modal.hidden) {
+                event.preventDefault();
+                closeModal();
+            }
+        });
+    })();
+</script>
 </body>
 </html>
