@@ -24,6 +24,8 @@ try {
 $db = get_db();
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'];
+$actor = current_user();
+$actorId = (int) ($actor['id'] ?? 0);
 
 try {
     switch ($action) {
@@ -79,6 +81,37 @@ try {
             require_method('GET');
             respond_success(current_metrics($db));
             break;
+        case 'list-blog-posts':
+            require_method('GET');
+            respond_success(['posts' => blog_admin_list($db)]);
+            break;
+        case 'get-blog-post':
+            require_method('GET');
+            respond_success(['post' => get_blog_post_for_admin($db, $_GET)]);
+            break;
+        case 'save-blog-post':
+            require_method('POST');
+            respond_success(['post' => blog_save_post($db, read_json(), $actorId)]);
+            break;
+        case 'publish-blog-post':
+            require_method('POST');
+            $payload = read_json();
+            $postId = (int) ($payload['id'] ?? 0);
+            if ($postId <= 0) {
+                throw new RuntimeException('Post ID is required.');
+            }
+            $publish = !empty($payload['publish']);
+            respond_success(['post' => blog_publish_post($db, $postId, $publish, $actorId)]);
+            break;
+        case 'archive-blog-post':
+            require_method('POST');
+            $payload = read_json();
+            $postId = (int) ($payload['id'] ?? 0);
+            if ($postId <= 0) {
+                throw new RuntimeException('Post ID is required.');
+            }
+            respond_success(['post' => blog_archive_post($db, $postId, $actorId)]);
+            break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
     }
@@ -133,6 +166,9 @@ function bootstrap_payload(PDO $db): array
             'textModel' => get_setting('gemini_text_model', $db) ?? 'gemini-2.5-flash',
             'imageModel' => get_setting('gemini_image_model', $db) ?? 'gemini-2.5-flash-image',
             'ttsModel' => get_setting('gemini_tts_model', $db) ?? 'gemini-2.5-flash-preview-tts',
+        ],
+        'blog' => [
+            'posts' => blog_admin_list($db),
         ],
     ];
 }
@@ -194,6 +230,39 @@ function fetch_login_policy(PDO $db): array
         $row = $db->query('SELECT retry_limit, lockout_minutes, twofactor_mode, session_timeout, updated_at FROM login_policies WHERE id = 1')->fetch();
     }
     return $row ?: [];
+}
+
+function get_blog_post_for_admin(PDO $db, array $query): array
+{
+    $postId = isset($query['id']) ? (int) $query['id'] : 0;
+    $slug = isset($query['slug']) ? trim((string) $query['slug']) : '';
+
+    if ($postId > 0) {
+        return blog_get_post_by_id($db, $postId);
+    }
+
+    if ($slug !== '') {
+        $post = blog_get_post_by_slug($db, $slug, true);
+        if ($post) {
+            $tags = array_map(static fn ($tag) => $tag['name'] ?? $tag, $post['tags'] ?? []);
+            return [
+                'id' => (int) $post['id'],
+                'title' => $post['title'],
+                'slug' => $post['slug'],
+                'excerpt' => $post['excerpt'] ?? '',
+                'body' => $post['body_html'] ?? '',
+                'coverImage' => $post['cover_image'] ?? '',
+                'coverImageAlt' => $post['cover_image_alt'] ?? '',
+                'authorName' => $post['author_name'] ?? '',
+                'status' => $post['status'],
+                'publishedAt' => $post['published_at'],
+                'updatedAt' => $post['updated_at'],
+                'tags' => $tags,
+            ];
+        }
+    }
+
+    throw new RuntimeException('Post not found.');
 }
 
 function create_user(PDO $db, array $input): array

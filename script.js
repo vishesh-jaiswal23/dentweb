@@ -45,7 +45,7 @@ const INLINE_PARTIALS = {
             <div class="nav-dropdown-menu" role="menu">
           <a href="knowledge-hub.html" class="nav-link" role="menuitem">Knowledge Hub</a>
           <a href="innovation-tech.html" class="nav-link" role="menuitem">Innovation &amp; Tech</a>
-          <a href="blog.html" class="nav-link" role="menuitem">Blog &amp; Insights</a>
+          <a href="blog/index.php" class="nav-link" role="menuitem">Blog &amp; Insights</a>
           <a href="news.html" class="nav-link" role="menuitem">AI Newsroom</a>
           <a href="calculator.html" class="nav-link" role="menuitem">Solar Calculator</a>
           <a href="ai-expert.html" class="nav-link" role="menuitem">Viaan AI Expert</a>
@@ -92,7 +92,7 @@ const INLINE_PARTIALS = {
           <p class="nav-mobile-label">Knowledge Hub</p>
       <a href="knowledge-hub.html">Knowledge Hub</a>
       <a href="innovation-tech.html">Innovation &amp; Tech</a>
-      <a href="blog.html">Blog &amp; Insights</a>
+      <a href="blog/index.php">Blog &amp; Insights</a>
       <a href="news.html">AI Newsroom</a>
       <a href="calculator.html">Solar Calculator</a>
       <a href="ai-expert.html">Viaan AI Expert</a>
@@ -175,7 +175,7 @@ const INLINE_PARTIALS = {
       <li><a href="about.html">About Dakshayani Enterprises</a></li>
       <li><a href="meera-gh2.html">Meera GH2 (Hydrogen)</a></li>
       <li><a href="news.html">AI Newsroom</a></li>
-      <li><a href="blog.html">Blog &amp; News</a></li>
+      <li><a href="blog/index.php">Blog &amp; News</a></li>
       <li><a href="policies.html#terms">T&amp;C / Warranty</a></li>
       <li><a href="contact.html">Contact &amp; Support</a></li>
     </ul>
