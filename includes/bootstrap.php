@@ -166,35 +166,73 @@ function seed_defaults(PDO $db): void
     // Seed default admin if none exists
     $adminRoleId = (int) $db->query('SELECT id FROM roles WHERE name = "admin"')->fetchColumn();
     $existingAdminCount = (int) $db->query('SELECT COUNT(*) FROM users WHERE role_id = ' . $adminRoleId)->fetchColumn();
+
+    $configuredAdminEmail = getenv('DENTWEB_ADMIN_EMAIL');
+    $adminEmail = is_string($configuredAdminEmail) && trim($configuredAdminEmail) !== ''
+        ? trim($configuredAdminEmail)
+        : 'admin@dakshayani.local';
+
+    $configuredAdminPassword = getenv('DENTWEB_ADMIN_PASSWORD');
+    $adminPlaintextPassword = is_string($configuredAdminPassword) ? trim($configuredAdminPassword) : '';
+    $adminPasswordGenerated = false;
+    if ($adminPlaintextPassword === '') {
+        $adminPlaintextPassword = generate_secure_password();
+        $adminPasswordGenerated = true;
+    }
+    $adminPasswordHash = password_hash($adminPlaintextPassword, PASSWORD_DEFAULT);
+
+    $adminFullName = 'Primary Administrator';
+    $adminPermissionsNote = 'Full access';
+
+    $createdDefaultAdmin = false;
+    $migratedLegacyAdmin = false;
+
     if ($existingAdminCount === 0) {
         $stmt = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'))");
         $stmt->execute([
-            ':full_name' => 'Primary Administrator',
-            ':email' => 'd.entranchi@gmail.com',
-            ':username' => 'd.entranchi@gmail.com',
-            ':password_hash' => password_hash('Dent@2025', PASSWORD_DEFAULT),
+            ':full_name' => $adminFullName,
+            ':email' => $adminEmail,
+            ':username' => $adminEmail,
+            ':password_hash' => $adminPasswordHash,
             ':role_id' => $adminRoleId,
-            ':permissions_note' => 'Full access',
+            ':permissions_note' => $adminPermissionsNote,
         ]);
+        $createdDefaultAdmin = true;
     } else {
-        $legacyAdminStmt = $db->prepare('SELECT id FROM users WHERE role_id = :role_id AND (LOWER(email) = LOWER(:legacy_email) OR LOWER(username) = LOWER(:legacy_username)) LIMIT 1');
-        $legacyAdminStmt->execute([
-            ':role_id' => $adminRoleId,
-            ':legacy_email' => 'admin@dakshayani.in',
-            ':legacy_username' => 'sysadmin',
+        $legacyEmails = array_map('strtolower', [
+            'admin@dakshayani.in',
+            'd.entranchi@gmail.com',
         ]);
-        $legacyAdmin = $legacyAdminStmt->fetchColumn();
-        if ($legacyAdmin !== false) {
-            $updateStmt = $db->prepare("UPDATE users SET full_name = :full_name, email = :email, username = :username, password_hash = :password_hash, status = 'active', permissions_note = :permissions_note, password_last_set_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
-            $updateStmt->execute([
-                ':full_name' => 'Primary Administrator',
-                ':email' => 'd.entranchi@gmail.com',
-                ':username' => 'd.entranchi@gmail.com',
-                ':password_hash' => password_hash('Dent@2025', PASSWORD_DEFAULT),
-                ':permissions_note' => 'Full access',
-                ':id' => (int) $legacyAdmin,
-            ]);
+        $legacyUsernames = array_map('strtolower', [
+            'sysadmin',
+            'd.entranchi@gmail.com',
+        ]);
+
+        $legacyAdminStmt = $db->prepare('SELECT id, email, username FROM users WHERE role_id = :role_id');
+        $legacyAdminStmt->execute([':role_id' => $adminRoleId]);
+        while (($candidate = $legacyAdminStmt->fetch(PDO::FETCH_ASSOC)) !== false) {
+            $email = strtolower((string) ($candidate['email'] ?? ''));
+            $username = strtolower((string) ($candidate['username'] ?? ''));
+            if (in_array($email, $legacyEmails, true) || in_array($username, $legacyUsernames, true)) {
+                $updateStmt = $db->prepare("UPDATE users SET full_name = :full_name, email = :email, username = :username, password_hash = :password_hash, status = 'active', permissions_note = :permissions_note, password_last_set_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
+                $updateStmt->execute([
+                    ':full_name' => $adminFullName,
+                    ':email' => $adminEmail,
+                    ':username' => $adminEmail,
+                    ':password_hash' => $adminPasswordHash,
+                    ':permissions_note' => $adminPermissionsNote,
+                    ':id' => (int) $candidate['id'],
+                ]);
+                $migratedLegacyAdmin = true;
+                break;
+            }
         }
+    }
+
+    if (($createdDefaultAdmin || $migratedLegacyAdmin) && $adminPasswordGenerated) {
+        persist_generated_admin_credentials($adminEmail, $adminPlaintextPassword);
+    } elseif ($createdDefaultAdmin || $migratedLegacyAdmin) {
+        error_log('Dentweb default administrator credentials were provisioned using environment configuration.');
     }
 
     $defaultMetrics = [
@@ -214,7 +252,6 @@ function seed_defaults(PDO $db): void
     }
 
     $defaultGeminiSettings = [
-        'gemini_api_key' => 'AIzaSyAsCEn7cd9vZlb5M5z9kw3XwbGkOjg8md0',
         'gemini_text_model' => 'gemini-2.5-flash',
         'gemini_image_model' => 'gemini-2.5-flash-image',
         'gemini_tts_model' => 'gemini-2.5-flash-preview-tts',
@@ -227,7 +264,57 @@ function seed_defaults(PDO $db): void
             ':value' => $value,
         ]);
     }
+
+    $deleteInsecureGeminiKey = $db->prepare('DELETE FROM settings WHERE key = :key AND value = :value');
+    $deleteInsecureGeminiKey->execute([
+        ':key' => 'gemini_api_key',
+        ':value' => 'AIzaSyAsCEn7cd9vZlb5M5z9kw3XwbGkOjg8md0',
+    ]);
+
+    $configuredGeminiKey = getenv('GEMINI_API_KEY');
+    if (is_string($configuredGeminiKey)) {
+        $configuredGeminiKey = trim($configuredGeminiKey);
+        if ($configuredGeminiKey !== '') {
+            set_setting('gemini_api_key', $configuredGeminiKey, $db);
+        }
+    }
     $db->exec("INSERT OR IGNORE INTO login_policies(id, retry_limit, lockout_minutes, twofactor_mode, session_timeout) VALUES (1, 5, 30, 'admin', 45)");
+}
+
+function generate_secure_password(int $length = 24): string
+{
+    $raw = base64_encode(random_bytes(max(16, $length)));
+    $sanitized = rtrim(strtr($raw, '+/', '-_'), '=');
+
+    if (strlen($sanitized) >= $length) {
+        return substr($sanitized, 0, $length);
+    }
+
+    while (strlen($sanitized) < $length) {
+        $additional = rtrim(strtr(base64_encode(random_bytes(8)), '+/', '-_'), '=');
+        $sanitized .= substr($additional, 0, $length - strlen($sanitized));
+    }
+
+    return $sanitized;
+}
+
+function persist_generated_admin_credentials(string $email, string $password): void
+{
+    $storageDir = __DIR__ . '/../storage';
+    if (!is_dir($storageDir)) {
+        mkdir($storageDir, 0775, true);
+    }
+
+    $filePath = $storageDir . '/initial-admin-credentials.txt';
+    $contents = "Generated Dentweb administrator credentials\n";
+    $contents .= "Email: {$email}\n";
+    $contents .= "Password: {$password}\n";
+    $contents .= 'Generated at: ' . date('c') . "\n\n";
+    $contents .= "This password was generated automatically because the DENTWEB_ADMIN_PASSWORD environment variable was not provided.\n";
+    $contents .= "Log in with these credentials immediately, create a dedicated administrator account, and rotate or disable this default user.\n";
+
+    file_put_contents($filePath, $contents, LOCK_EX);
+    @chmod($filePath, 0600);
 }
 
 function get_setting(string $key, ?PDO $db = null): ?string
