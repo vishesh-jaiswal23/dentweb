@@ -4990,6 +4990,12 @@ body[data-festival-theme] .hero-highlight {
   background: var(--alt-surface);
 }
 
+.dashboard .container {
+  max-width: min(96vw, 1400px);
+  padding-left: clamp(1.25rem, 4vw, 3rem);
+  padding-right: clamp(1.25rem, 4vw, 3rem);
+}
+
 .dashboard-shell {
   display: flex;
   flex-direction: column;
@@ -5236,6 +5242,8 @@ body[data-festival-theme] .hero-highlight {
 .dashboard-body {
   display: grid;
   gap: 2rem;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
 }
 
 .dashboard-nav {
@@ -6209,7 +6217,7 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 
 @media (min-width: 1100px) {
   .dashboard-body {
-    grid-template-columns: 260px minmax(0, 1fr) 300px;
+    grid-template-columns: minmax(0, 1fr) 320px;
   }
 
   .dashboard-aside {
@@ -6226,6 +6234,12 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 
   .dashboard-search {
     max-width: 420px;
+  }
+}
+
+@media (min-width: 1440px) {
+  .dashboard-body {
+    grid-template-columns: minmax(0, 1fr) 360px;
   }
 }
 
@@ -6266,7 +6280,7 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
    ============================================================ */
 
 .dashboard-cards--grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .dashboard-card--metrics {
@@ -6372,6 +6386,12 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 .ticket-board {
   display: grid;
   gap: 1.75rem;
+}
+
+@media (min-width: 900px) {
+  .ticket-board {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
 }
 
 .ticket-card {
