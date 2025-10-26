@@ -646,6 +646,20 @@ p {
   text-align: left;
 }
 
+.nav-desktop .nav-link--portal {
+  background: linear-gradient(120deg, var(--accent-blue-dark), var(--accent-blue-main));
+  color: var(--surface);
+  padding: 0.45rem 1.1rem;
+  border-radius: 999px;
+  box-shadow: 0 18px 32px -24px rgba(37, 99, 235, 0.7);
+}
+
+.nav-desktop .nav-link--portal:hover,
+.nav-desktop .nav-link--portal:focus-visible {
+  color: var(--surface);
+  background: linear-gradient(120deg, var(--accent-blue-main), var(--accent-blue-dark));
+}
+
 .nav-desktop .btn-secondary {
   color: var(--surface);
   background: var(--accent-blue-dark);
@@ -769,6 +783,19 @@ p {
   font-weight: 600;
   color: var(--base-700);
   background: rgba(148, 163, 184, 0.12);
+}
+
+.nav-mobile a.portal-login-link {
+  background: linear-gradient(130deg, var(--accent-blue-dark), var(--accent-blue-main));
+  color: var(--surface);
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.nav-mobile a.portal-login-link:hover,
+.nav-mobile a.portal-login-link:focus-visible {
+  color: var(--surface);
+  background: linear-gradient(130deg, var(--accent-blue-main), var(--accent-blue-dark));
 }
 
 .nav-mobile-section {
