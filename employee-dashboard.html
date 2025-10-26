@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Employee Workspace | Dakshayani Enterprises</title>
-  <meta name="description" content="Employee workspace placeholder for Dakshayani Enterprises." />
+  <meta
+    name="description"
+    content="Role-based employee workspace for Dakshayani Enterprises with ticket updates, task management, and customer follow-ups."
+  />
   <link rel="icon" href="images/favicon.ico" />
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -20,7 +23,7 @@
     referrerpolicy="no-referrer"
   />
 </head>
-<body>
+<body data-dashboard-theme="light">
   <main class="dashboard">
     <div class="container dashboard-shell">
       <div class="dashboard-auth-bar" role="banner">
@@ -28,10 +31,21 @@
           <i class="fa-solid fa-user-tie" aria-hidden="true"></i>
           <div>
             <small>Signed in as</small>
-            <strong>Employee</strong>
+            <strong>Rohan Iyer · Service Engineer</strong>
+            <p class="text-xs text-muted mb-0">Access: Tickets, Tasks, Leads, Customers</p>
           </div>
         </div>
         <div class="dashboard-auth-actions">
+          <div class="dashboard-theme-toggle" role="group" aria-label="Theme preference">
+            <label>
+              <input type="radio" name="employee-theme" value="light" checked data-theme-option />
+              <span><i class="fa-solid fa-sun" aria-hidden="true"></i> Light</span>
+            </label>
+            <label>
+              <input type="radio" name="employee-theme" value="dark" data-theme-option />
+              <span><i class="fa-solid fa-moon" aria-hidden="true"></i> Dark</span>
+            </label>
+          </div>
           <a href="login.php" class="btn btn-ghost">
             <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
             Log out
@@ -39,17 +53,627 @@
         </div>
       </div>
 
-      <section class="section dashboard-placeholder">
-        <div class="dashboard-inner">
-          <span class="hero-eyebrow"><i class="fa-solid fa-user-tie"></i> Employee workspace</span>
-          <h1>Employee portal coming soon</h1>
-          <p class="lead">
-            Internal communications, project assignments, and compliance updates will appear here for every Dakshayani team member.
-          </p>
-          <a href="login.php" class="btn btn-secondary">Back to login portal</a>
+      <header class="dashboard-header">
+        <div class="dashboard-heading">
+          <span class="badge"><i class="fa-solid fa-solar-panel" aria-hidden="true"></i> Service desk workspace</span>
+          <h1>Welcome back, Rohan</h1>
         </div>
-      </section>
+        <p class="dashboard-subheading">
+          Your portal mirrors admin-grade authentication but only surfaces assignments cleared for the Service role.
+          Track open complaints, priority tasks, and follow-ups without exposing admin settings or other users' data.
+        </p>
+        <div class="employee-header-actions" role="toolbar" aria-label="Employee quick actions">
+          <button type="button" class="employee-header-button" data-open-profile>
+            <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
+            <span>Profile</span>
+          </button>
+          <button type="button" class="employee-header-button" data-open-notifications>
+            <i class="fa-solid fa-bell" aria-hidden="true"></i>
+            <span>Notifications</span>
+            <span class="employee-header-count" data-notification-count>2</span>
+          </button>
+          <a class="employee-header-button" href="#tasks" data-scroll-my-work>
+            <i class="fa-solid fa-list-check" aria-hidden="true"></i>
+            <span>My Work</span>
+          </a>
+        </div>
+        <nav class="dashboard-quick-nav" aria-label="Employee navigation">
+          <a href="#overview" class="dashboard-quick-nav__link is-active" data-quick-link>
+            <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+            <span>Overview</span>
+          </a>
+          <a href="#complaints" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-ticket" aria-hidden="true"></i>
+            <span>Complaints</span>
+          </a>
+          <a href="#tasks" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-clipboard-list" aria-hidden="true"></i>
+            <span>My Work</span>
+          </a>
+          <a href="#leads" class="dashboard-quick-nav__link" data-quick-link>
+            <i class="fa-solid fa-users" aria-hidden="true"></i>
+            <span>Leads &amp; Follow-ups</span>
+          </a>
+        </nav>
+      </header>
+
+      <div class="dashboard-body">
+        <div class="dashboard-main">
+          <section id="overview" class="dashboard-section" data-section>
+            <h2>Employee overview</h2>
+            <p class="dashboard-section-sub">
+              Employees authenticate with hashed passwords, identical session hardening, and throttled logins. Access scope,
+              module visibility, and data ownership are enforced from your admin-defined role.
+            </p>
+            <div class="dashboard-cards dashboard-cards--grid">
+              <article class="dashboard-card dashboard-card--neutral">
+                <div class="dashboard-card-icon"><i class="fa-solid fa-ticket" aria-hidden="true"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Active complaints</p>
+                  <p class="dashboard-card-value" data-summary-target="activeComplaints">3</p>
+                  <p class="dashboard-card-meta">Tickets currently assigned to you.</p>
+                </div>
+              </article>
+              <article class="dashboard-card dashboard-card--warning">
+                <div class="dashboard-card-icon"><i class="fa-solid fa-list-check" aria-hidden="true"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Pending tasks</p>
+                  <p class="dashboard-card-value" data-summary-target="pendingTasks">3</p>
+                  <p class="dashboard-card-meta">Includes to-do and in-progress activities.</p>
+                </div>
+              </article>
+              <article class="dashboard-card dashboard-card--neutral">
+                <div class="dashboard-card-icon"><i class="fa-solid fa-user-plus" aria-hidden="true"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Leads handled</p>
+                  <p class="dashboard-card-value">5</p>
+                  <p class="dashboard-card-meta">Active prospects owned by the Service desk.</p>
+                </div>
+              </article>
+              <article class="dashboard-card dashboard-card--positive">
+                <div class="dashboard-card-icon"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i></div>
+                <div>
+                  <p class="dashboard-card-title">AMC visits due soon</p>
+                  <p class="dashboard-card-value">1</p>
+                  <p class="dashboard-card-meta">Next visit: 24 May · Green Valley Apartments.</p>
+                </div>
+              </article>
+              <article class="dashboard-card dashboard-card--neutral dashboard-card--metrics">
+                <div class="dashboard-card-icon"><i class="fa-solid fa-bolt" aria-hidden="true"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Performance metrics</p>
+                  <ul class="dashboard-card-metrics">
+                    <li><strong>94%</strong> SLA compliance</li>
+                    <li><strong>1.2 hrs</strong> avg. response</li>
+                    <li><strong>5★</strong> customer rating (latest ticket)</li>
+                  </ul>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="complaints" class="dashboard-section" data-section>
+            <h2>Complaints &amp; service workflow</h2>
+            <p class="dashboard-section-sub">
+              Tickets are provisioned by Admin with customer details, SLA timers, and attachments. Update status, add field notes,
+              or escalate back to Admin for complex issues—every action updates the timeline automatically.
+            </p>
+            <div class="ticket-board">
+              <article class="ticket-card" data-ticket-id="T-205" data-status="in_progress">
+                <header class="ticket-card__header">
+                  <div>
+                    <h3>Ticket T-205 · Inverter fault</h3>
+                    <p class="ticket-card__meta">Customer: Meera Housing Society · Service</p>
+                  </div>
+                  <span class="dashboard-status dashboard-status--progress" data-ticket-status-label>In Progress</span>
+                </header>
+                <dl class="ticket-details">
+                  <div>
+                    <dt>Assigned by</dt>
+                    <dd>Admin (Service Desk)</dd>
+                  </div>
+                  <div>
+                    <dt>SLA target</dt>
+                    <dd>Due in 8 hrs</dd>
+                  </div>
+                  <div>
+                    <dt>Contact</dt>
+                    <dd>Anita Sharma · +91 98765 44321</dd>
+                  </div>
+                </dl>
+                <div class="ticket-actions">
+                  <label class="ticket-actions__field">
+                    <span>Status</span>
+                    <select data-ticket-status>
+                      <option value="in_progress" selected>In Progress</option>
+                      <option value="awaiting_response">Awaiting Response</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="escalated">Escalated to Admin</option>
+                    </select>
+                  </label>
+                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note>
+                    <i class="fa-solid fa-note-sticky" aria-hidden="true"></i>
+                    Add note
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate>
+                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                    Return to Admin
+                  </button>
+                </div>
+                <div class="ticket-attachments">
+                  <h4>Attachments</h4>
+                  <ul>
+                    <li><i class="fa-solid fa-paperclip" aria-hidden="true"></i> inverter-panel.jpg</li>
+                    <li><i class="fa-solid fa-file-lines" aria-hidden="true"></i> load-test-report.pdf</li>
+                  </ul>
+                </div>
+                <div class="ticket-timeline">
+                  <h4>Timeline</h4>
+                  <ol data-ticket-timeline>
+                    <li>
+                      <time datetime="2024-05-21T09:24">09:24</time>
+                      <p>Ticket assigned to you by Admin.</p>
+                    </li>
+                    <li>
+                      <time datetime="2024-05-21T10:05">10:05</time>
+                      <p>Status updated to <strong>In Progress</strong>. Field visit scheduled for 3 PM.</p>
+                    </li>
+                  </ol>
+                </div>
+              </article>
+
+              <article class="ticket-card" data-ticket-id="T-238" data-status="awaiting_response">
+                <header class="ticket-card__header">
+                  <div>
+                    <h3>Ticket T-238 · Net metering query</h3>
+                    <p class="ticket-card__meta">Customer: Green Valley Apartments · Service</p>
+                  </div>
+                  <span class="dashboard-status dashboard-status--waiting" data-ticket-status-label>Awaiting Response</span>
+                </header>
+                <dl class="ticket-details">
+                  <div>
+                    <dt>Assigned by</dt>
+                    <dd>Admin (Customer Success)</dd>
+                  </div>
+                  <div>
+                    <dt>SLA target</dt>
+                    <dd>Follow-up by 4 hrs</dd>
+                  </div>
+                  <div>
+                    <dt>Contact</dt>
+                    <dd>Facilities Office · +91 91234 55678</dd>
+                  </div>
+                </dl>
+                <div class="ticket-actions">
+                  <label class="ticket-actions__field">
+                    <span>Status</span>
+                    <select data-ticket-status>
+                      <option value="in_progress">In Progress</option>
+                      <option value="awaiting_response" selected>Awaiting Response</option>
+                      <option value="resolved">Resolved</option>
+                      <option value="escalated">Escalated to Admin</option>
+                    </select>
+                  </label>
+                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note>
+                    <i class="fa-solid fa-phone" aria-hidden="true"></i>
+                    Log follow-up
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate>
+                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                    Return to Admin
+                  </button>
+                </div>
+                <div class="ticket-attachments">
+                  <h4>Attachments</h4>
+                  <ul>
+                    <li><i class="fa-solid fa-paperclip" aria-hidden="true"></i> discom-email.eml</li>
+                  </ul>
+                </div>
+                <div class="ticket-timeline">
+                  <h4>Timeline</h4>
+                  <ol data-ticket-timeline>
+                    <li>
+                      <time datetime="2024-05-20T16:40">16:40</time>
+                      <p>Awaiting customer response on meter replacement quote.</p>
+                    </li>
+                    <li>
+                      <time datetime="2024-05-21T09:10">09:10</time>
+                      <p>Reminder sent to customer via email.</p>
+                    </li>
+                  </ol>
+                </div>
+              </article>
+
+              <article class="ticket-card" data-ticket-id="T-189" data-status="resolved">
+                <header class="ticket-card__header">
+                  <div>
+                    <h3>Ticket T-189 · AMC inspection</h3>
+                    <p class="ticket-card__meta">Customer: Skyline Residency · Service</p>
+                  </div>
+                  <span class="dashboard-status dashboard-status--resolved" data-ticket-status-label>Resolved</span>
+                </header>
+                <dl class="ticket-details">
+                  <div>
+                    <dt>Assigned by</dt>
+                    <dd>Admin (AMC)</dd>
+                  </div>
+                  <div>
+                    <dt>SLA target</dt>
+                    <dd>Closed on time</dd>
+                  </div>
+                  <div>
+                    <dt>Contact</dt>
+                    <dd>Maintenance Desk · +91 99887 22110</dd>
+                  </div>
+                </dl>
+                <div class="ticket-actions">
+                  <label class="ticket-actions__field">
+                    <span>Status</span>
+                    <select data-ticket-status>
+                      <option value="in_progress">In Progress</option>
+                      <option value="awaiting_response">Awaiting Response</option>
+                      <option value="resolved" selected>Resolved</option>
+                      <option value="escalated">Escalated to Admin</option>
+                    </select>
+                  </label>
+                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note>
+                    <i class="fa-solid fa-image" aria-hidden="true"></i>
+                    Upload recap
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate>
+                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                    Return to Admin
+                  </button>
+                </div>
+                <div class="ticket-attachments">
+                  <h4>Attachments</h4>
+                  <ul>
+                    <li><i class="fa-solid fa-paperclip" aria-hidden="true"></i> amc-checklist.pdf</li>
+                    <li><i class="fa-solid fa-camera" aria-hidden="true"></i> rooftop-clearance.jpg</li>
+                  </ul>
+                </div>
+                <div class="ticket-timeline">
+                  <h4>Timeline</h4>
+                  <ol data-ticket-timeline>
+                    <li>
+                      <time datetime="2024-05-19T11:50">11:50</time>
+                      <p>Status updated to <strong>Resolved</strong> with final inspection photos.</p>
+                    </li>
+                    <li>
+                      <time datetime="2024-05-19T09:00">09:00</time>
+                      <p>AMC visit completed; compliance checklist submitted.</p>
+                    </li>
+                  </ol>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="tasks" class="dashboard-section" data-section>
+            <h2>Tasks &amp; My Work</h2>
+            <p class="dashboard-section-sub">
+              Update statuses inline or drag cards between columns. Priorities, due dates, and reminders keep your workload aligned
+              with Admin expectations.
+            </p>
+            <div class="task-board" data-task-board>
+              <section class="task-column" data-task-column="todo" data-status-label="To Do">
+                <header>
+                  <h3>To Do <span class="task-count" data-task-count>(1)</span></h3>
+                  <p class="task-column-meta">Upcoming work queued by Admin.</p>
+                </header>
+                <div class="task-column-body">
+                  <article class="task-card" data-task-id="task-1" draggable="true">
+                    <div class="task-card-head">
+                      <p class="task-card-title">Site Visit – Doranda</p>
+                      <span class="task-label task-label--high">High</span>
+                    </div>
+                    <p class="task-card-meta"><i class="fa-solid fa-clock" aria-hidden="true"></i> Due 22 May · 10:00 AM</p>
+                    <p class="task-card-link">Linked to Ticket <strong>T-205</strong></p>
+                    <button type="button" class="task-card-action" data-task-complete>Mark done</button>
+                  </article>
+                </div>
+              </section>
+
+              <section class="task-column" data-task-column="in_progress" data-status-label="In Progress">
+                <header>
+                  <h3>In Progress <span class="task-count" data-task-count>(2)</span></h3>
+                  <p class="task-column-meta">Work currently underway.</p>
+                </header>
+                <div class="task-column-body">
+                  <article class="task-card" data-task-id="task-2" draggable="true">
+                    <div class="task-card-head">
+                      <p class="task-card-title">Update inverter SOP</p>
+                      <span class="task-label task-label--medium">Medium</span>
+                    </div>
+                    <p class="task-card-meta"><i class="fa-solid fa-clock" aria-hidden="true"></i> Due 23 May · 4:00 PM</p>
+                    <p class="task-card-link">Linked to Knowledge Base</p>
+                    <button type="button" class="task-card-action" data-task-complete>Mark done</button>
+                  </article>
+                  <article class="task-card" data-task-id="task-3" draggable="true">
+                    <div class="task-card-head">
+                      <p class="task-card-title">Prep AMC visit brief</p>
+                      <span class="task-label task-label--low">Low</span>
+                    </div>
+                    <p class="task-card-meta"><i class="fa-solid fa-clock" aria-hidden="true"></i> Due 24 May · 12:30 PM</p>
+                    <p class="task-card-link">Linked to Ticket <strong>T-189</strong></p>
+                    <button type="button" class="task-card-action" data-task-complete>Mark done</button>
+                  </article>
+                </div>
+              </section>
+
+              <section class="task-column" data-task-column="done" data-status-label="Done">
+                <header>
+                  <h3>Done <span class="task-count" data-task-count>(1)</span></h3>
+                  <p class="task-column-meta">Completed work synced back to Admin.</p>
+                </header>
+                <div class="task-column-body">
+                  <article class="task-card" data-task-id="task-4" draggable="true">
+                    <div class="task-card-head">
+                      <p class="task-card-title">Submit inspection images</p>
+                      <span class="task-label task-label--medium">Medium</span>
+                    </div>
+                    <p class="task-card-meta"><i class="fa-solid fa-clock" aria-hidden="true"></i> Completed 20 May · 6:15 PM</p>
+                    <p class="task-card-link">Task history stored with Ticket <strong>T-189</strong></p>
+                    <button type="button" class="task-card-action" data-task-undo>Move back</button>
+                  </article>
+                </div>
+              </section>
+            </div>
+            <div class="task-footer">
+              <div class="task-activity-block">
+                <h3>Task activity</h3>
+                <ol class="task-activity" data-task-activity>
+                  <li>
+                    <time datetime="2024-05-20T18:15">20 May · 18:15</time>
+                    <p>Submitted inspection images marked as <strong>Done</strong>.</p>
+                  </li>
+                  <li>
+                    <time datetime="2024-05-21T09:30">21 May · 09:30</time>
+                    <p>Updated inverter SOP moved to <strong>In Progress</strong>.</p>
+                  </li>
+                </ol>
+              </div>
+              <div class="task-reminder-block">
+                <h3>Upcoming reminders</h3>
+                <ul class="task-reminders">
+                  <li><i class="fa-solid fa-bell" aria-hidden="true"></i> Call DISCOM for Ticket T-238 by 14:00.</li>
+                  <li><i class="fa-solid fa-flag" aria-hidden="true"></i> Verify AMC stock checklist before 24 May visit.</li>
+                  <li><i class="fa-solid fa-user-check" aria-hidden="true"></i> Share Doranda site entry pass with installer team.</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          <section id="leads" class="dashboard-section" data-section>
+            <h2>Leads &amp; customer follow-ups</h2>
+            <p class="dashboard-section-sub">
+              Admin shares customer records with your role. Add notes, update contact details, or create new prospects—fresh entries
+              wait for Admin approval before they appear in the main CRM.
+            </p>
+            <div class="lead-layout">
+              <div class="dashboard-table-wrapper lead-table">
+                <table class="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Lead</th>
+                      <th scope="col">Contact</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Next action</th>
+                      <th scope="col">Owner</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr data-lead-row="L-472">
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Lead #L-472</strong>
+                          <span>Housing Colony walk-in</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Mrs. Anita Sharma</strong>
+                          <span>+91 98765 44321</span>
+                        </div>
+                      </td>
+                      <td><span class="dashboard-status dashboard-status--progress">Follow-up scheduled</span></td>
+                      <td>22 May · Site proposal</td>
+                      <td>Rohan Iyer</td>
+                    </tr>
+                    <tr data-lead-row="L-458">
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Lead #L-458</strong>
+                          <span>Referral · Doranda</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Mr. Nikhil Rao</strong>
+                          <span>+91 99887 22110</span>
+                        </div>
+                      </td>
+                      <td><span class="dashboard-status dashboard-status--progress">Demo booked</span></td>
+                      <td>21 May · System sizing</td>
+                      <td>Service Desk</td>
+                    </tr>
+                    <tr data-lead-row="L-430">
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Lead #L-430</strong>
+                          <span>Commercial enquiry</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Ms. Kavya Patel</strong>
+                          <span>+91 91234 11223</span>
+                        </div>
+                      </td>
+                      <td><span class="dashboard-status dashboard-status--waiting">Awaiting documents</span></td>
+                      <td>23 May · Send checklist</td>
+                      <td>Service Desk</td>
+                    </tr>
+                    <tr data-lead-row="C-214">
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Customer #C-214</strong>
+                          <span>Green Valley Apartments</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Facilities Office</strong>
+                          <span>support@greenvalley.in</span>
+                        </div>
+                      </td>
+                      <td><span class="dashboard-status dashboard-status--progress">AMC due</span></td>
+                      <td>24 May · AMC visit</td>
+                      <td>Rohan Iyer</td>
+                    </tr>
+                    <tr data-lead-row="C-198">
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Customer #C-198</strong>
+                          <span>Skyline Residency</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="dashboard-user">
+                          <strong>Maintenance Desk</strong>
+                          <span>maintenance@skyline.in</span>
+                        </div>
+                      </td>
+                      <td><span class="dashboard-status dashboard-status--resolved">Resolved</span></td>
+                      <td>Completed AMC review</td>
+                      <td>Service Desk</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <aside class="lead-sidebar">
+                <article class="dashboard-panel">
+                  <h2>Log follow-up</h2>
+                  <form class="lead-note-form" data-lead-note-form>
+                    <label>
+                      Lead or customer
+                      <select name="lead" required>
+                        <option value="" selected disabled>Select record</option>
+                        <option value="L-472">Lead #L-472 · Housing Colony walk-in</option>
+                        <option value="L-458">Lead #L-458 · Referral Doranda</option>
+                        <option value="L-430">Lead #L-430 · Commercial enquiry</option>
+                        <option value="C-214">Customer #C-214 · Green Valley Apartments</option>
+                        <option value="C-198">Customer #C-198 · Skyline Residency</option>
+                      </select>
+                    </label>
+                    <label>
+                      Outcome / next step
+                      <textarea name="note" rows="3" placeholder="Document your conversation and agreed follow-up." required></textarea>
+                    </label>
+                    <button type="submit" class="btn btn-primary btn-sm">Save update</button>
+                  </form>
+                  <div class="lead-activity">
+                    <h3>Recent updates</h3>
+                    <ul data-lead-activity>
+                      <li>
+                        <time datetime="2024-05-21T11:45">21 May · 11:45</time>
+                        <p>Called Green Valley Apartments — shared AMC checklist for 24 May visit.</p>
+                      </li>
+                      <li>
+                        <time datetime="2024-05-20T17:20">20 May · 17:20</time>
+                        <p>Lead #L-472 requested rooftop load assessment; site visit scheduled.</p>
+                      </li>
+                    </ul>
+                  </div>
+                </article>
+
+                <article class="dashboard-panel dashboard-panel--muted">
+                  <h2>Submit new prospect</h2>
+                  <form class="lead-intake-form" data-lead-intake>
+                    <label>
+                      Prospect name
+                      <input type="text" name="prospect" placeholder="e.g., Sunrise Enclave" required />
+                    </label>
+                    <label>
+                      Location
+                      <input type="text" name="location" placeholder="City / landmark" required />
+                    </label>
+                    <label>
+                      Contact number
+                      <input type="tel" name="contact" placeholder="10-digit mobile" required pattern="[0-9]{10}" />
+                    </label>
+                    <button type="submit" class="btn btn-secondary btn-sm">Send for approval</button>
+                  </form>
+                  <p class="text-xs text-muted mb-0">New entries remain pending until Admin verifies the details.</p>
+                  <ul class="pending-leads" data-pending-leads>
+                    <li>
+                      <strong>Housing colony prospect</strong>
+                      <span>Pending Admin approval · Added by Rohan</span>
+                    </li>
+                  </ul>
+                </article>
+              </aside>
+            </div>
+          </section>
+        </div>
+
+        <aside class="dashboard-aside">
+          <article class="dashboard-panel">
+            <h2>Role, access &amp; onboarding</h2>
+            <ul class="policy-list">
+              <li><i class="fa-solid fa-shield" aria-hidden="true"></i> Employees join only after Admin approval and role assignment.</li>
+              <li><i class="fa-solid fa-eye-slash" aria-hidden="true"></i> Access scope limits visibility to Service tickets, tasks, leads, and shared customers.</li>
+              <li><i class="fa-solid fa-lock" aria-hidden="true"></i> Password hashing, session locks, and login throttling mirror Admin controls.</li>
+              <li><i class="fa-solid fa-ban" aria-hidden="true"></i> Admin settings and other users' data remain hidden.</li>
+            </ul>
+          </article>
+          <article class="dashboard-panel">
+            <h2>Notifications</h2>
+            <ul class="dashboard-notifications">
+              <li class="dashboard-notification dashboard-notification--info">
+                <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                <div>
+                  <p>New SOP uploaded</p>
+                  <span>Admin shared the latest inverter safety SOP. Review before tomorrow's visit.</span>
+                </div>
+              </li>
+              <li class="dashboard-notification dashboard-notification--warning">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div>
+                  <p>SLA approaching</p>
+                  <span>Ticket T-238 follow-up is due in 4 hours.</span>
+                </div>
+              </li>
+            </ul>
+          </article>
+          <article class="dashboard-panel dashboard-panel--muted">
+            <h2>Quick references</h2>
+            <div class="dashboard-actions">
+              <button class="dashboard-action" type="button">
+                <span class="dashboard-action-icon"><i class="fa-solid fa-file-lines" aria-hidden="true"></i></span>
+                <span>
+                  <span class="label">Service playbook</span>
+                  <span class="description">Check escalation steps and documentation templates.</span>
+                </span>
+                <span class="dashboard-action-caret"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></span>
+              </button>
+              <button class="dashboard-action" type="button">
+                <span class="dashboard-action-icon"><i class="fa-solid fa-people-arrows" aria-hidden="true"></i></span>
+                <span>
+                  <span class="label">Escalation matrix</span>
+                  <span class="description">Contact Admin when customer issues need reinforcements.</span>
+                </span>
+                <span class="dashboard-action-caret"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></span>
+              </button>
+            </div>
+          </article>
+        </aside>
+      </div>
     </div>
   </main>
+
+  <script src="employee-dashboard.js" defer></script>
+  <script src="script.js" defer></script>
 </body>
 </html>
