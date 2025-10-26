@@ -81,6 +81,8 @@
   const aiImageAspect = document.querySelector('[data-ai-image-aspect]');
   const aiImageNode = document.querySelector('[data-ai-image]');
   const aiImageStatus = document.querySelector('[data-ai-image-status]');
+  const defaultAiImageSrc = aiImageNode?.src || '';
+  const defaultAiImageAlt = aiImageNode?.alt || 'AI generated cover preview';
   const aiAudioNode = document.querySelector('[data-ai-audio]');
   const aiAudioStatus = document.querySelector('[data-ai-audio-status]');
   const aiAutoblogToggle = document.querySelector('[data-ai-autoblog-toggle]');
@@ -91,6 +93,7 @@
   const downloadImageButton = document.querySelector('[data-action="download-image"]');
   const generateAudioButton = document.querySelector('[data-action="generate-audio"]');
   const downloadAudioButton = document.querySelector('[data-action="download-audio"]');
+  const AUTOBLOG_THEME_POOL = ['regional', 'technical', 'policy'];
   const backupStatus = document.querySelector('[data-backup-status]');
   const backupScheduleStatus = document.querySelector('[data-backup-schedule-status]');
   const backupLastInput = document.querySelector('[data-backup-last]');
@@ -109,8 +112,28 @@
   const verifyBackupButton = document.querySelector('[data-action="verify-backup"]');
   const governanceExportButton = document.querySelector('[data-action="governance-export"]');
   const governanceRefreshButton = document.querySelector('[data-action="governance-refresh"]');
+  const blogTableBody = document.querySelector('[data-blog-post-table]');
+  const blogNewButton = document.querySelector('[data-blog-new]');
+  const blogForm = document.querySelector('[data-blog-form]');
+  const blogStatus = document.querySelector('[data-blog-status]');
+  const blogPublishButton = document.querySelector('[data-blog-publish]');
+  const blogArchiveButton = document.querySelector('[data-blog-archive]');
+  const blogResetButton = document.querySelector('[data-blog-reset]');
   const searchGroupTemplate = document.getElementById('dashboard-search-result-template');
   const searchItemTemplate = document.getElementById('dashboard-search-item-template');
+
+  const DEFAULT_AI_STATE = {
+    draft: '',
+    topic: '',
+    tone: 'informative',
+    length: 650,
+    outline: '',
+    keywords: [],
+    keywordsText: '',
+    coverImage: '',
+    coverPrompt: '',
+    coverAspect: '16:9',
+  };
 
   const state = {
     users: [],
@@ -130,8 +153,17 @@
     analytics: config.analytics || { kpis: [], installerProductivity: [], funnel: [] },
     governance: config.governance || { roleMatrix: [], pendingReviews: [], activityLogs: [] },
     retention: config.retention || { archiveDays: 90, purgeDays: 180, includeAudit: true },
-    ai: { draft: '', topic: '' },
+    ai: { ...DEFAULT_AI_STATE },
+    aiAutoblog: { enabled: false, theme: 'regional', time: '09:00', lastRandomTheme: null },
   };
+
+  const blogState = {
+    posts: [],
+    editingId: null,
+    editingStatus: 'draft',
+  };
+
+  let autoblogTimer = null;
 
   const TASK_STATUS_LABELS = {
     todo: 'To Do',
@@ -804,6 +836,272 @@
     }
   }
 
+  function normalizeBlogPost(post = {}) {
+    return {
+      id: Number(post.id) || 0,
+      title: post.title || '',
+      slug: post.slug || '',
+      excerpt: post.excerpt || '',
+      status: (post.status || 'draft').toLowerCase(),
+      publishedAt: post.publishedAt || post.published_at || '',
+      updatedAt: post.updatedAt || post.updated_at || '',
+      authorName: post.authorName || post.author_name || '',
+      coverImage: post.coverImage || post.cover_image || '',
+      coverImageAlt: post.coverImageAlt || post.cover_image_alt || '',
+      tags: Array.isArray(post.tags)
+        ? post.tags
+            .map((tag) => (typeof tag === 'string' ? tag : (tag && (tag.name || tag.slug)) || ''))
+            .filter(Boolean)
+        : [],
+      body: post.body || post.body_html || '',
+    };
+  }
+
+  function syncBlogState() {
+    state.blog = state.blog || {};
+    state.blog.posts = blogState.posts;
+  }
+
+  function updateBlogActions() {
+    if (blogPublishButton) {
+      blogPublishButton.disabled = !blogState.editingId;
+      blogPublishButton.textContent = blogState.editingStatus === 'published' ? 'Unpublish' : 'Publish';
+    }
+    if (blogArchiveButton) {
+      blogArchiveButton.disabled = !blogState.editingId || blogState.editingStatus === 'archived';
+      blogArchiveButton.textContent = blogState.editingStatus === 'archived' ? 'Archived' : 'Archive';
+    }
+  }
+
+  function renderBlogPosts() {
+    if (!blogTableBody) return;
+    blogTableBody.innerHTML = '';
+    const posts = [...blogState.posts].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    if (!posts.length) {
+      const row = document.createElement('tr');
+      row.className = 'dashboard-empty-row';
+      row.innerHTML = '<td colspan="5">No blog posts yet. Create one to get started.</td>';
+      blogTableBody.appendChild(row);
+      return;
+    }
+
+    posts.forEach((post) => {
+      const tr = document.createElement('tr');
+      const tags = post.tags.length ? `Tags: ${escapeHtml(post.tags.join(', '))}` : '';
+      const statusLabel = capitalize(post.status || 'draft');
+      const updated = post.updatedAt ? formatDateOnly(post.updatedAt) : '--';
+      const published = post.publishedAt ? formatDateOnly(post.publishedAt) : '--';
+      const actions = [];
+      actions.push(
+        `<button type="button" class="btn btn-ghost btn-sm" data-blog-action="edit" data-blog-id="${post.id}">Edit</button>`
+      );
+      if (post.status === 'published') {
+        actions.push(
+          `<button type="button" class="btn btn-ghost btn-sm" data-blog-action="toggle" data-blog-id="${post.id}" data-blog-publish="0">Unpublish</button>`
+        );
+      } else {
+        actions.push(
+          `<button type="button" class="btn btn-ghost btn-sm" data-blog-action="toggle" data-blog-id="${post.id}" data-blog-publish="1">Publish</button>`
+        );
+      }
+      actions.push(
+        `<button type="button" class="btn btn-ghost btn-sm" data-blog-action="archive" data-blog-id="${post.id}" ${post.status === 'archived' ? 'disabled' : ''}>Archive</button>`
+      );
+
+      tr.innerHTML = `
+        <td>
+          <strong>${escapeHtml(post.title || 'Untitled')}</strong><br />
+          <small>${escapeHtml(post.slug || '')}${tags ? ` · ${tags}` : ''}</small>
+        </td>
+        <td>${escapeHtml(statusLabel)}</td>
+        <td>${escapeHtml(updated)}</td>
+        <td>${escapeHtml(published)}</td>
+        <td>${actions.join(' ')}</td>
+      `;
+      blogTableBody.appendChild(tr);
+    });
+  }
+
+  function resetBlogForm({ focusTitle = false } = {}) {
+    if (!blogForm) return;
+    blogForm.reset();
+    blogState.editingId = null;
+    blogState.editingStatus = 'draft';
+    updateBlogActions();
+    clearInlineStatus(blogStatus);
+    if (focusTitle) {
+      blogForm.querySelector('[name="title"]')?.focus();
+    }
+  }
+
+  function populateBlogForm(post) {
+    if (!blogForm) return;
+    blogForm.reset();
+    blogState.editingId = post.id || null;
+    blogState.editingStatus = post.status || 'draft';
+    const idField = blogForm.querySelector('[name="id"]');
+    const titleField = blogForm.querySelector('[name="title"]');
+    const slugField = blogForm.querySelector('[name="slug"]');
+    const authorField = blogForm.querySelector('[name="author"]');
+    const tagsField = blogForm.querySelector('[name="tags"]');
+    const coverField = blogForm.querySelector('[name="cover"]');
+    const coverAltField = blogForm.querySelector('[name="coverAlt"]');
+    const excerptField = blogForm.querySelector('[name="excerpt"]');
+    const bodyField = blogForm.querySelector('[name="body"]');
+    if (idField) idField.value = post.id ? String(post.id) : '';
+    if (titleField) titleField.value = post.title || '';
+    if (slugField) slugField.value = post.slug || '';
+    if (authorField) authorField.value = post.authorName || '';
+    if (tagsField) tagsField.value = post.tags.join(', ');
+    if (coverField) coverField.value = post.coverImage || '';
+    if (coverAltField) coverAltField.value = post.coverImageAlt || '';
+    if (excerptField) excerptField.value = post.excerpt || '';
+    if (bodyField) bodyField.value = post.body || '';
+    updateBlogActions();
+  }
+
+  function collectBlogFormData() {
+    if (!blogForm) return null;
+    const formData = new FormData(blogForm);
+    const tags = String(formData.get('tags') || '')
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    return {
+      id: blogState.editingId || undefined,
+      title: String(formData.get('title') || '').trim(),
+      slug: String(formData.get('slug') || '').trim(),
+      excerpt: String(formData.get('excerpt') || '').trim(),
+      body: String(formData.get('body') || ''),
+      authorName: String(formData.get('author') || '').trim(),
+      coverImage: String(formData.get('cover') || '').trim(),
+      coverImageAlt: String(formData.get('coverAlt') || '').trim(),
+      tags,
+      status: blogState.editingStatus || 'draft',
+    };
+  }
+
+  function upsertBlogPost(post) {
+    const index = blogState.posts.findIndex((item) => item.id === post.id);
+    if (index >= 0) {
+      blogState.posts[index] = post;
+    } else {
+      blogState.posts.push(post);
+    }
+    syncBlogState();
+  }
+
+  function saveBlogPost({ silent = false, showProgress = true } = {}) {
+    if (!blogForm) return Promise.reject(new Error('Blog editor unavailable.'));
+    if (!blogForm.reportValidity()) {
+      renderInlineStatus(blogStatus, 'error', 'Missing information', 'Fill out the required fields before saving.');
+      return Promise.reject(new Error('Validation failed'));
+    }
+    const payload = collectBlogFormData();
+    if (!payload) {
+      return Promise.reject(new Error('Unable to read form data'));
+    }
+    if (showProgress) {
+      renderInlineStatus(blogStatus, 'progress', 'Saving draft…', 'Applying changes to the blog post.');
+    }
+    return api('save-blog-post', { method: 'POST', body: payload })
+      .then(({ post }) => {
+        const normalized = normalizeBlogPost(post);
+        blogState.editingId = normalized.id;
+        blogState.editingStatus = normalized.status;
+        upsertBlogPost(normalized);
+        renderBlogPosts();
+        populateBlogForm(normalized);
+        if (!silent) {
+          renderInlineStatus(blogStatus, 'success', 'Draft saved', 'Latest content stored safely.');
+        } else if (showProgress) {
+          clearInlineStatus(blogStatus);
+        }
+        return normalized;
+      })
+      .catch((error) => {
+        renderInlineStatus(blogStatus, 'error', 'Save failed', error.message || 'Unable to save the post.');
+        throw error;
+      });
+  }
+
+  function handleBlogPublish() {
+    if (!blogForm) return;
+    saveBlogPost({ silent: true, showProgress: false })
+      .then(() => {
+        if (!blogState.editingId) {
+          renderInlineStatus(blogStatus, 'error', 'Save required', 'Create the draft before publishing.');
+          return;
+        }
+        const publish = blogState.editingStatus !== 'published';
+        renderInlineStatus(
+          blogStatus,
+          'progress',
+          publish ? 'Publishing post…' : 'Unpublishing post…',
+          publish ? 'Making the post visible on the public blog.' : 'Hiding the post from the public blog.'
+        );
+        return api('publish-blog-post', {
+          method: 'POST',
+          body: { id: blogState.editingId, publish },
+        })
+          .then(({ post }) => {
+            const normalized = normalizeBlogPost(post);
+            blogState.editingId = normalized.id;
+            blogState.editingStatus = normalized.status;
+            upsertBlogPost(normalized);
+            renderBlogPosts();
+            populateBlogForm(normalized);
+            renderInlineStatus(
+              blogStatus,
+              'success',
+              publish ? 'Post published' : 'Post unpublished',
+              publish ? 'The article now appears on the public blog.' : 'The article no longer appears on the public blog.'
+            );
+          })
+          .catch((error) => {
+            renderInlineStatus(
+              blogStatus,
+              'error',
+              publish ? 'Publish failed' : 'Update failed',
+              error.message || 'Unable to update publish status.'
+            );
+          });
+      })
+      .catch(() => {});
+  }
+
+  function handleBlogArchive() {
+    if (!blogForm) return;
+    saveBlogPost({ silent: true, showProgress: false })
+      .then(() => {
+        if (!blogState.editingId) {
+          renderInlineStatus(blogStatus, 'error', 'Select a post', 'Save the draft before archiving.');
+          return;
+        }
+        if (!window.confirm('Archive this post? It will no longer appear on the public blog.')) {
+          return;
+        }
+        renderInlineStatus(blogStatus, 'progress', 'Archiving post…', 'Removing the article from the public blog.');
+        return api('archive-blog-post', {
+          method: 'POST',
+          body: { id: blogState.editingId },
+        })
+          .then(({ post }) => {
+            const normalized = normalizeBlogPost(post);
+            blogState.editingId = normalized.id;
+            blogState.editingStatus = normalized.status;
+            upsertBlogPost(normalized);
+            renderBlogPosts();
+            populateBlogForm(normalized);
+            renderInlineStatus(blogStatus, 'info', 'Post archived', 'The article remains internal until republished.');
+          })
+          .catch((error) => {
+            renderInlineStatus(blogStatus, 'error', 'Archive failed', error.message || 'Unable to archive the post.');
+          });
+      })
+      .catch(() => {});
+  }
+
   function createImageData(prompt, aspect) {
     const normalizedAspect = aspect || '16:9';
     let width = 160;
@@ -824,7 +1122,8 @@
   function buildBlogDraft({ topic, tone, length, keywords, outline }) {
     const safeTopic = topic || 'Solar adoption insights';
     const normalizedTone = tone || 'informative';
-    const keywordList = (keywords || '')
+    const keywordSource = Array.isArray(keywords) ? keywords.join(',') : keywords || '';
+    const keywordList = keywordSource
       .split(',')
       .map((word) => word.trim())
       .filter(Boolean);
@@ -874,6 +1173,220 @@
     html += '<p class="dashboard-muted">Use the Publish button after editing to push the draft live.</p>';
     html += '</article>';
     return html;
+  }
+
+  function parseKeywords(input) {
+    if (!input) return [];
+    if (Array.isArray(input)) {
+      return input
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean);
+    }
+    return String(input)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function buildExcerptFromHtml(html, fallback = '') {
+    let text = '';
+    if (html) {
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      const firstParagraph = temp.querySelector('p');
+      text = (firstParagraph?.textContent || temp.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    if (!text && fallback) {
+      text = fallback.trim();
+    }
+    if (text.length > 260) {
+      text = `${text.slice(0, 257).trim()}…`;
+    }
+    return text;
+  }
+
+  function extractAiDraftDetails(metadata = state.ai) {
+    const draft = metadata?.draft || '';
+    if (!draft) {
+      return null;
+    }
+    const container = document.createElement('div');
+    container.innerHTML = draft;
+    const heading = container.querySelector('h1, h2, h3, h4');
+    const title = (metadata?.topic || heading?.textContent || 'AI Blog Post').trim() || 'AI Blog Post';
+    const excerpt = buildExcerptFromHtml(draft, metadata?.outline || title);
+    return { title, excerpt, body: draft };
+  }
+
+  function ensureAiCoverImage({ title, prompt, aspect } = {}) {
+    const effectivePrompt = (prompt || state.ai.coverPrompt || title || 'Solar rooftop insights').toString().trim();
+    const effectiveAspect = aspect || state.ai.coverAspect || '16:9';
+    if (
+      state.ai.coverImage &&
+      state.ai.coverPrompt === effectivePrompt &&
+      state.ai.coverAspect === effectiveAspect
+    ) {
+      return state.ai.coverImage;
+    }
+    const imageData = createImageData(effectivePrompt, effectiveAspect);
+    if (aiImageNode) {
+      aiImageNode.src = imageData;
+      aiImageNode.alt = `Gemini generated cover for ${effectivePrompt}`;
+    }
+    state.ai = { ...state.ai, coverImage: imageData, coverPrompt: effectivePrompt, coverAspect: effectiveAspect };
+    return imageData;
+  }
+
+  function pickRandomTheme(previousTheme) {
+    const pool = AUTOBLOG_THEME_POOL.slice();
+    if (!pool.length) {
+      return 'regional';
+    }
+    let choices = pool;
+    if (previousTheme && pool.length > 1) {
+      const filtered = pool.filter((theme) => theme !== previousTheme);
+      if (filtered.length) {
+        choices = filtered;
+      }
+    }
+    const index = Math.floor(Math.random() * choices.length);
+    return choices[index];
+  }
+
+  function describeAutoblogRotation(theme, latestTheme) {
+    if (theme === 'random') {
+      return latestTheme ? `rotating themes (latest: ${capitalize(latestTheme)})` : 'rotating themes';
+    }
+    return `${capitalize(theme)} topics`;
+  }
+
+  function queueAiDraftForReview() {
+    const details = extractAiDraftDetails();
+    if (!details) {
+      showToast('No draft to route', 'Generate a Gemini draft before publishing.', 'warning');
+      return;
+    }
+    const prompt = (state.ai.coverPrompt || aiImagePrompt?.value || `${details.title} solar insights`).toString().trim();
+    const aspect = state.ai.coverAspect || aiImageAspect?.value || '16:9';
+    const coverImage = ensureAiCoverImage({ title: details.title, prompt, aspect });
+    const excerpt = details.excerpt || buildExcerptFromHtml(details.body, details.title);
+    const tags = state.ai.keywords && state.ai.keywords.length ? state.ai.keywords : parseKeywords(state.ai.keywordsText);
+    const payload = {
+      title: details.title,
+      excerpt,
+      body: details.body,
+      authorName: config.currentUser?.name || 'AI Content Studio',
+      coverImage,
+      coverImageAlt: `Gemini generated illustration for ${details.title}`,
+      coverPrompt: prompt,
+      tags,
+      status: 'draft',
+    };
+    renderInlineStatus(aiStatus, 'progress', 'Sending draft for review', 'Routing the Gemini article to Blog Publishing.');
+    api('save-blog-post', { method: 'POST', body: payload })
+      .then(({ post }) => {
+        const normalized = normalizeBlogPost(post);
+        upsertBlogPost(normalized);
+        renderBlogPosts();
+        blogState.editingId = normalized.id;
+        blogState.editingStatus = normalized.status;
+        populateBlogForm(normalized);
+        updateBlogActions();
+        renderInlineStatus(
+          aiStatus,
+          'success',
+          'Draft queued for review',
+          'Open Blog Publishing to approve and go live.'
+        );
+        activateTab('blog');
+        renderInlineStatus(
+          blogStatus,
+          'info',
+          'AI draft received',
+          `“${normalized.title}” is ready for editorial review before publishing.`
+        );
+        showToast('Draft sent to review', `“${normalized.title}” is now waiting in Blog Publishing.`, 'success');
+      })
+      .catch((error) => {
+        renderInlineStatus(aiStatus, 'error', 'Queue failed', error.message || 'Unable to hand off the draft.');
+        showToast('Publish blocked', error.message || 'AI draft could not be sent for review.', 'error');
+      });
+  }
+
+  function runScheduledAutoblogPublish({ theme, time }) {
+    autoblogTimer = null;
+    const normalizedTheme = theme || 'regional';
+    const scheduleTime = time || '09:00';
+    const previousRandomTheme = state.aiAutoblog?.lastRandomTheme || null;
+    const actualTheme = normalizedTheme === 'random' ? pickRandomTheme(previousRandomTheme) : normalizedTheme;
+    const now = new Date();
+    const dateLabel = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
+    const topic = `${capitalize(actualTheme)} insights – ${dateLabel}`;
+    const keywordTags = [capitalize(actualTheme), 'Scheduled'];
+    const body = buildBlogDraft({
+      topic,
+      tone: 'informative',
+      length: 650,
+      keywords: keywordTags.join(', '),
+      outline: '',
+    });
+    const excerpt = buildExcerptFromHtml(body, `Automated ${capitalize(actualTheme)} insights for Dentweb readers.`);
+    const monthLabel = now.toLocaleDateString('en-IN', { month: 'long' });
+    const coverPrompt = `${capitalize(actualTheme)} solar blog illustration ${monthLabel} ${now.getFullYear()}`;
+    const coverImage = createImageData(coverPrompt, '16:9');
+    const payload = {
+      title: topic,
+      excerpt,
+      body,
+      authorName: 'Gemini Automation',
+      coverImage,
+      coverImageAlt: `Gemini generated illustration for ${topic}`,
+      coverPrompt,
+      tags: keywordTags,
+      status: 'published',
+    };
+    renderInlineStatus(
+      aiScheduleStatus,
+      'progress',
+      'Publishing scheduled post',
+      `Auto-blog is publishing “${topic}” now.`
+    );
+    api('save-blog-post', { method: 'POST', body: payload })
+      .then(({ post }) => {
+        const normalized = normalizeBlogPost(post);
+        upsertBlogPost(normalized);
+        renderBlogPosts();
+        updateBlogActions();
+        state.aiAutoblog = {
+          ...(state.aiAutoblog || {}),
+          enabled: true,
+          theme: normalizedTheme,
+          time: scheduleTime,
+          lastPublishedAt: new Date().toISOString(),
+          lastRandomTheme: normalizedTheme === 'random' ? actualTheme : null,
+        };
+        const descriptor = describeAutoblogRotation(normalizedTheme, actualTheme);
+        renderInlineStatus(
+          aiScheduleStatus,
+          'success',
+          'Schedule active',
+          `Daily ${descriptor} will publish automatically at ${scheduleTime}. Latest article went live.`
+        );
+        showToast(
+          'Scheduled blog published',
+          `Auto-blog “${normalized.title}” published without review with a ${capitalize(actualTheme)} focus.`,
+          'success'
+        );
+      })
+      .catch((error) => {
+        renderInlineStatus(
+          aiScheduleStatus,
+          'error',
+          'Auto-blog publish failed',
+          error.message || 'Unable to publish the scheduled blog.'
+        );
+        showToast('Scheduled publish failed', error.message || 'Unable to publish scheduled content.', 'error');
+      });
   }
 
   function renderDocuments() {
@@ -1575,44 +2088,78 @@
     const formData = new FormData(aiBlogForm);
     const topic = (formData.get('topic') || '').toString().trim();
     if (!topic) {
-      showToast('Topic required', 'Provide a topic to generate the draft.', 'warning');
+      showToast('Idea required', 'Describe what you want Gemini to cover before generating a draft.', 'warning');
       return;
     }
     const tone = (formData.get('tone') || 'informative').toString();
     const length = Number(formData.get('length') || 600);
-    const keywords = (formData.get('keywords') || '').toString();
+    const keywordsInput = (formData.get('keywords') || '').toString();
+    const keywords = parseKeywords(keywordsInput);
     const outline = (formData.get('outline') || '').toString();
     const draft = buildBlogDraft({ topic, tone, length, keywords, outline });
     if (aiBlogPreview) {
       aiBlogPreview.innerHTML = draft;
     }
-    state.ai = { draft, topic };
-    renderInlineStatus(aiStatus, 'success', 'Draft generated', 'Review the AI-created blog before publishing.');
-    showToast('AI draft generated', `Blog draft for “${topic}” is ready.`, 'success');
+    const promptFallback = (aiImagePrompt?.value || topic || 'Solar leadership story').toString().trim();
+    const aspectFallback = aiImageAspect?.value || state.ai.coverAspect || '16:9';
+    state.ai = {
+      ...state.ai,
+      draft,
+      topic,
+      tone,
+      length,
+      outline,
+      keywords,
+      keywordsText: keywordsInput,
+      coverPrompt: promptFallback,
+      coverAspect: aspectFallback,
+    };
+    const coverImage = ensureAiCoverImage({ title: topic, prompt: promptFallback, aspect: aspectFallback });
+    if (aiImagePrompt) {
+      aiImagePrompt.value = promptFallback;
+    }
+    if (coverImage && aiImageNode) {
+      aiImageNode.alt = `Gemini generated cover for ${topic}`;
+    }
+    renderInlineStatus(
+      aiImageStatus,
+      'success',
+      'Cover paired automatically',
+      `Gemini rendered artwork for “${topic}”.`
+    );
+    renderInlineStatus(
+      aiStatus,
+      'success',
+      'Draft ready for review',
+      'Gemini prepared the article and cover. Review it before routing to Blog Publishing.'
+    );
+    showToast('Draft & cover generated', `Gemini drafted “${topic}” and paired a cover image.`, 'success');
   });
 
   aiBlogForm?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-action]');
     if (!button) return;
     if (button.dataset.action === 'clear-blog') {
-      state.ai = { draft: '', topic: '' };
+      state.ai = { ...DEFAULT_AI_STATE };
       if (aiBlogPreview) {
         aiBlogPreview.innerHTML = '<p class="dashboard-muted">Draft output will appear here for preview and editing.</p>';
       }
+      if (aiImagePrompt) {
+        aiImagePrompt.value = 'Sunlit rooftop solar panels in Ranchi';
+      }
+      if (aiImageNode) {
+        if (defaultAiImageSrc) aiImageNode.src = defaultAiImageSrc;
+        if (defaultAiImageAlt) aiImageNode.alt = defaultAiImageAlt;
+      }
       clearInlineStatus(aiStatus);
+      clearInlineStatus(aiImageStatus);
       showToast('Draft cleared', 'AI draft removed from preview.', 'info');
     } else if (button.dataset.action === 'publish-blog') {
       if (!state.ai?.draft) {
         showToast('Nothing to publish', 'Generate a draft before publishing.', 'warning');
         return;
       }
-      renderInlineStatus(
-        aiStatus,
-        'success',
-        'Post published',
-        `Blog “${state.ai.topic || 'Untitled'}” published with narration and cover.`
-      );
-      showToast('Post published', 'Blog has been queued for the knowledge hub.', 'success');
+      queueAiDraftForReview();
     }
   });
 
@@ -1620,14 +2167,29 @@
     const enabled = Boolean(aiAutoblogToggle.checked);
     if (aiAutoblogTime) aiAutoblogTime.disabled = !enabled;
     if (aiAutoblogTheme) aiAutoblogTheme.disabled = !enabled;
+    const previousRandomTheme = state.aiAutoblog?.lastRandomTheme || null;
+    const selectedTheme = aiAutoblogTheme?.value || state.aiAutoblog?.theme || 'regional';
+    const scheduleTime = aiAutoblogTime?.value || state.aiAutoblog?.time || '09:00';
+    state.aiAutoblog = {
+      ...(state.aiAutoblog || {}),
+      enabled,
+      time: scheduleTime,
+      theme: selectedTheme,
+      lastRandomTheme: enabled ? previousRandomTheme : null,
+    };
     if (!enabled) {
+      if (autoblogTimer) {
+        clearTimeout(autoblogTimer);
+        autoblogTimer = null;
+      }
       clearInlineStatus(aiScheduleStatus);
     } else {
+      const descriptor = describeAutoblogRotation(selectedTheme);
       renderInlineStatus(
         aiScheduleStatus,
         'info',
         'Auto-blog enabled',
-        `Daily publishing at ${aiAutoblogTime?.value || '09:00'}.`
+        `Daily ${descriptor} will publish at ${scheduleTime}.`
       );
     }
   });
@@ -1637,49 +2199,76 @@
     const enabled = Boolean(aiAutoblogToggle?.checked);
     if (!enabled) {
       showToast('Auto-blog disabled', 'Enable the toggle to save the schedule.', 'info');
+      clearInlineStatus(aiScheduleStatus);
       return;
     }
     const time = aiAutoblogTime?.value || '09:00';
     const theme = aiAutoblogTheme?.value || 'regional';
+    const previousRandomTheme = state.aiAutoblog?.lastRandomTheme || null;
+    state.aiAutoblog = {
+      enabled: true,
+      time,
+      theme,
+      lastRandomTheme: theme === 'random' ? previousRandomTheme : null,
+    };
+    if (autoblogTimer) {
+      clearTimeout(autoblogTimer);
+      autoblogTimer = null;
+    }
+    const descriptor = describeAutoblogRotation(
+      theme,
+      theme === 'random' ? null : state.aiAutoblog.lastRandomTheme
+    );
     renderInlineStatus(
       aiScheduleStatus,
-      'success',
+      'progress',
       'Schedule saved',
-      `Auto-blog will publish daily at ${time} covering ${capitalize(theme)} topics.`
+      `Auto-blog will publish daily at ${time} covering ${descriptor}.`
     );
-    showToast('Auto-blog scheduled', `Daily blog generation configured for ${time}.`, 'success');
+    showToast('Auto-blog scheduled', `Daily ${descriptor} configured for ${time}.`, 'success');
+    autoblogTimer = window.setTimeout(() => {
+      runScheduledAutoblogPublish({ theme, time });
+    }, 400);
   });
 
   aiScheduleForm?.addEventListener('reset', () => {
     if (aiAutoblogToggle) aiAutoblogToggle.checked = false;
     if (aiAutoblogTime) aiAutoblogTime.disabled = true;
     if (aiAutoblogTheme) aiAutoblogTheme.disabled = true;
+    state.aiAutoblog = { enabled: false, theme: 'regional', time: '09:00', lastRandomTheme: null };
+    if (autoblogTimer) {
+      clearTimeout(autoblogTimer);
+      autoblogTimer = null;
+    }
     clearInlineStatus(aiScheduleStatus);
   });
 
   generateImageButton?.addEventListener('click', () => {
-    const prompt = (aiImagePrompt?.value || 'Solar rooftop in Jharkhand').toString().trim();
-    const aspect = aiImageAspect?.value || '16:9';
+    const prompt = (aiImagePrompt?.value || state.ai.topic || 'Solar rooftop in Jharkhand').toString().trim();
+    const aspect = aiImageAspect?.value || state.ai.coverAspect || '16:9';
+    const imageData = createImageData(prompt, aspect);
     if (aiImageNode) {
-      aiImageNode.src = createImageData(prompt, aspect);
-      aiImageNode.alt = `AI generated cover for ${prompt}`;
+      aiImageNode.src = imageData;
+      aiImageNode.alt = `Gemini generated cover for ${prompt}`;
     }
-    renderInlineStatus(aiImageStatus, 'success', 'Cover ready', `Prompt: ${prompt}`);
-    showToast('Cover image generated', 'AI rendered a banner-ready cover.', 'success');
+    state.ai = { ...state.ai, coverImage: imageData, coverPrompt: prompt, coverAspect: aspect };
+    renderInlineStatus(aiImageStatus, 'success', 'Cover refreshed', `Prompt: ${prompt}`);
+    showToast('Cover image regenerated', 'Gemini rendered a new banner-ready cover.', 'success');
   });
 
   downloadImageButton?.addEventListener('click', () => {
-    if (!aiImageNode?.src) {
-      showToast('No image available', 'Generate a cover image before downloading.', 'warning');
+    const imageSrc = state.ai?.coverImage;
+    if (!imageSrc) {
+      showToast('No image available', 'Generate a Gemini cover image before downloading.', 'warning');
       return;
     }
     const link = document.createElement('a');
-    link.href = aiImageNode.src;
-    link.download = 'dentweb-ai-cover.svg';
+    link.href = imageSrc;
+    link.download = 'dentweb-gemini-cover.svg';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast('Cover downloaded', 'AI image saved to your device.', 'success');
+    showToast('Cover downloaded', 'Gemini cover saved to your device.', 'success');
   });
 
   generateAudioButton?.addEventListener('click', () => {
@@ -1830,6 +2419,116 @@
       'Latest role reviews and activity logs loaded.'
     );
     renderGovernance();
+  });
+
+  blogNewButton?.addEventListener('click', () => {
+    resetBlogForm({ focusTitle: true });
+    blogForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  blogResetButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    resetBlogForm({ focusTitle: true });
+  });
+
+  blogForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    saveBlogPost();
+  });
+
+  blogPublishButton?.addEventListener('click', () => {
+    handleBlogPublish();
+  });
+
+  blogArchiveButton?.addEventListener('click', () => {
+    handleBlogArchive();
+  });
+
+  blogTableBody?.addEventListener('click', (event) => {
+    const target = event.target instanceof HTMLElement ? event.target.closest('[data-blog-action]') : null;
+    if (!target) return;
+    const id = Number(target.dataset.blogId);
+    if (!id) return;
+    const post = blogState.posts.find((item) => item.id === id);
+    if (!post) return;
+
+    const action = target.dataset.blogAction;
+    if (action === 'edit') {
+      populateBlogForm(post);
+      clearInlineStatus(blogStatus);
+      blogForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (action === 'toggle') {
+      const publish = target.dataset.blogPublish !== '0';
+      renderInlineStatus(
+        blogStatus,
+        'progress',
+        publish ? 'Publishing post…' : 'Unpublishing post…',
+        publish ? 'Making the post visible on the public blog.' : 'Hiding the post from the public blog.'
+      );
+      api('publish-blog-post', {
+        method: 'POST',
+        body: { id, publish },
+      })
+        .then(({ post: updated }) => {
+          const normalized = normalizeBlogPost(updated);
+          upsertBlogPost(normalized);
+          renderBlogPosts();
+          if (blogState.editingId === id) {
+            blogState.editingStatus = normalized.status;
+            populateBlogForm(normalized);
+          } else {
+            updateBlogActions();
+          }
+          renderInlineStatus(
+            blogStatus,
+            'success',
+            publish ? 'Post published' : 'Post unpublished',
+            publish ? 'The article now appears on the public blog.' : 'The article no longer appears on the public blog.'
+          );
+        })
+        .catch((error) => {
+          renderInlineStatus(
+            blogStatus,
+            'error',
+            publish ? 'Publish failed' : 'Update failed',
+            error.message || 'Unable to update publish status.'
+          );
+        });
+      return;
+    }
+
+    if (action === 'archive') {
+      if (post.status === 'archived') {
+        renderInlineStatus(blogStatus, 'info', 'Already archived', 'Select Publish to restore the post.');
+        return;
+      }
+      if (!window.confirm('Archive this post? It will no longer appear on the public blog.')) {
+        return;
+      }
+      renderInlineStatus(blogStatus, 'progress', 'Archiving post…', 'Removing the article from the public blog.');
+      api('archive-blog-post', {
+        method: 'POST',
+        body: { id },
+      })
+        .then(({ post: updated }) => {
+          const normalized = normalizeBlogPost(updated);
+          upsertBlogPost(normalized);
+          renderBlogPosts();
+          if (blogState.editingId === id) {
+            blogState.editingStatus = normalized.status;
+            populateBlogForm(normalized);
+          } else {
+            updateBlogActions();
+          }
+          renderInlineStatus(blogStatus, 'info', 'Post archived', 'The article remains internal until republished.');
+        })
+        .catch((error) => {
+          renderInlineStatus(blogStatus, 'error', 'Archive failed', error.message || 'Unable to archive the post.');
+        });
+    }
   });
 
   function formatDate(value) {
@@ -2700,6 +3399,15 @@
     renderSubsidy();
     renderAnalytics();
     renderGovernance();
+    if (config.blog?.posts) {
+      blogState.posts = config.blog.posts.map(normalizeBlogPost);
+    } else {
+      blogState.posts = [];
+    }
+    syncBlogState();
+    state.blog = config.blog || { posts: [] };
+    renderBlogPosts();
+    resetBlogForm();
   }
 
   function loadBootstrap() {
@@ -2722,6 +3430,15 @@
         if (data.analytics) state.analytics = data.analytics;
         if (data.governance) state.governance = data.governance;
         if (data.retention) state.retention = data.retention;
+        if (data.blog?.posts) {
+          blogState.posts = data.blog.posts.map(normalizeBlogPost);
+        }
+        if (data.blog) {
+          state.blog = data.blog;
+        } else {
+          state.blog = { posts: [] };
+        }
+        syncBlogState();
         updateMetricCards(state.metrics.counts);
         updateSystemHealth(state.metrics.system);
         hydrateRetention();
@@ -2745,6 +3462,18 @@
         renderSubsidy();
         renderAnalytics();
         renderGovernance();
+        renderBlogPosts();
+        if (blogState.editingId) {
+          const current = blogState.posts.find((post) => post.id === blogState.editingId);
+          if (current) {
+            blogState.editingStatus = current.status;
+            populateBlogForm(current);
+          } else {
+            resetBlogForm();
+          }
+        } else {
+          resetBlogForm();
+        }
       })
       .catch((error) => {
         showToast('Failed to load admin data', error.message, 'error');

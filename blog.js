@@ -63,7 +63,7 @@
     if (!post || !post.slug) {
       return '#';
     }
-    return `blog-post.html?slug=${encodeURIComponent(post.slug)}`;
+    return `blog/post.php?slug=${encodeURIComponent(post.slug)}`;
   }
 
   function renderPosts(posts) {
