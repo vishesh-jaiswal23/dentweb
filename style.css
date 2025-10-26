@@ -927,6 +927,17 @@ p {
   gap: 1.25rem;
 }
 
+.login-form .btn {
+  padding: 0.7rem 1.4rem;
+  font-size: 0.95rem;
+  border-radius: 0.75rem;
+}
+
+.login-form .btn-block {
+  width: auto;
+  align-self: flex-start;
+}
+
 .role-options {
   display: grid;
   gap: 0.75rem;
