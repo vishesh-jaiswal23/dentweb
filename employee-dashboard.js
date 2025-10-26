@@ -228,7 +228,8 @@
       noteButton.addEventListener('click', () => {
         const note = window.prompt('Add an internal note for this ticket:');
         if (!note) return;
-        logTicketTimeline(card, `Note added by you: ${note.replace(/</g, '&lt;')}`);
+        const sanitizedNote = note.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        logTicketTimeline(card, `Note added by you: ${sanitizedNote}`);
       });
     }
 
