@@ -101,6 +101,37 @@ function blog_extract_plain_text(string $html): string
     return trim($text);
 }
 
+function blog_generate_gemini_cover(string $title, string $prompt = ''): array
+{
+    $baseTitle = trim($title) !== '' ? trim($title) : 'Dentweb Blog';
+    $promptText = trim($prompt) !== '' ? trim($prompt) : $baseTitle;
+    $primary = function_exists('mb_substr') ? mb_substr($baseTitle, 0, 64) : substr($baseTitle, 0, 64);
+    $secondary = function_exists('mb_substr') ? mb_substr($promptText, 0, 64) : substr($promptText, 0, 64);
+    $primaryEscaped = htmlspecialchars($primary, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+    $secondaryEscaped = htmlspecialchars($secondary, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+
+    $svg = <<<SVG
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 630' role='img'>
+  <defs>
+    <linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'>
+      <stop offset='0%' stop-color='#1d4ed8'/>
+      <stop offset='100%' stop-color='#0ea5e9'/>
+    </linearGradient>
+  </defs>
+  <rect fill='url(#g)' width='1200' height='630'/>
+  <g fill='#ffffff'>
+    <text x='50%' y='45%' font-size='64' font-family='Inter, Arial, sans-serif' text-anchor='middle' font-weight='600'>{$primaryEscaped}</text>
+    <text x='50%' y='70%' font-size='32' font-family='Inter, Arial, sans-serif' text-anchor='middle' opacity='0.85'>Gemini · {$secondaryEscaped}</text>
+  </g>
+</svg>
+SVG;
+
+    $dataUri = 'data:image/svg+xml;base64,' . base64_encode($svg);
+    $alt = sprintf('Gemini generated illustration for %s', $baseTitle);
+
+    return [$dataUri, $alt];
+}
+
 function blog_sync_tags(PDO $db, int $postId, array $tags): array
 {
     $normalized = [];
@@ -417,6 +448,7 @@ function blog_save_post(PDO $db, array $input, int $actorId): array
     $body = (string) ($input['body'] ?? '');
     $coverImage = trim((string) ($input['coverImage'] ?? ''));
     $coverAlt = trim((string) ($input['coverImageAlt'] ?? ''));
+    $coverPrompt = trim((string) ($input['coverPrompt'] ?? ''));
     $author = trim((string) ($input['authorName'] ?? ''));
     $status = (string) ($input['status'] ?? 'draft');
     $slug = trim((string) ($input['slug'] ?? ''));
@@ -437,8 +469,18 @@ function blog_save_post(PDO $db, array $input, int $actorId): array
 
     $slug = $slug !== '' ? blog_slugify($slug) : blog_slugify($title);
 
-    if ($coverImage !== '' && !preg_match('#^(https?://|/)#i', $coverImage)) {
+    if ($coverImage !== '' && !preg_match('#^(https?://|/|data:image/)#i', $coverImage)) {
         $coverImage = '';
+    }
+
+    if ($coverImage === '') {
+        [$generatedCover, $generatedAlt] = blog_generate_gemini_cover($title, $coverPrompt !== '' ? $coverPrompt : $excerpt);
+        $coverImage = $generatedCover;
+        if ($coverAlt === '') {
+            $coverAlt = $generatedAlt;
+        }
+    } elseif ($coverAlt === '') {
+        $coverAlt = sprintf('Gemini generated illustration for %s', $title !== '' ? $title : 'blog post');
     }
 
     $db->beginTransaction();
@@ -519,6 +561,36 @@ SQL
 
 function blog_publish_post(PDO $db, int $postId, bool $publish, int $actorId): array
 {
+    $currentStmt = $db->prepare('SELECT title, cover_image, cover_image_alt FROM blog_posts WHERE id = :id');
+    $currentStmt->execute([':id' => $postId]);
+    $current = $currentStmt->fetch();
+    if (!$current) {
+        throw new RuntimeException('Post not found.');
+    }
+
+    if ($publish) {
+        $existingCover = trim((string) ($current['cover_image'] ?? ''));
+        if ($existingCover === '') {
+            [$generatedCover, $generatedAlt] = blog_generate_gemini_cover((string) ($current['title'] ?? ''), '');
+            $coverUpdate = $db->prepare(<<<'SQL'
+UPDATE blog_posts
+SET cover_image = :cover_image,
+    cover_image_alt = CASE
+        WHEN cover_image_alt IS NULL OR trim(cover_image_alt) = '' THEN :cover_alt
+        ELSE cover_image_alt
+    END,
+    updated_at = datetime('now')
+WHERE id = :id
+SQL
+            );
+            $coverUpdate->execute([
+                ':cover_image' => $generatedCover,
+                ':cover_alt' => $generatedAlt,
+                ':id' => $postId,
+            ]);
+        }
+    }
+
     $status = $publish ? 'published' : 'draft';
     $update = $db->prepare(<<<'SQL'
 UPDATE blog_posts
@@ -532,9 +604,6 @@ SQL
         ':status' => $status,
         ':id' => $postId,
     ]);
-    if ($update->rowCount() === 0) {
-        throw new RuntimeException('Post not found.');
-    }
 
     $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
     $log->execute([
@@ -639,9 +708,10 @@ function blog_seed_default(PDO $db): void
     ];
 
     foreach ($samplePosts as $post) {
+        [$coverImage, $coverAlt] = blog_generate_gemini_cover($post['title'], $post['excerpt'] ?? '');
         $insert = $db->prepare(<<<'SQL'
 INSERT INTO blog_posts (title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at)
-VALUES (:title, :slug, :excerpt, :body_html, :body_text, NULL, NULL, :author_name, :status, datetime('now'))
+VALUES (:title, :slug, :excerpt, :body_html, :body_text, :cover_image, :cover_image_alt, :author_name, :status, datetime('now'))
 SQL
         );
         $insert->execute([
@@ -650,10 +720,42 @@ SQL
             ':excerpt' => $post['excerpt'],
             ':body_html' => $post['body_html'],
             ':body_text' => blog_extract_plain_text($post['body_html']),
+            ':cover_image' => $coverImage,
+            ':cover_image_alt' => $coverAlt,
             ':author_name' => $post['author_name'],
             ':status' => $post['status'],
         ]);
         $postId = (int) $db->lastInsertId();
         blog_sync_tags($db, $postId, $post['tags']);
+    }
+}
+
+function blog_backfill_cover_images(PDO $db): void
+{
+    $stmt = $db->query("SELECT id, title, excerpt FROM blog_posts WHERE cover_image IS NULL OR trim(cover_image) = ''");
+    $rows = $stmt->fetchAll();
+    if (!$rows) {
+        return;
+    }
+
+    $update = $db->prepare(<<<'SQL'
+UPDATE blog_posts
+SET cover_image = :cover_image,
+    cover_image_alt = CASE
+        WHEN cover_image_alt IS NULL OR trim(cover_image_alt) = '' THEN :cover_alt
+        ELSE cover_image_alt
+    END,
+    updated_at = datetime('now')
+WHERE id = :id
+SQL
+    );
+
+    foreach ($rows as $row) {
+        [$coverImage, $coverAlt] = blog_generate_gemini_cover((string) ($row['title'] ?? ''), (string) ($row['excerpt'] ?? ''));
+        $update->execute([
+            ':cover_image' => $coverImage,
+            ':cover_alt' => $coverAlt,
+            ':id' => (int) $row['id'],
+        ]);
     }
 }

@@ -275,6 +275,7 @@ function seed_defaults(PDO $db): void
     $db->exec("INSERT OR IGNORE INTO login_policies(id, retry_limit, lockout_minutes, twofactor_mode, session_timeout) VALUES (1, 5, 30, 'admin', 45)");
 
     blog_seed_default($db);
+    blog_backfill_cover_images($db);
 }
 
 function get_setting(string $key, ?PDO $db = null): ?string

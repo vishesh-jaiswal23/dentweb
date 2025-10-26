@@ -81,6 +81,8 @@
   const aiImageAspect = document.querySelector('[data-ai-image-aspect]');
   const aiImageNode = document.querySelector('[data-ai-image]');
   const aiImageStatus = document.querySelector('[data-ai-image-status]');
+  const defaultAiImageSrc = aiImageNode?.src || '';
+  const defaultAiImageAlt = aiImageNode?.alt || 'AI generated cover preview';
   const aiAudioNode = document.querySelector('[data-ai-audio]');
   const aiAudioStatus = document.querySelector('[data-ai-audio-status]');
   const aiAutoblogToggle = document.querySelector('[data-ai-autoblog-toggle]');
@@ -119,6 +121,19 @@
   const searchGroupTemplate = document.getElementById('dashboard-search-result-template');
   const searchItemTemplate = document.getElementById('dashboard-search-item-template');
 
+  const DEFAULT_AI_STATE = {
+    draft: '',
+    topic: '',
+    tone: 'informative',
+    length: 650,
+    outline: '',
+    keywords: [],
+    keywordsText: '',
+    coverImage: '',
+    coverPrompt: '',
+    coverAspect: '16:9',
+  };
+
   const state = {
     users: [],
     invitations: [],
@@ -137,7 +152,8 @@
     analytics: config.analytics || { kpis: [], installerProductivity: [], funnel: [] },
     governance: config.governance || { roleMatrix: [], pendingReviews: [], activityLogs: [] },
     retention: config.retention || { archiveDays: 90, purgeDays: 180, includeAudit: true },
-    ai: { draft: '', topic: '' },
+    ai: { ...DEFAULT_AI_STATE },
+    aiAutoblog: { enabled: false, theme: 'regional', time: '09:00' },
   };
 
   const blogState = {
@@ -145,6 +161,8 @@
     editingId: null,
     editingStatus: 'draft',
   };
+
+  let autoblogTimer = null;
 
   const TASK_STATUS_LABELS = {
     todo: 'To Do',
@@ -1103,7 +1121,8 @@
   function buildBlogDraft({ topic, tone, length, keywords, outline }) {
     const safeTopic = topic || 'Solar adoption insights';
     const normalizedTone = tone || 'informative';
-    const keywordList = (keywords || '')
+    const keywordSource = Array.isArray(keywords) ? keywords.join(',') : keywords || '';
+    const keywordList = keywordSource
       .split(',')
       .map((word) => word.trim())
       .filter(Boolean);
@@ -1153,6 +1172,188 @@
     html += '<p class="dashboard-muted">Use the Publish button after editing to push the draft live.</p>';
     html += '</article>';
     return html;
+  }
+
+  function parseKeywords(input) {
+    if (!input) return [];
+    if (Array.isArray(input)) {
+      return input
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean);
+    }
+    return String(input)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function buildExcerptFromHtml(html, fallback = '') {
+    let text = '';
+    if (html) {
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      const firstParagraph = temp.querySelector('p');
+      text = (firstParagraph?.textContent || temp.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    if (!text && fallback) {
+      text = fallback.trim();
+    }
+    if (text.length > 260) {
+      text = `${text.slice(0, 257).trim()}…`;
+    }
+    return text;
+  }
+
+  function extractAiDraftDetails(metadata = state.ai) {
+    const draft = metadata?.draft || '';
+    if (!draft) {
+      return null;
+    }
+    const container = document.createElement('div');
+    container.innerHTML = draft;
+    const heading = container.querySelector('h1, h2, h3, h4');
+    const title = (metadata?.topic || heading?.textContent || 'AI Blog Post').trim() || 'AI Blog Post';
+    const excerpt = buildExcerptFromHtml(draft, metadata?.outline || title);
+    return { title, excerpt, body: draft };
+  }
+
+  function ensureAiCoverImage({ title, prompt, aspect } = {}) {
+    const effectivePrompt = (prompt || state.ai.coverPrompt || title || 'Solar rooftop insights').toString().trim();
+    const effectiveAspect = aspect || state.ai.coverAspect || '16:9';
+    if (
+      state.ai.coverImage &&
+      state.ai.coverPrompt === effectivePrompt &&
+      state.ai.coverAspect === effectiveAspect
+    ) {
+      return state.ai.coverImage;
+    }
+    const imageData = createImageData(effectivePrompt, effectiveAspect);
+    if (aiImageNode) {
+      aiImageNode.src = imageData;
+      aiImageNode.alt = `Gemini generated cover for ${effectivePrompt}`;
+    }
+    state.ai = { ...state.ai, coverImage: imageData, coverPrompt: effectivePrompt, coverAspect: effectiveAspect };
+    return imageData;
+  }
+
+  function queueAiDraftForReview() {
+    const details = extractAiDraftDetails();
+    if (!details) {
+      showToast('No draft to route', 'Generate a Gemini draft before publishing.', 'warning');
+      return;
+    }
+    const prompt = (state.ai.coverPrompt || aiImagePrompt?.value || `${details.title} solar insights`).toString().trim();
+    const aspect = state.ai.coverAspect || aiImageAspect?.value || '16:9';
+    const coverImage = ensureAiCoverImage({ title: details.title, prompt, aspect });
+    const excerpt = details.excerpt || buildExcerptFromHtml(details.body, details.title);
+    const tags = state.ai.keywords && state.ai.keywords.length ? state.ai.keywords : parseKeywords(state.ai.keywordsText);
+    const payload = {
+      title: details.title,
+      excerpt,
+      body: details.body,
+      authorName: config.currentUser?.name || 'AI Content Studio',
+      coverImage,
+      coverImageAlt: `Gemini generated illustration for ${details.title}`,
+      coverPrompt: prompt,
+      tags,
+      status: 'draft',
+    };
+    renderInlineStatus(aiStatus, 'progress', 'Sending draft for review', 'Routing the Gemini article to Blog Publishing.');
+    api('save-blog-post', { method: 'POST', body: payload })
+      .then(({ post }) => {
+        const normalized = normalizeBlogPost(post);
+        upsertBlogPost(normalized);
+        renderBlogPosts();
+        blogState.editingId = normalized.id;
+        blogState.editingStatus = normalized.status;
+        populateBlogForm(normalized);
+        updateBlogActions();
+        renderInlineStatus(
+          aiStatus,
+          'success',
+          'Draft queued for review',
+          'Open Blog Publishing to approve and go live.'
+        );
+        activateTab('blog');
+        renderInlineStatus(
+          blogStatus,
+          'info',
+          'AI draft received',
+          `“${normalized.title}” is ready for editorial review before publishing.`
+        );
+        showToast('Draft sent to review', `“${normalized.title}” is now waiting in Blog Publishing.`, 'success');
+      })
+      .catch((error) => {
+        renderInlineStatus(aiStatus, 'error', 'Queue failed', error.message || 'Unable to hand off the draft.');
+        showToast('Publish blocked', error.message || 'AI draft could not be sent for review.', 'error');
+      });
+  }
+
+  function runScheduledAutoblogPublish({ theme, time }) {
+    autoblogTimer = null;
+    const normalizedTheme = theme || 'regional';
+    const scheduleTime = time || '09:00';
+    const now = new Date();
+    const dateLabel = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'long' });
+    const topic = `${capitalize(normalizedTheme)} insights – ${dateLabel}`;
+    const keywordTags = [capitalize(normalizedTheme), 'Scheduled'];
+    const body = buildBlogDraft({
+      topic,
+      tone: 'informative',
+      length: 650,
+      keywords: keywordTags.join(', '),
+      outline: '',
+    });
+    const excerpt = buildExcerptFromHtml(body, `Automated ${normalizedTheme} insights for Dentweb readers.`);
+    const coverPrompt = `${capitalize(normalizedTheme)} solar blog illustration ${now.getFullYear()}`;
+    const coverImage = createImageData(coverPrompt, '16:9');
+    const payload = {
+      title: topic,
+      excerpt,
+      body,
+      authorName: 'Gemini Automation',
+      coverImage,
+      coverImageAlt: `Gemini generated illustration for ${topic}`,
+      coverPrompt,
+      tags: keywordTags,
+      status: 'published',
+    };
+    renderInlineStatus(
+      aiScheduleStatus,
+      'progress',
+      'Publishing scheduled post',
+      `Auto-blog is publishing “${topic}” now.`
+    );
+    api('save-blog-post', { method: 'POST', body: payload })
+      .then(({ post }) => {
+        const normalized = normalizeBlogPost(post);
+        upsertBlogPost(normalized);
+        renderBlogPosts();
+        updateBlogActions();
+        state.aiAutoblog = {
+          ...(state.aiAutoblog || {}),
+          enabled: true,
+          theme: normalizedTheme,
+          time: scheduleTime,
+          lastPublishedAt: new Date().toISOString(),
+        };
+        renderInlineStatus(
+          aiScheduleStatus,
+          'success',
+          'Schedule active',
+          `Daily ${capitalize(normalizedTheme)} posts will publish automatically at ${scheduleTime}. Latest article went live.`
+        );
+        showToast('Scheduled blog published', `Auto-blog “${normalized.title}” published without review.`, 'success');
+      })
+      .catch((error) => {
+        renderInlineStatus(
+          aiScheduleStatus,
+          'error',
+          'Auto-blog publish failed',
+          error.message || 'Unable to publish the scheduled blog.'
+        );
+        showToast('Scheduled publish failed', error.message || 'Unable to publish scheduled content.', 'error');
+      });
   }
 
   function renderDocuments() {
@@ -1859,14 +2060,33 @@
     }
     const tone = (formData.get('tone') || 'informative').toString();
     const length = Number(formData.get('length') || 600);
-    const keywords = (formData.get('keywords') || '').toString();
+    const keywordsInput = (formData.get('keywords') || '').toString();
+    const keywords = parseKeywords(keywordsInput);
     const outline = (formData.get('outline') || '').toString();
     const draft = buildBlogDraft({ topic, tone, length, keywords, outline });
     if (aiBlogPreview) {
       aiBlogPreview.innerHTML = draft;
     }
-    state.ai = { draft, topic };
-    renderInlineStatus(aiStatus, 'success', 'Draft generated', 'Review the AI-created blog before publishing.');
+    const promptFallback = (aiImagePrompt?.value || topic || '').toString().trim();
+    const aspectFallback = aiImageAspect?.value || state.ai.coverAspect || '16:9';
+    state.ai = {
+      ...state.ai,
+      draft,
+      topic,
+      tone,
+      length,
+      outline,
+      keywords,
+      keywordsText: keywordsInput,
+      coverPrompt: state.ai.coverPrompt || promptFallback,
+      coverAspect: state.ai.coverAspect || aspectFallback,
+    };
+    renderInlineStatus(
+      aiStatus,
+      'success',
+      'Draft generated',
+      'Review the Gemini-created blog before routing it for publishing.'
+    );
     showToast('AI draft generated', `Blog draft for “${topic}” is ready.`, 'success');
   });
 
@@ -1874,24 +2094,23 @@
     const button = event.target.closest('[data-action]');
     if (!button) return;
     if (button.dataset.action === 'clear-blog') {
-      state.ai = { draft: '', topic: '' };
+      state.ai = { ...DEFAULT_AI_STATE };
       if (aiBlogPreview) {
         aiBlogPreview.innerHTML = '<p class="dashboard-muted">Draft output will appear here for preview and editing.</p>';
       }
+      if (aiImageNode) {
+        if (defaultAiImageSrc) aiImageNode.src = defaultAiImageSrc;
+        if (defaultAiImageAlt) aiImageNode.alt = defaultAiImageAlt;
+      }
       clearInlineStatus(aiStatus);
+      clearInlineStatus(aiImageStatus);
       showToast('Draft cleared', 'AI draft removed from preview.', 'info');
     } else if (button.dataset.action === 'publish-blog') {
       if (!state.ai?.draft) {
         showToast('Nothing to publish', 'Generate a draft before publishing.', 'warning');
         return;
       }
-      renderInlineStatus(
-        aiStatus,
-        'success',
-        'Post published',
-        `Blog “${state.ai.topic || 'Untitled'}” published with narration and cover.`
-      );
-      showToast('Post published', 'Blog has been queued for the knowledge hub.', 'success');
+      queueAiDraftForReview();
     }
   });
 
@@ -1899,14 +2118,24 @@
     const enabled = Boolean(aiAutoblogToggle.checked);
     if (aiAutoblogTime) aiAutoblogTime.disabled = !enabled;
     if (aiAutoblogTheme) aiAutoblogTheme.disabled = !enabled;
+    state.aiAutoblog = {
+      ...(state.aiAutoblog || {}),
+      enabled,
+      time: aiAutoblogTime?.value || state.aiAutoblog?.time || '09:00',
+      theme: aiAutoblogTheme?.value || state.aiAutoblog?.theme || 'regional',
+    };
     if (!enabled) {
+      if (autoblogTimer) {
+        clearTimeout(autoblogTimer);
+        autoblogTimer = null;
+      }
       clearInlineStatus(aiScheduleStatus);
     } else {
       renderInlineStatus(
         aiScheduleStatus,
         'info',
         'Auto-blog enabled',
-        `Daily publishing at ${aiAutoblogTime?.value || '09:00'}.`
+        `Daily publishing at ${state.aiAutoblog.time || '09:00'}.`
       );
     }
   });
@@ -1916,49 +2145,66 @@
     const enabled = Boolean(aiAutoblogToggle?.checked);
     if (!enabled) {
       showToast('Auto-blog disabled', 'Enable the toggle to save the schedule.', 'info');
+      clearInlineStatus(aiScheduleStatus);
       return;
     }
     const time = aiAutoblogTime?.value || '09:00';
     const theme = aiAutoblogTheme?.value || 'regional';
+    state.aiAutoblog = { enabled: true, time, theme };
+    if (autoblogTimer) {
+      clearTimeout(autoblogTimer);
+      autoblogTimer = null;
+    }
     renderInlineStatus(
       aiScheduleStatus,
-      'success',
+      'progress',
       'Schedule saved',
       `Auto-blog will publish daily at ${time} covering ${capitalize(theme)} topics.`
     );
     showToast('Auto-blog scheduled', `Daily blog generation configured for ${time}.`, 'success');
+    autoblogTimer = window.setTimeout(() => {
+      runScheduledAutoblogPublish({ theme, time });
+    }, 400);
   });
 
   aiScheduleForm?.addEventListener('reset', () => {
     if (aiAutoblogToggle) aiAutoblogToggle.checked = false;
     if (aiAutoblogTime) aiAutoblogTime.disabled = true;
     if (aiAutoblogTheme) aiAutoblogTheme.disabled = true;
+    state.aiAutoblog = { enabled: false, theme: 'regional', time: '09:00' };
+    if (autoblogTimer) {
+      clearTimeout(autoblogTimer);
+      autoblogTimer = null;
+    }
     clearInlineStatus(aiScheduleStatus);
   });
 
   generateImageButton?.addEventListener('click', () => {
-    const prompt = (aiImagePrompt?.value || 'Solar rooftop in Jharkhand').toString().trim();
-    const aspect = aiImageAspect?.value || '16:9';
+    const prompt = (aiImagePrompt?.value || state.ai.topic || 'Solar rooftop in Jharkhand').toString().trim();
+    const aspect = aiImageAspect?.value || state.ai.coverAspect || '16:9';
+    const imageData = createImageData(prompt, aspect);
     if (aiImageNode) {
-      aiImageNode.src = createImageData(prompt, aspect);
-      aiImageNode.alt = `AI generated cover for ${prompt}`;
+      aiImageNode.src = imageData;
+      aiImageNode.alt = `Gemini generated cover for ${prompt}`;
     }
-    renderInlineStatus(aiImageStatus, 'success', 'Cover ready', `Prompt: ${prompt}`);
-    showToast('Cover image generated', 'AI rendered a banner-ready cover.', 'success');
+    state.ai = { ...state.ai, coverImage: imageData, coverPrompt: prompt, coverAspect: aspect };
+    renderInlineStatus(aiImageStatus, 'success', 'Gemini cover ready', `Prompt: ${prompt}`);
+    showToast('Cover image generated', 'Gemini rendered a banner-ready cover.', 'success');
   });
 
   downloadImageButton?.addEventListener('click', () => {
-    if (!aiImageNode?.src) {
-      showToast('No image available', 'Generate a cover image before downloading.', 'warning');
+    const imageSrc = state.ai?.coverImage;
+    if (!imageSrc) {
+      showToast('No image available', 'Generate a Gemini cover image before downloading.', 'warning');
       return;
     }
     const link = document.createElement('a');
-    link.href = aiImageNode.src;
-    link.download = 'dentweb-ai-cover.svg';
+    link.href = imageSrc;
+    link.download = 'dentweb-gemini-cover.svg';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast('Cover downloaded', 'AI image saved to your device.', 'success');
+    showToast('Cover downloaded', 'Gemini cover saved to your device.', 'success');
   });
 
   generateAudioButton?.addEventListener('click', () => {
