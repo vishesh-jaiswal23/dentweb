@@ -14,7 +14,6 @@ function get_db(): PDO
     }
 
     $dbPath = $storageDir . '/app.sqlite';
-    $needSeed = !file_exists($dbPath);
 
     $db = new PDO('sqlite:' . $dbPath, null, null, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -24,9 +23,11 @@ function get_db(): PDO
 
     initialize_schema($db);
 
-    if ($needSeed) {
-        seed_defaults($db);
-    }
+    // Always ensure the foundational data exists. The helper is idempotent and
+    // will only insert missing rows or create the default administrator when no
+    // active admin accounts are present, which protects installations that have
+    // already been customized while still repairing partially created databases.
+    seed_defaults($db);
 
     return $db;
 }
@@ -175,6 +176,25 @@ function seed_defaults(PDO $db): void
             ':role_id' => $adminRoleId,
             ':permissions_note' => 'Full access',
         ]);
+    } else {
+        $legacyAdminStmt = $db->prepare('SELECT id FROM users WHERE role_id = :role_id AND (LOWER(email) = LOWER(:legacy_email) OR LOWER(username) = LOWER(:legacy_username)) LIMIT 1');
+        $legacyAdminStmt->execute([
+            ':role_id' => $adminRoleId,
+            ':legacy_email' => 'admin@dakshayani.in',
+            ':legacy_username' => 'sysadmin',
+        ]);
+        $legacyAdmin = $legacyAdminStmt->fetchColumn();
+        if ($legacyAdmin !== false) {
+            $updateStmt = $db->prepare("UPDATE users SET full_name = :full_name, email = :email, username = :username, password_hash = :password_hash, status = 'active', permissions_note = :permissions_note, password_last_set_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
+            $updateStmt->execute([
+                ':full_name' => 'Primary Administrator',
+                ':email' => 'd.entranchi@gmail.com',
+                ':username' => 'd.entranchi@gmail.com',
+                ':password_hash' => password_hash('Dent@2025', PASSWORD_DEFAULT),
+                ':permissions_note' => 'Full access',
+                ':id' => (int) $legacyAdmin,
+            ]);
+        }
     }
 
     $defaultMetrics = [
