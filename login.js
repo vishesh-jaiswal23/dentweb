@@ -22,8 +22,7 @@
   function setHint(role) {
     if (!hintEl) return;
     if (role === 'admin') {
-      hintEl.innerHTML =
-        'Admin credentials: <strong>d.entranchi@gmail.com</strong> / <strong>Dent@2025</strong>';
+      hintEl.textContent = 'Enter your assigned admin email ID and password to continue.';
     } else {
       hintEl.textContent = 'Use your registered email ID and password to continue.';
     }
