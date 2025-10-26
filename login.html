@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login Portal | Dakshayani Enterprises</title>
+  <meta
+    name="description"
+    content="Securely access the Dakshayani Enterprises portals for administrators, customers, employees, installers, and referrers."
+  />
+  <link rel="icon" href="images/favicon.ico" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap"
+    rel="stylesheet"
+  />
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    crossorigin="anonymous"
+    referrerpolicy="no-referrer"
+  />
+</head>
+<body data-active-nav="login">
+  <header class="site-header"></header>
+
+  <main>
+    <section class="page-hero login-hero">
+      <div class="container hero-inner">
+        <div class="hero-copy">
+          <span class="hero-eyebrow"><i class="fa-solid fa-lock"></i> Secure access</span>
+          <h1>Login to your Dakshayani workspace</h1>
+          <p class="lead" style="color: rgba(255, 255, 255, 0.85); max-width: 32rem;">
+            Choose your portal to manage subsidies, monitor projects, or stay updated with your assignments.
+            Dedicated workspaces for administrators, customers, employees, installers, and referrers are ready for you.
+          </p>
+        </div>
+        <div class="hero-art">
+          <img src="images/illustrations/login-portal.svg" alt="Login illustration" onerror="this.remove();" />
+        </div>
+      </div>
+    </section>
+
+    <section class="section login-section">
+      <div class="container login-layout">
+        <div class="login-panel" aria-labelledby="portal-login-title">
+          <h2 id="portal-login-title">Access your portal</h2>
+          <p class="text-sm">
+            Select the portal you need to access and enter your credentials. Only verified administrators can log in with the
+            credentials provided to you by Dakshayani Enterprises.
+          </p>
+
+          <form id="login-form" class="login-form" novalidate>
+            <fieldset class="role-options">
+              <legend>Portal type</legend>
+              <label class="role-option">
+                <input type="radio" name="role" value="admin" checked />
+                <span>
+                  <strong>Admin</strong>
+                  <small>Manage operations, policies, and approvals.</small>
+                </span>
+              </label>
+              <label class="role-option">
+                <input type="radio" name="role" value="customer" />
+                <span>
+                  <strong>Customer</strong>
+                  <small>Track subsidy status, invoices, and dashboards.</small>
+                </span>
+              </label>
+              <label class="role-option">
+                <input type="radio" name="role" value="employee" />
+                <span>
+                  <strong>Employee</strong>
+                  <small>Access field updates, schedules, and documentation.</small>
+                </span>
+              </label>
+              <label class="role-option">
+                <input type="radio" name="role" value="installer" />
+                <span>
+                  <strong>Installer</strong>
+                  <small>Review installation checklists and assignments.</small>
+                </span>
+              </label>
+              <label class="role-option">
+                <input type="radio" name="role" value="referrer" />
+                <span>
+                  <strong>Referrer</strong>
+                  <small>Refer leads and track incentive eligibility.</small>
+                </span>
+              </label>
+            </fieldset>
+
+            <div class="form-field">
+              <label for="login-email">Email ID</label>
+              <input type="email" id="login-email" name="email" placeholder="you@example.com" autocomplete="username" required />
+            </div>
+
+            <div class="form-field">
+              <label for="login-password">Password</label>
+              <input
+                type="password"
+                id="login-password"
+                name="password"
+                placeholder="Enter your password"
+                autocomplete="current-password"
+                required
+              />
+            </div>
+
+            <p class="text-xs login-hint" data-role-hint>
+              Use your assigned credentials to access the selected portal.
+            </p>
+
+            <button type="submit" class="btn btn-primary btn-block">Login</button>
+            <p class="login-feedback" role="status" aria-live="polite" data-login-feedback></p>
+          </form>
+        </div>
+
+        <div class="login-summary" aria-label="Portal quick overview">
+          <article class="login-card">
+            <h3><i class="fa-solid fa-user-shield"></i> Admin portal</h3>
+            <p>Approve subsidies, manage project workflows, and configure policy documents securely.</p>
+          </article>
+          <article class="login-card">
+            <h3><i class="fa-solid fa-house-signal"></i> Customer portal</h3>
+            <p>Monitor installation progress, view service tickets, and download essential paperwork.</p>
+          </article>
+          <article class="login-card">
+            <h3><i class="fa-solid fa-helmet-safety"></i> Installer portal</h3>
+            <p>Access installation checklists, upload on-site photographs, and record commissioning updates.</p>
+          </article>
+          <article class="login-card">
+            <h3><i class="fa-solid fa-user-tie"></i> Employee portal</h3>
+            <p>Stay updated on schedules, safety SOPs, and internal communications.</p>
+          </article>
+          <article class="login-card">
+            <h3><i class="fa-solid fa-handshake-angle"></i> Referrer portal</h3>
+            <p>Submit new leads, follow incentive payouts, and collaborate with our sales specialists.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer"></footer>
+
+  <script src="login.js" defer></script>
+  <script src="script.js" defer></script>
+</body>
+</html>
