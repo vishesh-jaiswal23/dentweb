@@ -767,17 +767,36 @@
         if (ticket.id === state.selectedTicketId) {
           row.classList.add('is-active');
         }
-        row.innerHTML = `
-          <td>${ticket.id}</td>
-          <td>
-            <div>${ticket.customer.name}</div>
-            <small>${ticket.customer.phone}</small>
-          </td>
-          <td>${renderPriorityChip(ticket.priority)}</td>
-          <td>${renderStatusBadge(ticket.status)}</td>
-          <td>${renderSlaCell(ticket)}</td>
-          <td>${ticket.assignedTo || 'Unassigned'}</td>
-        `;
+
+        const idCell = document.createElement('td');
+        idCell.textContent = ticket.id;
+        row.appendChild(idCell);
+
+        const customerCell = document.createElement('td');
+        const customerName = document.createElement('div');
+        customerName.textContent = ticket.customer.name;
+        const customerPhone = document.createElement('small');
+        customerPhone.textContent = ticket.customer.phone;
+        customerCell.appendChild(customerName);
+        customerCell.appendChild(customerPhone);
+        row.appendChild(customerCell);
+
+        const priorityCell = document.createElement('td');
+        priorityCell.innerHTML = renderPriorityChip(ticket.priority);
+        row.appendChild(priorityCell);
+
+        const statusCell = document.createElement('td');
+        statusCell.innerHTML = renderStatusBadge(ticket.status);
+        row.appendChild(statusCell);
+
+        const slaCell = document.createElement('td');
+        slaCell.innerHTML = renderSlaCell(ticket);
+        row.appendChild(slaCell);
+
+        const assigneeCell = document.createElement('td');
+        assigneeCell.textContent = ticket.assignedTo || 'Unassigned';
+        row.appendChild(assigneeCell);
+
         dom.ticketList.appendChild(row);
       });
   }
