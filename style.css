@@ -4945,6 +4945,72 @@ body[data-festival-theme] .hero-highlight {
   gap: 2.5rem;
 }
 
+.dashboard-auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  padding: 1.5rem 2rem;
+  box-shadow: var(--shadow-soft);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.dashboard-auth-user {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--base-700);
+  font-weight: 600;
+}
+
+.dashboard-auth-user i {
+  font-size: 1.75rem;
+  color: var(--accent-blue-dark);
+}
+
+.dashboard-auth-user small {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--base-400);
+  font-weight: 700;
+}
+
+.dashboard-auth-user strong {
+  display: block;
+  font-size: 1.1rem;
+  color: var(--base-800);
+}
+
+.dashboard-auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dashboard-auth-actions .btn {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .dashboard-auth-bar {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 1.25rem 1.5rem;
+  }
+
+  .dashboard-auth-actions {
+    width: 100%;
+  }
+
+  .dashboard-auth-actions .btn {
+    width: 100%;
+  }
+}
+
 .dashboard-header {
   display: flex;
   flex-direction: column;

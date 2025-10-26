@@ -20,25 +20,37 @@
     referrerpolicy="no-referrer"
   />
 </head>
-<body data-active-nav="login">
-  <header class="site-header"></header>
-
-  <main>
-    <section class="section dashboard-placeholder">
-      <div class="container dashboard-inner">
-        <span class="hero-eyebrow"><i class="fa-solid fa-house-signal"></i> Customer workspace</span>
-        <h1>Customer portal coming soon</h1>
-        <p class="lead">
-          Track subsidy documentation, installation progress, and service tickets in one place. We are preparing an intuitive
-          experience for all Dakshayani customers.
-        </p>
-        <a href="login.html" class="btn btn-secondary">Back to login portal</a>
+<body>
+  <main class="dashboard">
+    <div class="container dashboard-shell">
+      <div class="dashboard-auth-bar" role="banner">
+        <div class="dashboard-auth-user">
+          <i class="fa-solid fa-house-signal" aria-hidden="true"></i>
+          <div>
+            <small>Signed in as</small>
+            <strong>Customer</strong>
+          </div>
+        </div>
+        <div class="dashboard-auth-actions">
+          <a href="login.html" class="btn btn-ghost">
+            <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+            Log out
+          </a>
+        </div>
       </div>
-    </section>
+
+      <section class="section dashboard-placeholder">
+        <div class="dashboard-inner">
+          <span class="hero-eyebrow"><i class="fa-solid fa-house-signal"></i> Customer workspace</span>
+          <h1>Customer portal coming soon</h1>
+          <p class="lead">
+            Track subsidy documentation, installation progress, and service tickets in one place. We are preparing an intuitive
+            experience for all Dakshayani customers.
+          </p>
+          <a href="login.html" class="btn btn-secondary">Back to login portal</a>
+        </div>
+      </section>
+    </div>
   </main>
-
-  <footer class="site-footer"></footer>
-
-  <script src="script.js" defer></script>
 </body>
 </html>
