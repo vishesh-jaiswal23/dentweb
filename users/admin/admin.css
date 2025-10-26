@@ -688,11 +688,18 @@
 }
 
 .portal-embedded-app {
-  background: rgba(17, 24, 39, 0.55);
+  --embedded-surface: rgba(17, 24, 39, 0.82);
+  --embedded-surface-soft: rgba(15, 23, 42, 0.7);
+  --embedded-border: rgba(148, 163, 184, 0.24);
+  --embedded-border-strong: rgba(59, 130, 246, 0.35);
+  --embedded-muted: rgba(203, 213, 225, 0.75);
+  --embedded-highlight: rgba(37, 99, 235, 0.16);
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.78));
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 1.5rem;
   padding: clamp(1rem, 2vw, 2rem);
-  box-shadow: 0 24px 60px -35px rgba(15, 23, 42, 0.85);
+  box-shadow: 0 24px 60px -35px rgba(2, 6, 23, 0.85);
+  color: var(--admin-text);
 }
 
 .portal-embedded-app > * {
@@ -702,8 +709,9 @@
 
 .portal-embedded-app .workflow-main,
 .portal-embedded-app .crm-app {
-  background: var(--base-50);
-  color: var(--base-900);
+  background: radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 55%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.82));
+  color: var(--admin-text);
 }
 
 .portal-embedded-app .section {
@@ -711,16 +719,346 @@
   padding-right: clamp(1.5rem, 3vw, 3rem);
 }
 
+.portal-embedded-app .section + .section {
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
 .portal-embedded-app .container {
   max-width: 1200px;
 }
 
-.portal-embedded-app .workflow-hero {
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+.portal-embedded-app .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
+.portal-embedded-app h1,
+.portal-embedded-app h2,
+.portal-embedded-app h3,
+.portal-embedded-app h4,
+.portal-embedded-app h5,
+.portal-embedded-app h6 {
+  color: var(--admin-text);
+}
+
+.portal-embedded-app p,
+.portal-embedded-app li,
+.portal-embedded-app label,
+.portal-embedded-app span,
+.portal-embedded-app th,
+.portal-embedded-app td {
+  color: var(--embedded-muted);
+}
+
+.portal-embedded-app strong {
+  color: #e2e8f0;
+}
+
+.portal-embedded-app .workflow-hero,
 .portal-embedded-app--crm .crm-hero {
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.58), rgba(14, 116, 144, 0.32)),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.25), transparent 55%),
+    rgba(15, 23, 42, 0.9);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.4);
+}
+
+.portal-embedded-app .workflow-hero__points li,
+.portal-embedded-app .crm-hero__metrics .metric-label,
+.portal-embedded-app .crm-hero__metrics .metric-value,
+.portal-embedded-app .metric-card {
+  color: inherit;
+}
+
+.portal-embedded-app .metric-card {
+  background: rgba(15, 23, 42, 0.68);
+  border: 1px solid var(--embedded-border);
+  box-shadow: 0 18px 45px -30px rgba(15, 23, 42, 0.9);
+}
+
+.portal-embedded-app .metric-label {
+  color: rgba(226, 232, 240, 0.75);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.portal-embedded-app .metric-value {
+  color: #f8fafc;
+}
+
+.portal-embedded-app .card,
+.portal-embedded-app .crm-grid > article,
+.portal-embedded-app .intake-grid > article,
+.portal-embedded-app .operations-layout > article,
+.portal-embedded-app .ticket-detail__grid > article,
+.portal-embedded-app .ticket-thread > article,
+.portal-embedded-app .sla-overview,
+.portal-embedded-app .lead-progress,
+.portal-embedded-app .referrer-summary,
+.portal-embedded-app .duplicate-review,
+.portal-embedded-app .crm-import {
+  background: var(--embedded-surface);
+  border: 1px solid var(--embedded-border);
+  box-shadow: 0 16px 40px -34px rgba(2, 6, 23, 0.95);
+  color: var(--admin-text);
+}
+
+.portal-embedded-app .card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 22px 55px -30px rgba(15, 23, 42, 0.9);
+}
+
+.portal-embedded-app .duplicate-review {
+  background: rgba(251, 191, 36, 0.12);
+  color: #facc15;
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
+.portal-embedded-app .form-label {
+  color: rgba(226, 232, 240, 0.85);
+  font-weight: 600;
+}
+
+.portal-embedded-app .form-control,
+.portal-embedded-app input,
+.portal-embedded-app select,
+.portal-embedded-app textarea,
+.portal-embedded-app .toggle-group input,
+.portal-embedded-app .crm-form input,
+.portal-embedded-app .crm-form select,
+.portal-embedded-app .crm-form textarea {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  color: var(--admin-text);
+  border-radius: 0.9rem;
+  padding: 0.65rem 0.9rem;
+  width: 100%;
+  transition: border-color var(--admin-transition), box-shadow var(--admin-transition);
+}
+
+.portal-embedded-app input:focus,
+.portal-embedded-app select:focus,
+.portal-embedded-app textarea:focus {
+  outline: none;
+  border-color: var(--embedded-border-strong);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+
+.portal-embedded-app .form-row {
+  gap: 1rem;
+}
+
+.portal-embedded-app .form-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.portal-embedded-app .form-alert {
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.portal-embedded-app .form-alert.is-success {
+  color: #4ade80;
+}
+
+.portal-embedded-app .form-alert.is-error {
+  color: #f87171;
+}
+
+.portal-embedded-app .toggle-group label,
+.portal-embedded-app .settings-toggle span,
+.portal-embedded-app .settings-toggle select {
+  color: var(--embedded-muted);
+}
+
+.portal-embedded-app .settings-toggle select {
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.portal-embedded-app .btn-primary {
+  background: linear-gradient(135deg, var(--admin-primary), var(--admin-primary-strong));
+  color: #fff;
+  box-shadow: 0 12px 25px -16px rgba(37, 99, 235, 0.85);
+}
+
+.portal-embedded-app .btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--admin-text);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.portal-embedded-app .btn-outline {
+  background: transparent;
+  color: #93c5fd;
+  border: 1px solid rgba(148, 197, 255, 0.45);
+}
+
+.portal-embedded-app .btn-outline:hover {
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.portal-embedded-app .btn-text {
+  color: #93c5fd;
+}
+
+.portal-embedded-app .btn-text:hover {
+  text-decoration: underline;
+}
+
+.portal-embedded-app .ticket-table th,
+.portal-embedded-app .ticket-table td {
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.portal-embedded-app .ticket-table tbody tr:hover,
+.portal-embedded-app .ticket-table tbody tr.is-active {
+  background: var(--embedded-highlight);
+}
+
+.portal-embedded-app .status-badge {
+  background: rgba(59, 130, 246, 0.16);
+  color: #bfdbfe;
+}
+
+.portal-embedded-app .status-new {
+  background: rgba(37, 99, 235, 0.18);
+  color: #bfdbfe;
+}
+
+.portal-embedded-app .status-in-progress {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+.portal-embedded-app .status-waiting {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+.portal-embedded-app .status-resolved {
+  background: rgba(14, 165, 233, 0.15);
+  color: #bae6fd;
+}
+
+.portal-embedded-app .priority-chip {
+  background: rgba(59, 130, 246, 0.16);
+  color: #bfdbfe;
+}
+
+.portal-embedded-app .priority-critical {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
+}
+
+.portal-embedded-app .priority-high {
+  background: rgba(251, 191, 36, 0.22);
+  color: #fef08a;
+}
+
+.portal-embedded-app .priority-medium {
+  background: rgba(59, 130, 246, 0.2);
+  color: #bfdbfe;
+}
+
+.portal-embedded-app .priority-low {
+  background: rgba(34, 197, 94, 0.22);
+  color: #bbf7d0;
+}
+
+.portal-embedded-app .timeline {
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.portal-embedded-app .timeline__item::before {
+  background: linear-gradient(135deg, var(--admin-primary), rgba(59, 130, 246, 0.4));
+}
+
+.portal-embedded-app .progress-track {
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.portal-embedded-app .progress-track__bar {
+  background: linear-gradient(135deg, var(--admin-primary), rgba(59, 130, 246, 0.8));
+}
+
+.portal-embedded-app .referrer-summary {
+  background: rgba(17, 24, 39, 0.72);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+}
+
+.portal-embedded-app .import-results {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.portal-embedded-app .tab-nav button {
+  background: transparent;
+  border: none;
+  color: var(--embedded-muted);
+}
+
+.portal-embedded-app .tab-nav button[aria-selected='true'] {
+  color: #f8fafc;
+  border-bottom: 2px solid rgba(96, 165, 250, 0.9);
+}
+
+.portal-embedded-app .tab-panel {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid var(--embedded-border);
+  border-radius: 1rem;
+}
+
+.portal-embedded-app code {
+  background: rgba(15, 23, 42, 0.75);
+  color: #bae6fd;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+}
+
+.portal-embedded-app .kanban-column {
+  background: rgba(17, 24, 39, 0.65);
+  border: 1px solid var(--embedded-border);
+}
+
+.portal-embedded-app .kanban-column__header {
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.portal-embedded-app .kanban-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: var(--admin-text);
+}
+
+.portal-embedded-app .sla-overview__stats li::before {
+  background: rgba(59, 130, 246, 0.55);
+}
+
+.portal-embedded-app .empty-state {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px dashed rgba(148, 163, 184, 0.25);
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.portal-embedded-app .workflow-main a,
+.portal-embedded-app .crm-app a {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.portal-embedded-app .workflow-main a:hover,
+.portal-embedded-app .crm-app a:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 960px) {
