@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dakshayani Blog | Article detail</title>
+  <meta name="description" content="Read detailed solar and hydrogen insights curated by Vishesh Entranchi for Dakshayani Enterprises." />
+  <link rel="icon" href="images/favicon.ico" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    .article-shell {
+      background: #ffffff;
+      border-radius: 1.5rem;
+      box-shadow: 0 30px 60px -40px rgba(15, 23, 42, 0.6);
+      padding: clamp(1.5rem, 4vw, 3rem);
+      display: grid;
+      gap: 1.25rem;
+    }
+    .article-hero {
+      width: 100%;
+      border-radius: 1.25rem;
+      object-fit: cover;
+      max-height: 420px;
+    }
+    .article-meta {
+      color: rgba(15, 23, 42, 0.6);
+      font-size: 0.95rem;
+    }
+    .article-author {
+      font-weight: 600;
+      color: #0f172a;
+      margin: 0;
+    }
+    .article-content p {
+      margin: 0 0 1.2rem;
+      line-height: 1.7;
+      color: rgba(15, 23, 42, 0.85);
+    }
+    .article-status {
+      text-align: center;
+      font-weight: 600;
+      color: #0f172a;
+      background: rgba(37, 99, 235, 0.12);
+      padding: 1rem 1.25rem;
+      border-radius: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .article-status[data-tone="error"] {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header"></header>
+  <main>
+    <section class="page-hero" style="background:linear-gradient(135deg,rgba(15,23,42,0.94),rgba(59,130,246,0.85));">
+      <div class="container hero-inner">
+        <div class="hero-copy">
+          <span class="hero-eyebrow"><i class="fa-solid fa-newspaper"></i> Dakshayani insights</span>
+          <h1 data-blog-post-title>Loading article…</h1>
+          <p class="lead" data-blog-post-meta>Curated by the Dakshayani editorial desk.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container" style="max-width: 900px;">
+        <p class="article-status" data-blog-post-state>Loading Vishesh&#39;s update…</p>
+        <article class="article-shell" data-blog-post hidden>
+          <img src="" alt="" class="article-hero" data-blog-post-hero loading="lazy" />
+          <p class="article-author" data-blog-post-author></p>
+          <div class="article-content" data-blog-post-content></div>
+        </article>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer"></footer>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/js/all.min.js" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+  <script src="script.js" defer></script>
+  <script src="blog.js" defer></script>
+</body>
+</html>

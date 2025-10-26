@@ -1,0 +1,57 @@
+<?php
+// Minimal config for portal auth.
+// Reads from environment when available, otherwise falls back to defaults.
+
+// Default admin credentials (can be overridden by environment)
+$DEFAULT_ADMIN_EMAIL = 'd.entranchi@gmail.com';
+$DEFAULT_ADMIN_PASSWORD = 'Dent@2025';
+$DEFAULT_ADMIN_NAME = 'Head Administrator';
+
+function portal_env($key, $fallback = null) {
+    $val = getenv($key);
+    return ($val !== false && $val !== null && $val !== '') ? $val : $fallback;
+}
+
+define('PORTAL_ADMIN_EMAIL', portal_env('MAIN_ADMIN_EMAIL', $DEFAULT_ADMIN_EMAIL));
+define('PORTAL_ADMIN_PASSWORD', portal_env('MAIN_ADMIN_PASSWORD', $DEFAULT_ADMIN_PASSWORD));
+define('PORTAL_ADMIN_NAME', portal_env('MAIN_ADMIN_NAME', $DEFAULT_ADMIN_NAME));
+
+// Determine base path (subdirectory) automatically; allow override via env PORTAL_BASE_PATH
+$autoBase = '';
+if (!empty($_SERVER['DOCUMENT_ROOT'])) {
+    $projectRoot = realpath(__DIR__ . '/../../');
+    $docRoot = realpath($_SERVER['DOCUMENT_ROOT']);
+    if ($projectRoot && $docRoot && str_starts_with(str_replace('\\','/',$projectRoot), str_replace('\\','/',$docRoot))) {
+        $autoBase = str_replace(str_replace('\\','/',$docRoot), '', str_replace('\\','/',$projectRoot));
+    }
+}
+$envBase = portal_env('PORTAL_BASE_PATH', $autoBase);
+if (!is_string($envBase)) { $envBase = ''; }
+$envBase = trim($envBase);
+if ($envBase === '/') { $envBase = ''; }
+if ($envBase !== '' && $envBase[0] !== '/') { $envBase = '/' . $envBase; }
+define('PORTAL_BASE_PATH', rtrim($envBase, '/'));
+
+function portal_url($path) {
+    $p = is_string($path) ? $path : '';
+    if ($p === '') { $p = '/'; }
+    if ($p[0] !== '/') { $p = '/' . $p; }
+    return (PORTAL_BASE_PATH !== '' ? PORTAL_BASE_PATH : '') . $p;
+}
+
+function portal_redirect($path) {
+    header('Location: ' . portal_url($path));
+    exit;
+}
+
+// Utility: map roles to dashboard paths
+function portal_dashboard_for_role($role) {
+    switch ($role) {
+        case 'admin': return portal_url('users/admin/index.php');
+        case 'employee': return portal_url('users/employee/index.php');
+        case 'installer': return portal_url('users/installer/index.php');
+        case 'referrer': return portal_url('users/referrer/index.php');
+        case 'customer': return portal_url('users/customer/index.php');
+        default: return portal_url('login.php');
+    }
+}

@@ -1,0 +1,111 @@
+[25-Oct-2025 16:11:59 Asia/Kolkata] PHP Warning:  require_once(/home/tegwf0aqgwek/public_html/portal-state.php): Failed to open stream: No such file or directory in /home/tegwf0aqgwek/public_html/login.php on line 6
+[25-Oct-2025 16:11:59 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Failed opening required '/home/tegwf0aqgwek/public_html/portal-state.php' (include_path='.:/opt/alt/php83/usr/share/pear:/opt/alt/php83/usr/share/php:/usr/share/pear:/usr/share/php') in /home/tegwf0aqgwek/public_html/login.php:6
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 6
+[25-Oct-2025 16:12:01 Asia/Kolkata] PHP Warning:  require_once(/home/tegwf0aqgwek/public_html/portal-state.php): Failed to open stream: No such file or directory in /home/tegwf0aqgwek/public_html/login.php on line 6
+[25-Oct-2025 16:12:01 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Failed opening required '/home/tegwf0aqgwek/public_html/portal-state.php' (include_path='.:/opt/alt/php83/usr/share/pear:/opt/alt/php83/usr/share/php:/usr/share/pear:/usr/share/php') in /home/tegwf0aqgwek/public_html/login.php:6
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 6
+[25-Oct-2025 16:12:02 Asia/Kolkata] PHP Warning:  require_once(/home/tegwf0aqgwek/public_html/portal-state.php): Failed to open stream: No such file or directory in /home/tegwf0aqgwek/public_html/login.php on line 6
+[25-Oct-2025 16:12:02 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Failed opening required '/home/tegwf0aqgwek/public_html/portal-state.php' (include_path='.:/opt/alt/php83/usr/share/pear:/opt/alt/php83/usr/share/php:/usr/share/pear:/usr/share/php') in /home/tegwf0aqgwek/public_html/login.php:6
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 6
+[25-Oct-2025 16:39:58 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 16:40:03 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 16:40:16 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 17:10:15 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 18:10:11 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 19:32:59 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 19:33:19 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 20:14:32 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 20:16:12 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 20:26:20 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:15:47 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:20:41 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:24:30 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:24:42 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:25:45 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:25:54 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:27:22 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:28:14 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:28:32 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:29:21 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:29:32 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:30:21 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[25-Oct-2025 21:39:28 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:303
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 303
+[26-Oct-2025 08:49:27 Asia/Kolkata] PHP Fatal error:  Uncaught Error: Undefined constant "ADMIN_EMAIL" in /home/tegwf0aqgwek/public_html/login.php:313
+Stack trace:
+#0 {main}
+  thrown in /home/tegwf0aqgwek/public_html/login.php on line 313
