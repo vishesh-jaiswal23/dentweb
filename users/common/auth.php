@@ -2,6 +2,7 @@
 // Shared session and auth helpers
 
 require_once __DIR__ . '/security.php';
+require_once __DIR__ . '/log.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
@@ -164,4 +165,52 @@ function portal_require_role($roles) {
     if (!$user || !in_array($user['role'] ?? '', $allowed, true)) {
         portal_redirect('login.php');
     }
+}
+
+function portal_protected_send_headers() {
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header('Vary: Cookie');
+    header('X-Robots-Tag: noindex, noarchive');
+}
+
+function portal_protected_modules() {
+    return [
+        'service-workflow' => [
+            'id' => 'service-workflow',
+            'label' => 'Service Workflow',
+            'icon' => 'fa-headset',
+            'href' => 'service-workflow.php',
+            'capability' => 'service.workflow.access',
+        ],
+        'crm-portal' => [
+            'id' => 'crm-portal',
+            'label' => 'CRM Workspace',
+            'icon' => 'fa-table-list',
+            'href' => 'crm-portal.php',
+            'capability' => 'service.crm.access',
+        ],
+    ];
+}
+
+function portal_require_capability_for_page($capability, $pageId) {
+    $user = portal_current_user();
+    if (!$user) {
+        portal_log_protected_page_access($pageId, false, null);
+        portal_protected_send_headers();
+        portal_redirect('login.php');
+    }
+
+    portal_require_session();
+    $allowed = portal_user_has_capability($capability, $user);
+    portal_log_protected_page_access($pageId, $allowed, $user);
+    portal_protected_send_headers();
+
+    if (!$allowed) {
+        http_response_code(403);
+        exit('Forbidden');
+    }
+
+    return $user;
 }

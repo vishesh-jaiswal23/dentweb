@@ -4938,6 +4938,33 @@ body[data-festival-theme] .hero-highlight {
   color: var(--accent-blue-dark);
 }
 
+.dashboard-nav-heading {
+  margin: 1.25rem 0 0.25rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--base-400);
+  padding: 0 0.15rem;
+}
+
+.dashboard-nav-link--external {
+  justify-content: space-between;
+}
+
+.dashboard-nav-link__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dashboard-nav-link--external > i:last-child {
+  color: var(--base-400);
+}
+
+.dashboard-nav-link--external:hover > i:last-child {
+  color: var(--accent-blue-dark);
+}
+
 .dashboard-nav-link--logout {
   color: var(--base-500);
 }

@@ -11,6 +11,11 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <?php if (!empty($extraStyles)): ?>
+      <?php foreach ($extraStyles as $href): ?>
+        <link rel="stylesheet" href="<?php echo htmlspecialchars($href); ?>" />
+      <?php endforeach; ?>
+    <?php endif; ?>
   </head>
   <body class="admin-body">
     <div class="admin-shell" data-active-nav="<?php echo htmlspecialchars($active); ?>">
