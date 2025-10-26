@@ -169,9 +169,9 @@ function seed_defaults(PDO $db): void
         $stmt = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'))");
         $stmt->execute([
             ':full_name' => 'Primary Administrator',
-            ':email' => 'admin@dakshayani.in',
-            ':username' => 'sysadmin',
-            ':password_hash' => password_hash('ChangeMe@123', PASSWORD_DEFAULT),
+            ':email' => 'd.entranchi@gmail.com',
+            ':username' => 'd.entranchi@gmail.com',
+            ':password_hash' => password_hash('Dent@2025', PASSWORD_DEFAULT),
             ':role_id' => $adminRoleId,
             ':permissions_note' => 'Full access',
         ]);
