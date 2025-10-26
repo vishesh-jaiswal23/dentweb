@@ -58,27 +58,45 @@ function portal_verify_csrf($token) {
     }
 }
 
+function portal_clean_login_attempts($now = null) {
+    $windowSeconds = 900;
+    $now = $now ?? time();
+    $attempts = $_SESSION['login_attempts'] ?? [];
+    if (!$attempts) {
+        $_SESSION['login_attempts'] = [];
+        return [];
+    }
+
+    $filtered = array_values(array_filter(
+        $attempts,
+        function ($attempt) use ($now, $windowSeconds) {
+            if (!is_array($attempt) || !isset($attempt['time'])) {
+                return false;
+            }
+            return ($now - (int) $attempt['time']) < $windowSeconds;
+        }
+    ));
+
+    $_SESSION['login_attempts'] = $filtered;
+    return $filtered;
+}
+
 function portal_record_login_attempt($success) {
     $now = time();
-    if (!isset($_SESSION['login_attempts'])) {
-        $_SESSION['login_attempts'] = [];
-    }
-    $_SESSION['login_attempts'] = array_filter(
-        $_SESSION['login_attempts'],
-        function ($attempt) use ($now) {
-            return ($now - $attempt['time']) < 900;
-        }
-    );
+    $attempts = portal_clean_login_attempts($now);
+
     if (!$success) {
-        $_SESSION['login_attempts'][] = ['time' => $now];
+        $attempts[] = ['time' => $now];
     } else {
-        $_SESSION['login_attempts'] = [];
+        $attempts = [];
     }
+
+    $_SESSION['login_attempts'] = $attempts;
 }
 
 function portal_login_attempts_remaining() {
     $limit = 5;
-    $attempts = $_SESSION['login_attempts'] ?? [];
+    $attempts = portal_clean_login_attempts();
     $count = count($attempts);
     return max(0, $limit - $count);
 }
