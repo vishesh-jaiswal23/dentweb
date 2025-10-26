@@ -71,6 +71,7 @@ $aiSettings = portal_ai_settings_get();
 
 $diskFree = @disk_free_space(__DIR__ . '/../../');
 $diskFreeGb = $diskFree ? round($diskFree / 1024 / 1024 / 1024, 1) : 'n/a';
+$accessSummary = portal_recent_denied_access_summary(180);
 $systemHealth = [
     'last_backup' => 'Today • 02:00 AM',
     'disk_free' => $diskFreeGb . ' GB free',
@@ -78,6 +79,28 @@ $systemHealth = [
     'pending_alerts' => 4,
     'total_records' => '18,420',
 ];
+
+if (!empty($accessSummary['total']) && $accessSummary['total'] >= 3) {
+    $pageLabels = [
+        'service-workflow' => 'Service workflow',
+        'crm-portal' => 'CRM workspace',
+    ];
+    $summaries = [];
+    foreach ($accessSummary['pages'] as $page => $count) {
+        $label = $pageLabels[$page] ?? ($page !== '' ? $page : 'unknown module');
+        $summaries[] = $count . '× ' . $label;
+    }
+    $summaryText = !empty($summaries) ? implode(', ', $summaries) : 'Multiple protected areas';
+    $errorGroups[] = [
+        'code' => 'ACCESS-403',
+        'description' => 'Blocked portal attempts detected: ' . $summaryText,
+        'count' => $accessSummary['total'],
+        'last_seen' => 'Within last ' . (int) $accessSummary['window'] . ' min',
+        'severity' => 'minor',
+    ];
+    $systemHealth['pending_alerts'] += 1;
+    $systemHealth['recent_errors'] = array_sum(array_column($errorGroups, 'count'));
+}
 
 $quickActions = [
     [

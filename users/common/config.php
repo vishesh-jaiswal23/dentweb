@@ -13,6 +13,18 @@ function portal_env($key, $fallback = null) {
     return ($val !== false && $val !== null && $val !== '') ? $val : $fallback;
 }
 
+function portal_env_flag($key, $default = false) {
+    $value = portal_env($key, null);
+    if ($value === null) {
+        return (bool) $default;
+    }
+    $normalized = strtolower(trim((string) $value));
+    if ($normalized === '' && $default !== null) {
+        return (bool) $default;
+    }
+    return in_array($normalized, ['1', 'true', 'on', 'yes'], true);
+}
+
 define('PORTAL_ADMIN_EMAIL', portal_env('MAIN_ADMIN_EMAIL', $DEFAULT_ADMIN_EMAIL));
 define('PORTAL_ADMIN_PASSWORD', portal_env('MAIN_ADMIN_PASSWORD', $DEFAULT_ADMIN_PASSWORD));
 define('PORTAL_ADMIN_PASSWORD_HASH', portal_env('MAIN_ADMIN_PASSWORD_HASH', $DEFAULT_ADMIN_PASSWORD_HASH));
@@ -56,6 +68,20 @@ function portal_url($path) {
     if ($p === '') { $p = '/'; }
     if ($p[0] !== '/') { $p = '/' . $p; }
     return (PORTAL_BASE_PATH !== '' ? PORTAL_BASE_PATH : '') . $p;
+}
+
+define('PORTAL_ALLOW_EMPLOYEE_SERVICE_AND_CRM', portal_env_flag('ALLOW_EMPLOYEE_SERVICE_AND_CRM', false));
+
+function portal_storage_path($relative = '') {
+    $base = PORTAL_STORAGE_PATH;
+    if ($relative === '' || $relative === null) {
+        return $base;
+    }
+    $relative = str_replace(['\\', '..'], ['/', ''], (string) $relative);
+    if ($relative === '') {
+        return $base;
+    }
+    return rtrim($base, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . ltrim($relative, DIRECTORY_SEPARATOR);
 }
 
 function portal_redirect($path) {
