@@ -21,7 +21,7 @@ $routeFor = static function (string $path) use ($prefix): string {
 $roleRoutes = [
     'admin' => $routeFor('admin-dashboard.php'),
     'customer' => $routeFor('customer-dashboard.html'),
-    'employee' => $routeFor('employee-dashboard.html'),
+    'employee' => $routeFor('employee-dashboard.php'),
     'installer' => $routeFor('installer-dashboard.html'),
     'referrer' => $routeFor('referrer-dashboard.html'),
 ];
