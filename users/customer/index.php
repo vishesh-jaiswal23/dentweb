@@ -4,6 +4,7 @@ require_once __DIR__ . '/../common/auth.php';
 require_once __DIR__ . '/../common/dashboard.php';
 
 portal_require_role(['customer']);
+portal_require_session();
 $user = portal_current_user();
 $config = portal_dashboard_config('customer', $user ?? []);
 ?>

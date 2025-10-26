@@ -12,17 +12,37 @@ if (portal_is_logged_in()) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = strtolower(trim($_POST['email'] ?? ''));
-    $password = $_POST['password'] ?? '';
+    $attemptRecorded = false;
+    try {
+        if (portal_login_throttle_enabled()) {
+            throw new RuntimeException('Too many failed attempts. Please wait a few minutes before trying again.');
+        }
 
-    if ($email === strtolower(PORTAL_ADMIN_EMAIL) && $password === PORTAL_ADMIN_PASSWORD) {
-        portal_login_user(PORTAL_ADMIN_EMAIL, 'admin', PORTAL_ADMIN_NAME);
-        header('Location: ' . portal_dashboard_for_role('admin'));
-        exit;
+        portal_verify_csrf($_POST['csrf_token'] ?? '');
+
+        $email = strtolower(trim($_POST['email'] ?? ''));
+        $password = (string) ($_POST['password'] ?? '');
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('Please enter a valid email address.');
+        }
+
+        if ($email === strtolower(PORTAL_ADMIN_EMAIL) && portal_verify_admin_password($password)) {
+            portal_login_user(PORTAL_ADMIN_EMAIL, 'admin', PORTAL_ADMIN_NAME);
+            portal_record_login_attempt(true);
+            header('Location: ' . portal_dashboard_for_role('admin'));
+            exit;
+        }
+
+        portal_record_login_attempt(false);
+        $attemptRecorded = true;
+        throw new RuntimeException('Invalid credentials. Please try again.');
+    } catch (Throwable $th) {
+        if (!$attemptRecorded) {
+            portal_record_login_attempt(false);
+        }
+        $error = $th->getMessage();
     }
-
-    // In future: verify other roles created by admin.
-    $error = 'Invalid credentials. Please try again.';
 }
 ?>
 <!DOCTYPE html>
@@ -61,6 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="post" action="<?php echo htmlspecialchars(portal_url('login.php')); ?>" class="form" autocomplete="on" style="display:grid; gap:1rem;">
+              <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(portal_csrf_token()); ?>" />
               <label>
                 <span class="text-sm" style="display:block; color:var(--base-600);">Email</span>
                 <input type="email" name="email" required placeholder="you@example.com" value="<?php echo htmlspecialchars($_POST['email'] ?? ''); ?>" />
@@ -69,9 +90,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <span class="text-sm" style="display:block; color:var(--base-600);">Password</span>
                 <input type="password" name="password" required placeholder="••••••••" />
               </label>
+              <?php if (portal_login_throttle_enabled()): ?>
+                <p class="text-xs" style="color:var(--base-500);">Login temporarily locked due to multiple failed attempts.</p>
+              <?php else: ?>
               <button type="submit" class="btn btn-primary" style="justify-self:start;">
                 <i class="fa-solid fa-right-to-bracket"></i> Sign in
               </button>
+              <p class="text-xs" style="color:var(--base-500);">Attempts remaining: <?php echo portal_login_attempts_remaining(); ?></p>
+              <?php endif; ?>
             </form>
 
             <div style="margin-top:1.5rem; color:var(--base-500);">
