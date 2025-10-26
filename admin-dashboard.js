@@ -1683,12 +1683,34 @@
   });
 
   generateAudioButton?.addEventListener('click', () => {
-    if (!aiAudioNode) return;
-    aiAudioNode.src = `storage/sample-tts.wav?ts=${Date.now()}`;
-    aiAudioNode.hidden = false;
-    aiAudioNode.load();
-    renderInlineStatus(aiAudioStatus, 'success', 'Narration ready', 'Preview the TTS track before publishing.');
-    showToast('Narration generated', 'Audio narration created for the blog.', 'success');
+    if (!aiAudioNode) {
+      renderInlineStatus(
+        aiAudioStatus,
+        'warning',
+        'Narration unavailable',
+        'Connect a TTS provider in settings to enable previews.'
+      );
+      showToast(
+        'Narration unavailable',
+        'Configure a text-to-speech provider before generating audio.',
+        'warning'
+      );
+      return;
+    }
+
+    aiAudioNode.hidden = true;
+    aiAudioNode.removeAttribute('src');
+    renderInlineStatus(
+      aiAudioStatus,
+      'warning',
+      'Narration unavailable',
+      'Set up text-to-speech credentials to enable AI narration.'
+    );
+    showToast(
+      'Narration unavailable',
+      'Provide valid TTS credentials in the AI settings to generate audio.',
+      'warning'
+    );
   });
 
   downloadAudioButton?.addEventListener('click', () => {
