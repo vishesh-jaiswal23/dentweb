@@ -2,3 +2,4 @@
 
 storage/*.sqlite
 storage/*.db
+storage/*.wav
