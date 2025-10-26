@@ -33,105 +33,114 @@ function get_db(): PDO
 
 function initialize_schema(PDO $db): void
 {
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS roles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            description TEXT
-        )'
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT
+)
+SQL
     );
 
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name TEXT NOT NULL,
-            email TEXT NOT NULL UNIQUE,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            role_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT "active" CHECK(status IN ("active","inactive","pending")),
-            permissions_note TEXT,
-            last_login_at TEXT,
-            password_last_set_at TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime("now")),
-            updated_at TEXT NOT NULL DEFAULT (datetime("now")),
-            FOREIGN KEY(role_id) REFERENCES roles(id)
-        )'
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive','pending')),
+    permissions_note TEXT,
+    last_login_at TEXT,
+    password_last_set_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY(role_id) REFERENCES roles(id)
+)
+SQL
     );
 
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS invitations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            inviter_id INTEGER NOT NULL,
-            invitee_name TEXT NOT NULL,
-            invitee_email TEXT NOT NULL,
-            role_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT "pending" CHECK(status IN ("pending","approved","rejected")),
-            token TEXT NOT NULL UNIQUE,
-            message TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime("now")),
-            approved_at TEXT,
-            FOREIGN KEY(inviter_id) REFERENCES users(id),
-            FOREIGN KEY(role_id) REFERENCES roles(id)
-        )'
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS invitations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    inviter_id INTEGER NOT NULL,
+    invitee_name TEXT NOT NULL,
+    invitee_email TEXT NOT NULL,
+    role_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+    token TEXT NOT NULL UNIQUE,
+    message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    approved_at TEXT,
+    FOREIGN KEY(inviter_id) REFERENCES users(id),
+    FOREIGN KEY(role_id) REFERENCES roles(id)
+)
+SQL
     );
 
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS complaints (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            reference TEXT NOT NULL UNIQUE,
-            title TEXT NOT NULL,
-            description TEXT,
-            priority TEXT NOT NULL DEFAULT "medium" CHECK(priority IN ("low","medium","high","urgent")),
-            status TEXT NOT NULL DEFAULT "intake" CHECK(status IN ("intake","triage","work","resolution","closed")),
-            assigned_to INTEGER,
-            sla_due_at TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime("now")),
-            updated_at TEXT NOT NULL DEFAULT (datetime("now")),
-            FOREIGN KEY(assigned_to) REFERENCES users(id)
-        )'
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS complaints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    description TEXT,
+    priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
+    status TEXT NOT NULL DEFAULT 'intake' CHECK(status IN ('intake','triage','work','resolution','closed')),
+    assigned_to INTEGER,
+    sla_due_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY(assigned_to) REFERENCES users(id)
+)
+SQL
     );
 
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS audit_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_id INTEGER,
-            action TEXT NOT NULL,
-            entity_type TEXT,
-            entity_id INTEGER,
-            description TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime("now")),
-            FOREIGN KEY(actor_id) REFERENCES users(id)
-        )'
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id INTEGER,
+    action TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id INTEGER,
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY(actor_id) REFERENCES users(id)
+)
+SQL
     );
 
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS system_metrics (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            value TEXT NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT (datetime("now"))
-        )'
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS system_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+SQL
     );
 
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT (datetime("now"))
-        )'
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+SQL
     );
 
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS login_policies (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            retry_limit INTEGER NOT NULL DEFAULT 5,
-            lockout_minutes INTEGER NOT NULL DEFAULT 30,
-            twofactor_mode TEXT NOT NULL DEFAULT "admin",
-            session_timeout INTEGER NOT NULL DEFAULT 45,
-            updated_at TEXT NOT NULL DEFAULT (datetime("now"))
-        )'
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS login_policies (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    retry_limit INTEGER NOT NULL DEFAULT 5,
+    lockout_minutes INTEGER NOT NULL DEFAULT 30,
+    twofactor_mode TEXT NOT NULL DEFAULT 'admin',
+    session_timeout INTEGER NOT NULL DEFAULT 45,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+SQL
     );
+
     apply_schema_patches($db);
 }
 
@@ -157,7 +166,7 @@ function seed_defaults(PDO $db): void
     $adminRoleId = (int) $db->query('SELECT id FROM roles WHERE name = "admin"')->fetchColumn();
     $existingAdminCount = (int) $db->query('SELECT COUNT(*) FROM users WHERE role_id = ' . $adminRoleId)->fetchColumn();
     if ($existingAdminCount === 0) {
-        $stmt = $db->prepare('INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, "active", :permissions_note, datetime("now"))');
+        $stmt = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'))");
         $stmt->execute([
             ':full_name' => 'Primary Administrator',
             ':email' => 'admin@dakshayani.in',
@@ -198,7 +207,7 @@ function seed_defaults(PDO $db): void
             ':value' => $value,
         ]);
     }
-    $db->exec('INSERT OR IGNORE INTO login_policies(id, retry_limit, lockout_minutes, twofactor_mode, session_timeout) VALUES (1, 5, 30, "admin", 45)');
+    $db->exec("INSERT OR IGNORE INTO login_policies(id, retry_limit, lockout_minutes, twofactor_mode, session_timeout) VALUES (1, 5, 30, 'admin', 45)");
 }
 
 function get_setting(string $key, ?PDO $db = null): ?string
@@ -214,8 +223,8 @@ function get_setting(string $key, ?PDO $db = null): ?string
 function set_setting(string $key, string $value, ?PDO $db = null): void
 {
     $db = $db ?? get_db();
-    $stmt = $db->prepare('INSERT INTO settings(key, value, updated_at) VALUES(:key, :value, datetime("now"))
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at');
+    $stmt = $db->prepare("INSERT INTO settings(key, value, updated_at) VALUES(:key, :value, datetime('now'))
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at");
     $stmt->execute([
         ':key' => $key,
         ':value' => $value,

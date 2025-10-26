@@ -74,7 +74,7 @@ function ensure_api_access(string $requiredRole = 'admin'): void
 function authenticate_user(string $email, string $password, string $roleName): ?array
 {
     $db = get_db();
-    $stmt = $db->prepare('SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE LOWER(users.email) = LOWER(:email) AND roles.name = :role LIMIT 1');
+    $stmt = $db->prepare("SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE LOWER(users.email) = LOWER(:email) AND roles.name = :role LIMIT 1");
     $stmt->execute([
         ':email' => $email,
         ':role' => $roleName,
@@ -93,7 +93,7 @@ function authenticate_user(string $email, string $password, string $roleName): ?
         return null;
     }
 
-    $update = $db->prepare('UPDATE users SET last_login_at = datetime("now"), updated_at = datetime("now") WHERE id = :id');
+    $update = $db->prepare("UPDATE users SET last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
     $update->execute([':id' => $user['id']]);
 
     $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');

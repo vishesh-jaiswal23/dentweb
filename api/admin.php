@@ -277,7 +277,7 @@ function update_user_status(PDO $db, array $input): array
     if (!in_array($status, $validStatuses, true)) {
         throw new RuntimeException('Invalid status provided.');
     }
-    $stmt = $db->prepare('UPDATE users SET status = :status, updated_at = datetime("now") WHERE id = :id');
+    $stmt = $db->prepare("UPDATE users SET status = :status, updated_at = datetime('now') WHERE id = :id");
     $stmt->execute([
         ':status' => $status,
         ':id' => $userId,
@@ -373,7 +373,7 @@ function approve_invitation(PDO $db, array $input): array
             ':updated_at' => $now,
         ]);
 
-        $db->prepare('UPDATE invitations SET status = "approved", approved_at = datetime("now") WHERE id = :id')->execute([':id' => $inviteId]);
+        $db->prepare("UPDATE invitations SET status = 'approved', approved_at = datetime('now') WHERE id = :id")->execute([':id' => $inviteId]);
         $db->commit();
     } catch (Throwable $exception) {
         $db->rollBack();
@@ -481,7 +481,7 @@ function update_login_policy(PDO $db, array $input): array
         throw new RuntimeException('Invalid two-factor mode.');
     }
 
-    $stmt = $db->prepare('UPDATE login_policies SET retry_limit = :retry, lockout_minutes = :lockout, session_timeout = :session, twofactor_mode = :twofactor, updated_at = datetime("now") WHERE id = 1');
+    $stmt = $db->prepare("UPDATE login_policies SET retry_limit = :retry, lockout_minutes = :lockout, session_timeout = :session, twofactor_mode = :twofactor, updated_at = datetime('now') WHERE id = 1");
     $stmt->execute([
         ':retry' => $retry,
         ':lockout' => $lockout,
