@@ -5,6 +5,7 @@
 // Default admin credentials (can be overridden by environment)
 $DEFAULT_ADMIN_EMAIL = 'd.entranchi@gmail.com';
 $DEFAULT_ADMIN_PASSWORD = 'Dent@2025';
+$DEFAULT_ADMIN_PASSWORD_HASH = '$2y$12$jEHjkFEOfFtAdfwi8zlBLufnzvc1Rb4XKj.U3FOEKICrtkZo6ytTi';
 $DEFAULT_ADMIN_NAME = 'Head Administrator';
 
 function portal_env($key, $fallback = null) {
@@ -14,7 +15,25 @@ function portal_env($key, $fallback = null) {
 
 define('PORTAL_ADMIN_EMAIL', portal_env('MAIN_ADMIN_EMAIL', $DEFAULT_ADMIN_EMAIL));
 define('PORTAL_ADMIN_PASSWORD', portal_env('MAIN_ADMIN_PASSWORD', $DEFAULT_ADMIN_PASSWORD));
+define('PORTAL_ADMIN_PASSWORD_HASH', portal_env('MAIN_ADMIN_PASSWORD_HASH', $DEFAULT_ADMIN_PASSWORD_HASH));
 define('PORTAL_ADMIN_NAME', portal_env('MAIN_ADMIN_NAME', $DEFAULT_ADMIN_NAME));
+
+// Shared storage path for admin modules (e.g., settings, logs)
+$storageRoot = portal_env('PORTAL_STORAGE_PATH', realpath(__DIR__ . '/../../storage'));
+if (!$storageRoot) {
+    $storageRoot = __DIR__ . '/../../storage';
+}
+define('PORTAL_STORAGE_PATH', rtrim($storageRoot, DIRECTORY_SEPARATOR));
+
+// Default AI provider configuration (Gemini)
+define('PORTAL_DEFAULT_AI_SETTINGS', [
+    'api_key' => 'AIzaSyAsCEn7cd9vZlb5M5z9kw3XwbGkOjg8md0',
+    'models' => [
+        'text' => 'gemini-2.5-flash',
+        'image' => 'gemini-2.5-flash-image',
+        'tts' => 'gemini-2.5-flash-preview-tts',
+    ],
+]);
 
 // Determine base path (subdirectory) automatically; allow override via env PORTAL_BASE_PATH
 $autoBase = '';
