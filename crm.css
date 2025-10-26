@@ -1,6 +1,16 @@
+.portal-embedded-app--crm {
+  --crm-hero-bg: linear-gradient(135deg, rgba(37, 99, 235, 0.55), rgba(14, 116, 144, 0.45));
+  --crm-surface: rgba(15, 23, 42, 0.82);
+  --crm-surface-soft: rgba(15, 23, 42, 0.68);
+  --crm-border: rgba(148, 163, 184, 0.24);
+  --crm-muted: rgba(203, 213, 225, 0.78);
+  --crm-heading: #f8fafc;
+  --crm-highlight: rgba(37, 99, 235, 0.18);
+}
+
 .crm-hero {
-  background: linear-gradient(135deg, rgba(14, 116, 144, 0.92), rgba(15, 23, 42, 0.92));
-  color: var(--surface);
+  background: var(--crm-hero-bg);
+  color: var(--crm-heading);
 }
 
 .crm-hero__grid {
@@ -28,9 +38,9 @@
 .settings-toggle input[type="checkbox"] {
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.12);
-  color: inherit;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: var(--crm-surface-soft);
+  color: var(--crm-heading);
 }
 
 .crm-hero__metrics {
@@ -66,11 +76,12 @@
 .crm-form input,
 .crm-form textarea,
 .crm-form select {
-  border: 1px solid var(--base-200);
+  border: 1px solid var(--crm-border);
   border-radius: 0.65rem;
   padding: 0.65rem 0.75rem;
   font: inherit;
-  background: var(--surface);
+  background: var(--crm-surface-soft);
+  color: var(--crm-heading);
 }
 
 .crm-form textarea {
@@ -78,7 +89,7 @@
 }
 
 .crm-form fieldset {
-  border: 1px solid var(--base-200);
+  border: 1px solid var(--crm-border);
   border-radius: 0.75rem;
   padding: 1rem;
   gap: 1rem;
@@ -99,11 +110,11 @@
 .form-alert {
   min-height: 1.5rem;
   font-size: 0.9rem;
-  color: var(--brand-600);
+  color: var(--crm-muted);
 }
 
 .form-alert[data-state="error"] {
-  color: var(--danger-600);
+  color: #fecaca;
 }
 
 .crm-table {
@@ -114,13 +125,14 @@
 
 .crm-table th,
 .crm-table td {
-  border-bottom: 1px solid var(--base-200);
+  border-bottom: 1px solid var(--crm-border);
   padding: 0.75rem 0.5rem;
   text-align: left;
+  color: var(--crm-muted);
 }
 
 .crm-table tbody tr:hover {
-  background: rgba(14, 116, 144, 0.08);
+  background: var(--crm-highlight);
 }
 
 .table-wrapper {
@@ -135,11 +147,12 @@
 
 .conversion-panel {
   margin-top: 2rem;
-  border: 1px solid var(--base-200);
+  border: 1px solid var(--crm-border);
   border-radius: 1rem;
   padding: 1.5rem;
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  background: var(--crm-surface);
+  box-shadow: 0 18px 40px -32px rgba(2, 6, 23, 0.95);
+  color: var(--crm-heading);
 }
 
 .conversion-header {
@@ -170,12 +183,14 @@
 
 .stage-list li {
   padding: 0.75rem;
-  border: 1px solid var(--base-200);
+  border: 1px solid var(--crm-border);
   border-radius: 0.75rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
+  background: var(--crm-surface);
+  color: var(--crm-heading);
 }
 
 .activity-log {
@@ -188,14 +203,15 @@
 }
 
 .activity-log li {
-  border-left: 3px solid var(--brand-400);
+  border-left: 3px solid rgba(37, 99, 235, 0.65);
   padding: 0.5rem 0.75rem;
-  background: rgba(14, 116, 144, 0.08);
+  background: var(--crm-surface);
   border-radius: 0.5rem;
+  color: var(--crm-muted);
 }
 
 .referrer-summary {
-  border-top: 1px dashed var(--base-200);
+  border-top: 1px dashed var(--crm-border);
   margin-top: 1rem;
   padding-top: 1rem;
   display: grid;
@@ -208,13 +224,93 @@
 }
 
 .filters {
-  border: 1px solid var(--base-200);
+  border: 1px solid var(--crm-border);
   border-radius: 1rem;
   padding: 1.25rem;
-  background: var(--surface);
+  background: var(--crm-surface);
   margin-bottom: 1.5rem;
   display: grid;
   gap: 1rem;
+  color: var(--crm-heading);
+}
+
+.portal-embedded-app--crm .badge {
+  background: rgba(37, 99, 235, 0.22);
+  color: #bfdbfe;
+}
+
+.portal-embedded-app--crm .crm-hero p,
+.portal-embedded-app--crm .crm-app p,
+.portal-embedded-app--crm .crm-app li,
+.portal-embedded-app--crm .crm-app label,
+.portal-embedded-app--crm .crm-app span,
+.portal-embedded-app--crm .crm-app th,
+.portal-embedded-app--crm .crm-app td {
+  color: var(--crm-muted);
+}
+
+.portal-embedded-app--crm h2,
+.portal-embedded-app--crm h3,
+.portal-embedded-app--crm h4 {
+  color: var(--crm-heading);
+}
+
+.portal-embedded-app--crm .metric-card,
+.portal-embedded-app--crm .card,
+.portal-embedded-app--crm .crm-grid > article,
+.portal-embedded-app--crm .conversion-panel,
+.portal-embedded-app--crm .filters,
+.portal-embedded-app--crm .crm-import,
+.portal-embedded-app--crm .pipeline-grid > article,
+.portal-embedded-app--crm .stage-list li,
+.portal-embedded-app--crm .activity-log li {
+  background: var(--crm-surface);
+  border-color: var(--crm-border);
+  box-shadow: 0 18px 40px -32px rgba(2, 6, 23, 0.95);
+  color: var(--crm-heading);
+}
+
+.portal-embedded-app--crm .metric-label {
+  color: rgba(226, 232, 240, 0.75);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.portal-embedded-app--crm .metric-value {
+  color: var(--crm-heading);
+}
+
+.portal-embedded-app--crm .crm-form .form-label,
+.portal-embedded-app--crm .settings-toggle span,
+.portal-embedded-app--crm .filters label,
+.portal-embedded-app--crm .filters span {
+  color: var(--crm-muted);
+}
+
+.portal-embedded-app--crm .crm-form input,
+.portal-embedded-app--crm .crm-form textarea,
+.portal-embedded-app--crm .crm-form select {
+  box-shadow: none;
+}
+
+.portal-embedded-app--crm .crm-form input:focus,
+.portal-embedded-app--crm .crm-form textarea:focus,
+.portal-embedded-app--crm .crm-form select:focus {
+  border-color: rgba(96, 165, 250, 0.8);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+  outline: none;
+}
+
+.portal-embedded-app--crm .crm-table tbody tr:nth-child(even) {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.portal-embedded-app--crm .table-actions .btn {
+  border-color: rgba(96, 165, 250, 0.35);
+}
+
+.portal-embedded-app--crm .activity-log li {
+  box-shadow: none;
 }
 
 .filters .form-row {
@@ -230,6 +326,15 @@
 .file-input {
   position: relative;
   cursor: pointer;
+}
+
+.crm-import {
+  border: 1px dashed var(--crm-border);
+  border-radius: 0.85rem;
+  background: var(--crm-surface-soft);
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .file-input input[type="file"] {
