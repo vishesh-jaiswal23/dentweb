@@ -4990,6 +4990,12 @@ body[data-festival-theme] .hero-highlight {
   background: var(--alt-surface);
 }
 
+.dashboard .container {
+  max-width: min(96vw, 1400px);
+  padding-left: clamp(1.25rem, 4vw, 3rem);
+  padding-right: clamp(1.25rem, 4vw, 3rem);
+}
+
 .dashboard-shell {
   display: flex;
   flex-direction: column;
@@ -5236,6 +5242,8 @@ body[data-festival-theme] .hero-highlight {
 .dashboard-body {
   display: grid;
   gap: 2rem;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
 }
 
 .dashboard-nav {
@@ -5553,6 +5561,10 @@ body[data-festival-theme] .hero-highlight {
 
 .dashboard-action-caret {
   color: var(--base-400);
+}
+
+.d-block {
+  display: block;
 }
 
 .dashboard-critical {
@@ -6205,7 +6217,7 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 
 @media (min-width: 1100px) {
   .dashboard-body {
-    grid-template-columns: 260px minmax(0, 1fr) 300px;
+    grid-template-columns: minmax(0, 1fr) 320px;
   }
 
   .dashboard-aside {
@@ -6222,6 +6234,12 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 
   .dashboard-search {
     max-width: 420px;
+  }
+}
+
+@media (min-width: 1440px) {
+  .dashboard-body {
+    grid-template-columns: minmax(0, 1fr) 360px;
   }
 }
 
@@ -6262,7 +6280,7 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
    ============================================================ */
 
 .dashboard-cards--grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .dashboard-card--metrics {
@@ -6368,6 +6386,12 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 .ticket-board {
   display: grid;
   gap: 1.75rem;
+}
+
+@media (min-width: 900px) {
+  .ticket-board {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
 }
 
 .ticket-card {
@@ -6859,9 +6883,410 @@ button[data-task-undo]:focus-visible {
   margin-top: 0.15rem;
 }
 
+.visit-layout,
+.document-layout,
+.warranty-layout,
+.communication-layout,
+.ai-layout {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.visit-grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.visit-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.visit-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.visit-card-header h3 {
+  margin: 0.2rem 0 0.25rem;
+  font-size: 1.1rem;
+  color: var(--base-900);
+}
+
+.visit-card-customer {
+  margin: 0;
+  color: var(--base-500);
+  font-size: 0.95rem;
+}
+
+.visit-meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  color: var(--base-500);
+  font-size: 0.9rem;
+}
+
+.visit-meta i {
+  color: var(--accent-blue-main);
+}
+
+.visit-block h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  color: var(--base-700);
+}
+
+.visit-block ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.3rem;
+  color: var(--base-600);
+  font-size: 0.92rem;
+}
+
+.visit-block--photos ul {
+  padding-left: 0;
+  list-style: none;
+}
+
+.visit-block--photos li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.visit-block--photos i {
+  color: var(--accent-blue-dark);
+}
+
+.visit-notes {
+  margin: 0;
+  display: flex;
+  gap: 0.5rem;
+  color: var(--accent-blue-dark);
+  font-size: 0.92rem;
+}
+
+.visit-notes i {
+  margin-top: 0.2rem;
+}
+
+.visit-geotag {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--base-600);
+  font-size: 0.92rem;
+}
+
+.visit-geotag[hidden] {
+  display: none;
+}
+
+.visit-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.visit-activity-panel {
+  display: grid;
+  gap: 1rem;
+  align-self: start;
+}
+
+.visit-activity {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.visit-activity time {
+  font-size: 0.85rem;
+  color: var(--base-500);
+  display: block;
+}
+
+.visit-activity p {
+  margin: 0;
+  color: var(--base-700);
+  font-size: 0.95rem;
+}
+
+.document-panel,
+.warranty-activity,
+.ai-output-panel,
+.communication-history {
+  display: grid;
+  gap: 1rem;
+  align-self: start;
+}
+
+.document-form,
+.communication-form,
+.ai-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.document-form label,
+.communication-form label,
+.ai-form label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--base-600);
+}
+
+.document-form input,
+.document-form select,
+.document-form textarea,
+.communication-form select,
+.communication-form textarea,
+.ai-form select,
+.ai-form textarea,
+.ai-form input {
+  border-radius: 0.75rem;
+  border: 1px solid var(--base-300);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.95rem;
+  background: var(--surface);
+  color: var(--base-800);
+}
+
+.document-form textarea,
+.communication-form textarea,
+.ai-form textarea {
+  resize: vertical;
+  min-height: 3.5rem;
+}
+
+.subsidy-layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.subsidy-card {
+  display: grid;
+  gap: 1rem;
+}
+
+.subsidy-card header h3 {
+  margin: 0;
+  color: var(--base-900);
+  font-size: 1.05rem;
+}
+
+.subsidy-stages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.subsidy-stage {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.subsidy-stage.is-complete {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.subsidy-stage strong {
+  display: block;
+  color: var(--base-800);
+}
+
+.subsidy-stage .text-xs {
+  display: block;
+  margin-top: 0.1rem;
+}
+
+.subsidy-stage button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.subsidy-note {
+  margin: 0;
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  color: var(--base-600);
+}
+
+.subsidy-note i {
+  color: var(--accent-blue-main);
+  margin-top: 0.2rem;
+}
+
+.warranty-activity ol,
+.warranty-activity ul,
+.subsidy-activity ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.warranty-activity time,
+.subsidy-activity time {
+  font-size: 0.85rem;
+  color: var(--base-500);
+}
+
+.warranty-activity p,
+.subsidy-activity p {
+  margin: 0;
+  color: var(--base-700);
+  font-size: 0.95rem;
+}
+
+.communication-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.communication-log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--base-500);
+}
+
+.communication-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent-blue-dark);
+}
+
+.communication-channel--email {
+  background: rgba(99, 102, 241, 0.15);
+  color: #4338ca;
+}
+
+.communication-channel--system {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--base-600);
+}
+
+.communication-channel--visit {
+  background: rgba(16, 185, 129, 0.15);
+  color: #047857;
+}
+
+.communication-log p {
+  margin: 0;
+  color: var(--base-700);
+  font-size: 0.95rem;
+}
+
+.ai-output {
+  min-height: 7rem;
+  border-radius: 1rem;
+  border: 1px dashed rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.08);
+  padding: 1rem 1.25rem;
+  color: var(--base-700);
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+}
+
+.ai-output strong {
+  color: var(--base-900);
+}
+
+.ai-output-panel h3 {
+  margin: 0;
+}
+
+.subsidy-activity,
+.visit-activity,
+.warranty-activity,
+.communication-history,
+.ai-output-panel {
+  background: var(--surface);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-soft);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.visit-card.dashboard-panel,
+.subsidy-card.dashboard-panel,
+.document-panel.dashboard-panel,
+.communication-layout .dashboard-panel,
+.ai-layout .dashboard-panel,
+.warranty-layout .dashboard-panel {
+  box-shadow: var(--shadow-soft);
+}
+
+.visit-card.dashboard-panel {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.document-table .dashboard-status,
+.warranty-table .dashboard-status {
+  display: inline-flex;
+}
+
 @media (min-width: 1024px) {
   .lead-layout {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  }
+
+  .visit-layout,
+  .document-layout,
+  .warranty-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  }
+}
+
+@media (min-width: 900px) {
+  .communication-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  }
+
+  .ai-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 720px) {
+  .subsidy-layout {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   }
 }
 
