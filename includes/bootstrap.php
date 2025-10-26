@@ -214,7 +214,7 @@ function seed_defaults(PDO $db): void
     }
 
     $defaultGeminiSettings = [
-        'gemini_api_key' => 'AIzaSyAsCEn7cd9vZlb5M5z9kw3XwbGkOjg8md0',
+        'gemini_api_key' => '',
         'gemini_text_model' => 'gemini-2.5-flash',
         'gemini_image_model' => 'gemini-2.5-flash-image',
         'gemini_tts_model' => 'gemini-2.5-flash-preview-tts',
