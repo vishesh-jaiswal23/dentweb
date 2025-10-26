@@ -1,0 +1,262 @@
+.crm-hero {
+  background: linear-gradient(135deg, rgba(14, 116, 144, 0.92), rgba(15, 23, 42, 0.92));
+  color: var(--surface);
+}
+
+.crm-hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 3rem;
+  align-items: start;
+}
+
+.crm-hero__settings {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+.settings-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.95rem;
+}
+
+.settings-toggle select,
+.settings-toggle input[type="checkbox"] {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+
+.crm-hero__metrics {
+  display: grid;
+  gap: 1rem;
+}
+
+.crm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+.crm-two-column {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.crm-form .form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.crm-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.crm-form input,
+.crm-form textarea,
+.crm-form select {
+  border: 1px solid var(--base-200);
+  border-radius: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  background: var(--surface);
+}
+
+.crm-form textarea {
+  min-height: 90px;
+}
+
+.crm-form fieldset {
+  border: 1px solid var(--base-200);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  gap: 1rem;
+}
+
+.crm-form legend {
+  font-weight: 600;
+}
+
+.form-actions {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.form-alert {
+  min-height: 1.5rem;
+  font-size: 0.9rem;
+  color: var(--brand-600);
+}
+
+.form-alert[data-state="error"] {
+  color: var(--danger-600);
+}
+
+.crm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.crm-table th,
+.crm-table td {
+  border-bottom: 1px solid var(--base-200);
+  padding: 0.75rem 0.5rem;
+  text-align: left;
+}
+
+.crm-table tbody tr:hover {
+  background: rgba(14, 116, 144, 0.08);
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.conversion-panel {
+  margin-top: 2rem;
+  border: 1px solid var(--base-200);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.conversion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.btn.btn-icon {
+  padding: 0.4rem 0.6rem;
+  border-radius: 999px;
+}
+
+.pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+}
+
+.stage-list {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.stage-list li {
+  padding: 0.75rem;
+  border: 1px solid var(--base-200);
+  border-radius: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.activity-log {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.activity-log li {
+  border-left: 3px solid var(--brand-400);
+  padding: 0.5rem 0.75rem;
+  background: rgba(14, 116, 144, 0.08);
+  border-radius: 0.5rem;
+}
+
+.referrer-summary {
+  border-top: 1px dashed var(--base-200);
+  margin-top: 1rem;
+  padding-top: 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.import-results {
+  font-size: 0.9rem;
+  min-height: 1.5rem;
+}
+
+.filters {
+  border: 1px solid var(--base-200);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  background: var(--surface);
+  margin-bottom: 1.5rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.filters .form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.filters .form-actions {
+  justify-content: flex-start;
+}
+
+.file-input {
+  position: relative;
+  cursor: pointer;
+}
+
+.file-input input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.stage-metrics {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+@media (max-width: 960px) {
+  .crm-hero__grid,
+  .crm-two-column {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .crm-form .form-row,
+  .filters .form-row {
+    grid-template-columns: 1fr;
+  }
+}
