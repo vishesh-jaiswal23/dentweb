@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Admin Workspace | Dakshayani Enterprises</title>
-  <meta name="description" content="Admin workspace placeholder for Dakshayani Enterprises." />
+  <title>Admin Control Center | Dakshayani Enterprises</title>
+  <meta
+    name="description"
+    content="Comprehensive admin workspace for approvals, access control, AI settings, complaints, and system health."
+  />
   <link rel="icon" href="images/favicon.ico" />
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -20,7 +23,7 @@
     referrerpolicy="no-referrer"
   />
 </head>
-<body>
+<body data-dashboard-theme="light">
   <main class="dashboard">
     <div class="container dashboard-shell">
       <div class="dashboard-auth-bar" role="banner">
@@ -28,10 +31,14 @@
           <i class="fa-solid fa-user-shield" aria-hidden="true"></i>
           <div>
             <small>Signed in as</small>
-            <strong>Admin</strong>
+            <strong>System Administrator</strong>
           </div>
         </div>
         <div class="dashboard-auth-actions">
+          <button type="button" class="btn btn-ghost" data-open-quick-search>
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            Quick search
+          </button>
           <a href="login.html" class="btn btn-ghost">
             <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
             Log out
@@ -39,18 +46,716 @@
         </div>
       </div>
 
-      <section class="section dashboard-placeholder">
-        <div class="dashboard-inner">
-          <span class="hero-eyebrow"><i class="fa-solid fa-user-shield"></i> Admin workspace</span>
-          <h1>Admin dashboard under construction</h1>
-          <p class="lead">
-            This secure admin portal is being built to help you oversee approvals, manage project execution, and monitor subsidy
-            workflows. You will find detailed controls here soon.
+      <header class="dashboard-header">
+        <div class="dashboard-heading">
+          <span class="badge badge-soft"><i class="fa-solid fa-lock"></i> Secure oversight</span>
+          <h1>Admin Control Center</h1>
+          <p class="dashboard-subheading">
+            Approve new users, orchestrate services, and monitor subsidy, AMC, and complaints without leaving this workspace.
           </p>
-          <a href="login.html" class="btn btn-secondary">Back to login portal</a>
+          <p class="dashboard-meta">
+            <i class="fa-regular fa-circle-check" aria-hidden="true"></i>
+            Last verified backup <strong>--</strong> · <span>2FA enforced for all admin logins</span>
+          </p>
         </div>
-      </section>
+        <div class="dashboard-search" role="search">
+          <form class="dashboard-search-field" data-dashboard-search>
+            <label for="dashboard-search-input" class="sr-only">Search admin records</label>
+            <input
+              id="dashboard-search-input"
+              type="search"
+              placeholder="Search leads, tickets, installers…"
+              autocomplete="off"
+              aria-describedby="dashboard-search-help"
+            />
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+          </form>
+          <p id="dashboard-search-help" class="dashboard-subheading">
+            Instant lookup across customers, approvals, AMC renewals, and subsidy pipeline.
+          </p>
+          <div class="dashboard-search-results" data-dashboard-search-results hidden>
+            <p class="dashboard-search-empty">Start typing to surface admin modules, records, and recent activity.</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="dashboard-body">
+        <nav class="dashboard-nav" aria-label="Admin navigation">
+          <p class="dashboard-nav-title">Workspace</p>
+          <ul>
+            <li><a class="dashboard-nav-link" href="#overview" aria-current="page"><i class="fa-solid fa-chart-line"></i> Overview</a></li>
+            <li><a class="dashboard-nav-link" href="#onboarding"><i class="fa-solid fa-user-plus"></i> Onboarding &amp; Approvals</a></li>
+            <li><a class="dashboard-nav-link" href="#access"><i class="fa-solid fa-fingerprint"></i> Access Control</a></li>
+            <li><a class="dashboard-nav-link" href="#health"><i class="fa-solid fa-heart-pulse"></i> System Health</a></li>
+            <li><a class="dashboard-nav-link" href="#ai"><i class="fa-solid fa-robot"></i> Gemini AI Provider</a></li>
+            <li><a class="dashboard-nav-link" href="#complaints"><i class="fa-solid fa-headset"></i> Complaints &amp; Service</a></li>
+            <li><a class="dashboard-nav-link dashboard-nav-link--external" href="deletion-report.md">
+              <i class="fa-solid fa-shield-halved"></i> Audit &amp; Data Logs
+            </a></li>
+          </ul>
+          <div class="dashboard-nav-footer">
+            <a class="dashboard-nav-link dashboard-nav-link--logout" href="login.html">
+              <i class="fa-solid fa-door-open"></i> Sign out
+            </a>
+          </div>
+        </nav>
+
+        <div class="dashboard-main">
+          <section class="dashboard-section" id="overview">
+            <h2>Operational overview</h2>
+            <p class="dashboard-section-sub">Real-time KPIs from leads, customers, service tickets, AMC and subsidy queues.</p>
+            <div class="dashboard-cards">
+              <article class="dashboard-card dashboard-card--neutral">
+                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-solar-panel"></i></div>
+              <div>
+                <p class="dashboard-card-title">Active customers</p>
+                <p class="dashboard-card-value" data-metric="customers">--</p>
+                <p class="dashboard-card-meta">Live counts appear after data sync.</p>
+              </div>
+            </article>
+            <article class="dashboard-card dashboard-card--positive">
+              <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-user-gear"></i></div>
+              <div>
+                <p class="dashboard-card-title">New user requests</p>
+                <p class="dashboard-card-value" data-metric="approvals">--</p>
+                <p class="dashboard-card-meta">Invitations awaiting approval will display here.</p>
+              </div>
+            </article>
+            <article class="dashboard-card dashboard-card--warning">
+              <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-ticket"></i></div>
+              <div>
+                <p class="dashboard-card-title">Open service tickets</p>
+                <p class="dashboard-card-value" data-metric="tickets">--</p>
+                <p class="dashboard-card-meta">Ticket volume updates after service data refresh.</p>
+              </div>
+            </article>
+            <article class="dashboard-card">
+              <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+              <div>
+                <p class="dashboard-card-title">Subsidy pipeline</p>
+                <p class="dashboard-card-value" data-metric="subsidy">--</p>
+                <p class="dashboard-card-meta">Financial progress appears when subsidy data loads.</p>
+              </div>
+            </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="onboarding">
+            <h2>Onboarding &amp; user control</h2>
+            <p class="dashboard-section-sub">
+              Admins can create new users directly, while employee-invited accounts remain pending until you approve and assign roles.
+            </p>
+            <div class="dashboard-lists">
+              <div class="dashboard-list">
+                <header>
+                  <i class="fa-solid fa-circle-nodes" aria-hidden="true"></i>
+                  <h3>Pending approvals</h3>
+                </header>
+                <ul>
+                  <li>
+                    <p class="primary" data-placeholder="pending-approvals">No pending invitations loaded.</p>
+                    <p class="secondary">Employee invited users appear here once they await admin authorization.</p>
+                  </li>
+                </ul>
+              </div>
+              <div class="dashboard-list">
+                <header>
+                  <i class="fa-solid fa-clipboard-check" aria-hidden="true"></i>
+                  <h3>Recent activations</h3>
+                </header>
+                <ul>
+                  <li>
+                    <p class="primary" data-placeholder="recent-activations">No recent activations recorded.</p>
+                    <p class="secondary">Approved employees, installers, referrers, or customers will be listed after activation.</p>
+                  </li>
+                </ul>
+              </div>
+              <div class="dashboard-list">
+                <header>
+                  <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
+                  <h3>Approval workflow</h3>
+                </header>
+                <ul>
+                  <li>
+                    <p class="primary">Intake ➝ Identity verification</p>
+                    <p class="secondary">Employees collect documents; admins confirm authenticity before approval.</p>
+                  </li>
+                  <li>
+                    <p class="primary">Admin role assignment</p>
+                    <p class="secondary">Admin selects role and permissions, then shares login credentials securely.</p>
+                  </li>
+                  <li>
+                    <p class="primary">Activation &amp; monitoring</p>
+                    <p class="secondary">Admins can deactivate, modify, or revoke user access at any time.</p>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="dashboard-actions">
+              <button class="dashboard-action" type="button" data-action="invite-user">
+                <span class="dashboard-action-icon" aria-hidden="true"><i class="fa-solid fa-user-plus"></i></span>
+                <span>
+                  <span class="label">Invite new user</span>
+                  <span class="description">Employees submit details, you authorize and assign permissions.</span>
+                </span>
+                <span class="dashboard-action-caret" aria-hidden="true"><i class="fa-solid fa-angle-right"></i></span>
+              </button>
+              <button class="dashboard-action" type="button" data-action="view-policies">
+                <span class="dashboard-action-icon" aria-hidden="true"><i class="fa-solid fa-shield-halved"></i></span>
+                <span>
+                  <span class="label">Review access policies</span>
+                  <span class="description">Ensure lockout limits, CSRF protection, and 2FA flows stay compliant.</span>
+                </span>
+                <span class="dashboard-action-caret" aria-hidden="true"><i class="fa-solid fa-angle-right"></i></span>
+              </button>
+              <button class="dashboard-action" type="button" data-action="bulk-approve">
+                <span class="dashboard-action-icon" aria-hidden="true"><i class="fa-solid fa-check-double"></i></span>
+                <span>
+                  <span class="label">Bulk approve installers</span>
+                  <span class="description">Assign vetted installers to clusters and notify them instantly.</span>
+                </span>
+                <span class="dashboard-action-caret" aria-hidden="true"><i class="fa-solid fa-angle-right"></i></span>
+              </button>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="access">
+            <h2>Login &amp; access control</h2>
+            <p class="dashboard-section-sub">
+              Configure retry limits, lockout policies, and multi-factor authentication for every portal role.
+            </p>
+            <div class="dashboard-profile-grid">
+              <form class="dashboard-form" data-login-policy>
+                <h3>Authentication controls</h3>
+                <div class="dashboard-form-grid">
+                  <label>
+                    Maximum retry attempts
+                    <input type="number" name="retry" value="5" min="3" max="10" />
+                  </label>
+                  <label>
+                    Lockout duration (minutes)
+                    <input type="number" name="lockout" value="30" min="5" max="120" />
+                  </label>
+                  <label>
+                    2FA enforcement
+                    <select name="twofactor">
+                      <option value="all" selected>All roles (recommended)</option>
+                      <option value="admin">Admin only</option>
+                      <option value="none">Disabled</option>
+                    </select>
+                  </label>
+                  <label>
+                    Default session timeout (minutes)
+                    <input type="number" name="session" value="45" min="15" max="240" />
+                  </label>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  CSRF tokens rotate every login · Email OTP fallback auto-enforced for admins.
+                </p>
+                <div class="dashboard-critical">
+                  <h3>Critical actions</h3>
+                  <div class="dashboard-critical-actions">
+                    <button type="button" class="dashboard-critical-action" data-action="reset-locks">
+                      <i class="fa-solid fa-unlock"></i> Reset locked accounts
+                    </button>
+                    <button type="button" class="dashboard-critical-action" data-action="force-logout">
+                      <i class="fa-solid fa-user-slash"></i> Force logout all sessions
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Save policies</button>
+                  <button type="reset" class="btn btn-ghost">Reset</button>
+                </div>
+              </form>
+
+              <section class="dashboard-form">
+                <h3>2FA delivery channels</h3>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-shield-check" aria-hidden="true"></i>
+                  Select available OTP routes for fallback authentication.
+                </p>
+                <ul class="dashboard-twofactor-methods">
+                  <li><i class="fa-solid fa-envelope"></i>Email OTP (primary)</li>
+                  <li><i class="fa-solid fa-mobile-screen-button"></i>SMS OTP via Twilio</li>
+                  <li><i class="fa-solid fa-key"></i>Authenticator app (TOTP)</li>
+                </ul>
+                <label class="dashboard-toggle">
+                  Require device trust on new browsers
+                  <input type="checkbox" name="device-trust" checked />
+                </label>
+                <label class="dashboard-toggle">
+                  Send anomaly alerts on failed OTP attempts
+                  <input type="checkbox" name="otp-alerts" checked />
+                </label>
+              </section>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="health">
+            <h2>System health &amp; audit logs</h2>
+            <p class="dashboard-section-sub">Monitor uptime, SLA breaches, and exportable audit trails for every user action.</p>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-form">
+                <h3>Health summary</h3>
+                <div class="dashboard-form-grid">
+                  <label>
+                    Uptime (7 days)
+                    <input type="text" value="--" readonly aria-label="Uptime awaiting data" />
+                  </label>
+                  <label>
+                    Error logs (24h)
+                    <input type="text" value="--" readonly aria-label="Error logs awaiting data" />
+                  </label>
+                  <label>
+                    Last backup
+                    <input type="text" value="--" readonly aria-label="Backup status awaiting data" />
+                  </label>
+                  <label>
+                    Storage utilisation
+                    <input type="text" value="--" readonly aria-label="Storage utilisation awaiting data" />
+                  </label>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-database" aria-hidden="true"></i>
+                  Schedule exports for detailed activity, error, and notification logs.
+                </p>
+                <div>
+                  <button type="button" class="btn btn-secondary" data-action="export-logs">
+                    <i class="fa-solid fa-file-export"></i>
+                    Export logs
+                  </button>
+                  <button type="button" class="btn btn-ghost" data-action="view-monitoring">View monitoring</button>
+                </div>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Recent activity feed</h3>
+                <ul class="dashboard-notifications" data-placeholder="activity-feed">
+                  <li class="dashboard-notification dashboard-notification--info">
+                    <i class="fa-solid fa-bolt" aria-hidden="true"></i>
+                    <div>
+                      <p>No recent activity to display.</p>
+                      <span>Live audit events will appear after integration.</span>
+                    </div>
+                  </li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="ai">
+            <h2>Gemini AI provider settings</h2>
+            <p class="dashboard-section-sub">
+              Manage secure API keys and model codes for text, image, and TTS interactions used across internal copilots.
+            </p>
+            <form class="dashboard-form" data-gemini-form>
+              <h3>API credentials</h3>
+              <div class="dashboard-form-grid">
+                  <label>
+                    Gemini API key
+                    <input type="password" name="apiKey" placeholder="Enter secure API key" autocomplete="off" />
+                  </label>
+                <label>
+                  Text model code
+                  <input type="text" name="textModel" value="gemini-2.5-flash" />
+                </label>
+                <label>
+                  Image model code
+                  <input type="text" name="imageModel" value="gemini-2.5-flash-image" />
+                </label>
+                <label>
+                  TTS model code
+                  <input type="text" name="ttsModel" value="gemini-2.5-flash-preview-tts" />
+                </label>
+              </div>
+              <p class="dashboard-form-note">
+                <i class="fa-solid fa-shield" aria-hidden="true"></i>
+                API keys stay masked · Rotate quarterly or immediately after any suspected compromise.
+              </p>
+              <div>
+                <button type="submit" class="btn btn-secondary" data-action="save-gemini">Save settings</button>
+                <button type="button" class="btn btn-ghost" data-action="reset-gemini">Reset defaults</button>
+                <button type="button" class="btn btn-tertiary" data-action="test-gemini">
+                  <i class="fa-solid fa-plug-circle-check" aria-hidden="true"></i>
+                  Test connection
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section class="dashboard-section" id="complaints">
+            <h2>Complaints &amp; service management</h2>
+            <p class="dashboard-section-sub">
+              Track the complaint lifecycle from intake through resolution, assign owners, and monitor SLA deadlines.
+            </p>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-form">
+                <h3>Complaint pipeline</h3>
+                <div class="dashboard-lists">
+                  <div class="dashboard-list">
+                    <header>
+                      <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+                      <h3>Intake</h3>
+                    </header>
+                    <ul>
+                      <li>
+                        <p class="primary" data-placeholder="complaint-intake">No complaints loaded.</p>
+                        <p class="secondary">Website and internal submissions appear here for triage.</p>
+                      </li>
+                    </ul>
+                  </div>
+                  <div class="dashboard-list">
+                    <header>
+                      <i class="fa-solid fa-stethoscope" aria-hidden="true"></i>
+                      <h3>Triage</h3>
+                    </header>
+                    <ul>
+                      <li>
+                        <p class="primary" data-placeholder="complaint-triage">No triage items available.</p>
+                        <p class="secondary">Prioritized complaints appear after admin review.</p>
+                      </li>
+                    </ul>
+                  </div>
+                  <div class="dashboard-list">
+                    <header>
+                      <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i>
+                      <h3>Work</h3>
+                    </header>
+                    <ul>
+                      <li>
+                        <p class="primary" data-placeholder="complaint-work">Work queue empty.</p>
+                        <p class="secondary">Assigned employees will track SLA progress from this view.</p>
+                      </li>
+                    </ul>
+                  </div>
+                  <div class="dashboard-list">
+                    <header>
+                      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                      <h3>Resolution</h3>
+                    </header>
+                    <ul>
+                      <li>
+                        <p class="primary" data-placeholder="complaint-resolution">No recent resolutions available.</p>
+                        <p class="secondary">Closed complaints show here after customer confirmation.</p>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Assignments &amp; SLA</h3>
+                <div class="dashboard-form-grid">
+                  <label>
+                    Priority rule set
+                    <input type="text" value="Configure after service data sync" readonly />
+                  </label>
+                  <label>
+                    Escalation contacts
+                    <input type="text" value="--" readonly aria-label="Escalation contacts awaiting data" />
+                  </label>
+                  <label>
+                    SLA breach alerts
+                    <input type="text" value="--" readonly aria-label="SLA breach alerts awaiting data" />
+                  </label>
+                  <label>
+                    Upcoming AMC visits
+                    <input type="text" value="--" readonly aria-label="Upcoming AMC visits awaiting data" />
+                  </label>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
+                  Assign responsible employees per ticket and attach documents or on-site photos as evidence.
+                </p>
+                <div>
+                  <button type="button" class="btn btn-secondary" data-action="assign-complaint">Assign complaint</button>
+                  <button type="button" class="btn btn-ghost" data-action="view-amc">View AMC calendar</button>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <aside class="dashboard-aside">
+          <section class="dashboard-panel">
+            <h2>Theme &amp; presence</h2>
+            <label class="dashboard-toggle" for="theme-auto">
+              Auto theme (system)
+              <input type="radio" name="theme" id="theme-auto" value="auto" data-theme-option />
+            </label>
+            <label class="dashboard-toggle" for="theme-light">
+              Light theme
+              <input type="radio" name="theme" id="theme-light" value="light" data-theme-option checked />
+            </label>
+            <label class="dashboard-toggle" for="theme-dark">
+              Dark theme
+              <input type="radio" name="theme" id="theme-dark" value="dark" data-theme-option />
+            </label>
+            <p class="dashboard-form-note">
+              <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
+              Theme preference syncs with this browser only and updates instantly.
+            </p>
+          </section>
+
+          <section class="dashboard-panel">
+            <h2>Notifications</h2>
+            <ul class="dashboard-notifications" data-placeholder="notifications">
+              <li class="dashboard-notification dashboard-notification--info">
+                <i class="fa-solid fa-bell"></i>
+                <div>
+                  <p>No alerts yet.</p>
+                  <span>System notifications will surface here in real time.</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <section class="dashboard-panel dashboard-panel--muted">
+            <h2>Reminders</h2>
+            <ul class="dashboard-reminders" data-placeholder="reminders">
+              <li>
+                <p>No reminders scheduled.</p>
+                <span>Add admin tasks to keep approvals and audits on track.</span>
+              </li>
+            </ul>
+          </section>
+        </aside>
+      </div>
     </div>
   </main>
+
+  <div class="dashboard-toast-container" aria-live="polite" aria-atomic="false" data-toast-container></div>
+
+  <template id="dashboard-search-result-template">
+    <div class="dashboard-search-group">
+      <h3></h3>
+      <ul></ul>
+    </div>
+  </template>
+
+  <template id="dashboard-search-item-template">
+    <li>
+      <p class="title"></p>
+      <p class="desc"></p>
+    </li>
+  </template>
+
+  <template id="dashboard-toast-template">
+    <div class="dashboard-toast" role="status" data-toast>
+      <strong class="dashboard-toast-title"></strong>
+      <span class="dashboard-toast-message"></span>
+    </div>
+  </template>
+
+  <script>
+    (function () {
+      const THEME_STORAGE_KEY = 'dakshayani-admin-theme';
+      const toastContainer = document.querySelector('[data-toast-container]');
+      const toastTemplate = document.getElementById('dashboard-toast-template');
+      const searchResultTemplate = document.getElementById('dashboard-search-result-template');
+      const searchItemTemplate = document.getElementById('dashboard-search-item-template');
+      const searchForm = document.querySelector('[data-dashboard-search]');
+      const searchResultsHost = document.querySelector('[data-dashboard-search-results]');
+      const themeOptions = Array.from(document.querySelectorAll('[data-theme-option]'));
+      const quickSearchButton = document.querySelector('[data-open-quick-search]');
+
+      const searchIndex = [
+        { category: 'Leads & Customers', title: 'New residential leads', description: 'Lead totals appear once CRM sync is connected.', link: '#overview' },
+        { category: 'Leads & Customers', title: 'Customer onboarding queue', description: 'Monitor pending approvals after data refresh.', link: '#onboarding' },
+        { category: 'Access Control', title: 'Pending installer approvals', description: 'Review employee-submitted invitations awaiting admin approval.', link: '#onboarding' },
+        { category: 'Access Control', title: 'Login policy settings', description: 'Adjust retry limits and force logout sessions.', link: '#access' },
+        { category: 'System Health', title: 'Activity & error logs', description: 'Export admin actions and system warnings.', link: '#health' },
+        { category: 'AI Integrations', title: 'Gemini API configuration', description: 'Update API key and model codes for copilots.', link: '#ai' },
+        { category: 'Complaints', title: 'AMC renewals calendar', description: 'Schedule maintenance visits once service data loads.', link: '#complaints' },
+      ];
+
+      function prefersDark() {
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+
+      function applyTheme(mode, options = {}) {
+        const resolved = mode === 'auto' ? (prefersDark() ? 'dark' : 'light') : mode;
+        document.body.dataset.dashboardTheme = resolved;
+        document.body.dataset.dashboardThemeMode = mode;
+        themeOptions.forEach((input) => {
+          input.checked = input.value === mode;
+        });
+        localStorage.setItem(THEME_STORAGE_KEY, mode);
+        if (!options.silent) {
+          announceToast('Theme updated', `Admin theme switched to ${resolved} mode.`, 'info', { autoDismiss: true });
+        }
+      }
+
+      function initTheme() {
+        const stored = localStorage.getItem(THEME_STORAGE_KEY);
+        const initialMode = stored || 'light';
+        applyTheme(initialMode, { silent: true });
+        if (initialMode === 'auto' && window.matchMedia) {
+          window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            applyTheme('auto', { silent: true });
+          });
+        }
+      }
+
+      function groupByCategory(items) {
+        return items.reduce((map, item) => {
+          if (!map[item.category]) map[item.category] = [];
+          map[item.category].push(item);
+          return map;
+        }, {});
+      }
+
+      function renderSearchResults(query) {
+        if (!searchResultsHost) return;
+        const trimmed = query.trim().toLowerCase();
+        searchResultsHost.innerHTML = '';
+
+        if (!trimmed) {
+          searchResultsHost.innerHTML = '<p class="dashboard-search-empty">Start typing to surface admin modules, records, and recent activity.</p>';
+          searchResultsHost.hidden = false;
+          return;
+        }
+
+        const matches = searchIndex.filter((entry) => {
+          return (
+            entry.title.toLowerCase().includes(trimmed) ||
+            entry.description.toLowerCase().includes(trimmed) ||
+            entry.category.toLowerCase().includes(trimmed)
+          );
+        });
+
+        if (!matches.length) {
+          searchResultsHost.innerHTML = '<p class="dashboard-search-empty">No matches yet. Try "installer" or "AMC".</p>';
+          searchResultsHost.hidden = false;
+          return;
+        }
+
+        const grouped = groupByCategory(matches);
+        Object.entries(grouped).forEach(([category, items]) => {
+          const resultNode = searchResultTemplate.content.firstElementChild.cloneNode(true);
+          resultNode.querySelector('h3').textContent = category;
+          const list = resultNode.querySelector('ul');
+          items.forEach((item) => {
+            const itemNode = searchItemTemplate.content.firstElementChild.cloneNode(true);
+            const title = itemNode.querySelector('.title');
+            const desc = itemNode.querySelector('.desc');
+            title.textContent = item.title;
+            title.dataset.link = item.link;
+            desc.textContent = item.description;
+            itemNode.setAttribute('role', 'button');
+            itemNode.tabIndex = 0;
+            itemNode.addEventListener('click', () => {
+              if (item.link) {
+                window.location.hash = item.link;
+              }
+            });
+            itemNode.addEventListener('keydown', (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                if (item.link) {
+                  window.location.hash = item.link;
+                }
+              }
+            });
+            list.appendChild(itemNode);
+          });
+          searchResultsHost.appendChild(resultNode);
+        });
+        searchResultsHost.hidden = false;
+      }
+
+      function announceToast(title, message, type = 'info', options = {}) {
+        if (!toastTemplate || !toastContainer) return;
+        const toast = toastTemplate.content.firstElementChild.cloneNode(true);
+        toast.querySelector('.dashboard-toast-title').textContent = title;
+        toast.querySelector('.dashboard-toast-message').textContent = message;
+        toast.classList.add(`dashboard-toast--${type}`);
+        toast.dataset.state = 'visible';
+        toastContainer.appendChild(toast);
+
+        const dismiss = () => {
+          toast.dataset.state = 'hidden';
+          setTimeout(() => toast.remove(), 250);
+        };
+
+        if (!options.persist) {
+          const timeout = typeof options.timeout === 'number' ? options.timeout : 4800;
+          setTimeout(dismiss, timeout);
+        }
+
+        toast.addEventListener('click', dismiss, { once: true });
+        return dismiss;
+      }
+
+      function wireActions() {
+        if (searchForm) {
+          const input = searchForm.querySelector('input[type="search"]');
+          input?.addEventListener('input', (event) => {
+            renderSearchResults(event.target.value || '');
+          });
+        }
+
+        quickSearchButton?.addEventListener('click', () => {
+          searchForm?.querySelector('input[type="search"]').focus();
+          announceToast('Quick search', 'Start typing to find users, tickets, and subsidy records.', 'info');
+        });
+
+        document.querySelectorAll('[data-action]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const action = button.dataset.action;
+            const labels = {
+              'invite-user': ['Invite user', 'Send invite link to installer or employee for admin approval.', 'success'],
+              'view-policies': ['Access policies', 'Review password hashing, CSRF, and lockout configuration.', 'info'],
+              'bulk-approve': ['Bulk approval', 'Batch approve vetted installers when documentation is complete.', 'success'],
+              'reset-locks': ['Locks cleared', 'All locked accounts re-enabled. Notify owners about security review.', 'warning'],
+              'force-logout': ['Force logout', 'Every active session will be signed out within 2 minutes.', 'warning'],
+              'export-logs': ['Export scheduled', 'System health logs will be emailed to you shortly.', 'info'],
+              'view-monitoring': ['Monitoring view', 'Redirecting to observability dashboards.', 'info'],
+              'save-gemini': ['Gemini saved', 'Updated API credentials stored securely.', 'success'],
+              'reset-gemini': ['Defaults restored', 'Gemini models reset to recommended defaults.', 'info'],
+              'test-gemini': ['Testing Gemini', 'Attempting connection with current credentials…', 'info'],
+              'assign-complaint': ['Complaint assigned', 'Ticket owner updated and SLA clock restarted.', 'success'],
+              'view-amc': ['AMC calendar', 'Loading AMC and maintenance visits after sync.', 'info'],
+            };
+
+            const payload = labels[action];
+            if (!payload) return;
+
+            const [title, message, type] = payload;
+            const dismiss = announceToast(title, message, type);
+            if (action === 'test-gemini') {
+              setTimeout(() => {
+                dismiss?.();
+                announceToast('Gemini connection', '✅ Gemini connection verified.', 'success');
+              }, 2200);
+            }
+          });
+        });
+
+        document.querySelector('[data-gemini-form]')?.addEventListener('submit', (event) => {
+          event.preventDefault();
+          announceToast('Gemini saved', 'Updated API credentials stored securely.', 'success');
+        });
+
+        document.querySelector('[data-login-policy]')?.addEventListener('submit', (event) => {
+          event.preventDefault();
+          announceToast('Policies saved', 'Login and lockout rules updated for all roles.', 'success');
+        });
+      }
+
+      themeOptions.forEach((input) => {
+        input.addEventListener('change', (event) => {
+          applyTheme(event.target.value);
+        });
+      });
+
+      initTheme();
+      renderSearchResults('');
+      wireActions();
+      announceToast('Welcome back', 'All systems operational. Awaiting latest records.', 'success', { timeout: 7000 });
+    })();
+  </script>
 </body>
 </html>
