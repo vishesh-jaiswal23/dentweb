@@ -16,25 +16,25 @@ const INLINE_PARTIALS = {
   header: `
     <header class="global-header" data-component="global-header">
       <div class="container header-inner">
-        <a href="index.html" class="brand" aria-label="Dakshayani Enterprises home">
-          <img src="images/logo/New dakshayani logo centered small.png" alt="Dakshayani Enterprises" class="brand-logo-em" />
+        <a href="/index.html" class="brand" aria-label="Dakshayani Enterprises home">
+          <img src="/images/logo/New dakshayani logo centered small.png" alt="Dakshayani Enterprises" class="brand-logo-em" />
           <span class="brand-text">Dakshayani Enterprises</span>
         </a>
 
         <nav class="nav-desktop" aria-label="Primary navigation">
-          <a href="index.html" class="nav-link">Home</a>
-          <a href="about.html" class="nav-link">About Us</a>
+          <a href="/index.html" class="nav-link">Home</a>
+          <a href="/about.html" class="nav-link">About Us</a>
           <div class="nav-dropdown">
             <button type="button" class="nav-link nav-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
               Solutions
               <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
             </button>
             <div class="nav-dropdown-menu" role="menu">
-              <a href="solar-projects.html" class="nav-link" role="menuitem">Solar Projects</a>
-              <a href="govt-epc.html" class="nav-link" role="menuitem">Govt. EPC &amp; Infrastructure</a>
-              <a href="pm-surya-ghar.html" class="nav-link" role="menuitem">PM Surya Ghar Subsidy</a>
-              <a href="meera-gh2.html" class="nav-link" role="menuitem">Meera GH2 Initiative</a>
-              <a href="e-mobility.html" class="nav-link" role="menuitem">E-Mobility &amp; Charging</a>
+              <a href="/solar-projects.html" class="nav-link" role="menuitem">Solar Projects</a>
+              <a href="/govt-epc.html" class="nav-link" role="menuitem">Govt. EPC &amp; Infrastructure</a>
+              <a href="/pm-surya-ghar.html" class="nav-link" role="menuitem">PM Surya Ghar Subsidy</a>
+              <a href="/meera-gh2.html" class="nav-link" role="menuitem">Meera GH2 Initiative</a>
+              <a href="/e-mobility.html" class="nav-link" role="menuitem">E-Mobility &amp; Charging</a>
             </div>
           </div>
           <div class="nav-dropdown">
@@ -43,19 +43,19 @@ const INLINE_PARTIALS = {
               <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
             </button>
             <div class="nav-dropdown-menu" role="menu">
-          <a href="knowledge-hub.html" class="nav-link" role="menuitem">Knowledge Hub</a>
-          <a href="innovation-tech.html" class="nav-link" role="menuitem">Innovation &amp; Tech</a>
-          <a href="blog/index.php" class="nav-link" role="menuitem">Blog &amp; Insights</a>
-          <a href="news.html" class="nav-link" role="menuitem">AI Newsroom</a>
-          <a href="calculator.html" class="nav-link" role="menuitem">Solar Calculator</a>
-          <a href="ai-expert.html" class="nav-link" role="menuitem">Viaan AI Expert</a>
-          <a href="policies.html" class="nav-link" role="menuitem">Policies &amp; Compliance</a>
+          <a href="/knowledge-hub.html" class="nav-link" role="menuitem">Knowledge Hub</a>
+          <a href="/innovation-tech.html" class="nav-link" role="menuitem">Innovation &amp; Tech</a>
+          <a href="/blog/index.php" class="nav-link" role="menuitem">Blog &amp; Insights</a>
+          <a href="/news.html" class="nav-link" role="menuitem">AI Newsroom</a>
+          <a href="/calculator.html" class="nav-link" role="menuitem">Solar Calculator</a>
+          <a href="/ai-expert.html" class="nav-link" role="menuitem">Viaan AI Expert</a>
+          <a href="/policies.html" class="nav-link" role="menuitem">Policies &amp; Compliance</a>
             </div>
           </div>
         </nav>
 
         <div class="nav-actions" role="group" aria-label="Header quick actions">
-          <a href="login.php" class="btn btn-secondary nav-login-link">Login Portal</a>
+          <a href="/login.php" class="btn btn-secondary nav-login-link">Login Portal</a>
           <span class="nav-theme-badge" data-site-theme-label hidden></span>
         </div>
 
@@ -74,33 +74,33 @@ const INLINE_PARTIALS = {
 
       <nav id="mobile-menu" class="nav-mobile" aria-label="Mobile navigation">
         <div class="nav-mobile-section" aria-label="Primary pages">
-          <a href="index.html">Home</a>
-          <a href="about.html">About Us</a>
-          <a href="solar-projects.html">Solar Projects</a>
+          <a href="/index.html">Home</a>
+          <a href="/about.html">About Us</a>
+          <a href="/solar-projects.html">Solar Projects</a>
         </div>
         <div class="nav-mobile-divider" role="presentation"></div>
         <div class="nav-mobile-section" aria-label="Solutions">
           <p class="nav-mobile-label">Solutions</p>
-          <a href="solar-projects.html">Solar Projects</a>
-          <a href="govt-epc.html">Govt. EPC &amp; Infrastructure</a>
-          <a href="pm-surya-ghar.html">PM Surya Ghar Subsidy</a>
-          <a href="meera-gh2.html">Meera GH2 Initiative</a>
-          <a href="e-mobility.html">E-Mobility &amp; Charging</a>
+          <a href="/solar-projects.html">Solar Projects</a>
+          <a href="/govt-epc.html">Govt. EPC &amp; Infrastructure</a>
+          <a href="/pm-surya-ghar.html">PM Surya Ghar Subsidy</a>
+          <a href="/meera-gh2.html">Meera GH2 Initiative</a>
+          <a href="/e-mobility.html">E-Mobility &amp; Charging</a>
         </div>
         <div class="nav-mobile-divider" role="presentation"></div>
         <div class="nav-mobile-section" aria-label="Knowledge Hub">
           <p class="nav-mobile-label">Knowledge Hub</p>
-      <a href="knowledge-hub.html">Knowledge Hub</a>
-      <a href="innovation-tech.html">Innovation &amp; Tech</a>
-      <a href="blog/index.php">Blog &amp; Insights</a>
-      <a href="news.html">AI Newsroom</a>
-      <a href="calculator.html">Solar Calculator</a>
-      <a href="ai-expert.html">Viaan AI Expert</a>
-      <a href="policies.html">Policies &amp; Compliance</a>
+      <a href="/knowledge-hub.html">Knowledge Hub</a>
+      <a href="/innovation-tech.html">Innovation &amp; Tech</a>
+      <a href="/blog/index.php">Blog &amp; Insights</a>
+      <a href="/news.html">AI Newsroom</a>
+      <a href="/calculator.html">Solar Calculator</a>
+      <a href="/ai-expert.html">Viaan AI Expert</a>
+      <a href="/policies.html">Policies &amp; Compliance</a>
         </div>
         <div class="nav-mobile-divider" role="presentation"></div>
         <div class="nav-mobile-section" aria-label="Quick actions">
-          <a href="login.php" class="btn btn-secondary" data-close-mobile>Login Portal</a>
+          <a href="/login.php" class="btn btn-secondary" data-close-mobile>Login Portal</a>
           <p class="nav-mobile-theme" data-site-theme-label hidden></p>
         </div>
       </nav>
@@ -138,7 +138,7 @@ const INLINE_PARTIALS = {
     <div class="container footer-content">
       <div>
         <div class="footer-brand">
-          <img src="images/logo/New dakshayani logo centered small.png" alt="Dakshayani Enterprises" class="brand-logo-em" />
+          <img src="/images/logo/New dakshayani logo centered small.png" alt="Dakshayani Enterprises" class="brand-logo-em" />
           <span class="brand-text">Dakshayani Enterprises</span>
         </div>
         <p class="text-sm">
@@ -161,23 +161,23 @@ const INLINE_PARTIALS = {
       <div>
         <h4 class="font-bold text-lg">Solar &amp; Schemes</h4>
         <ul class="footer-links">
-          <li><a href="pm-surya-ghar.html">PM Surya Ghar Yojana</a></li>
-          <li><a href="financing.html">Financing &amp; Loans</a></li>
-          <li><a href="solar-projects.html#residential">Residential Solutions</a></li>
-          <li><a href="solar-projects.html#commercial">Commercial / Industrial</a></li>
-      <li><a href="calculator.html">Solar Savings Calculator</a></li>
+          <li><a href="/pm-surya-ghar.html">PM Surya Ghar Yojana</a></li>
+          <li><a href="/financing.html">Financing &amp; Loans</a></li>
+          <li><a href="/solar-projects.html#residential">Residential Solutions</a></li>
+          <li><a href="/solar-projects.html#commercial">Commercial / Industrial</a></li>
+      <li><a href="/calculator.html">Solar Savings Calculator</a></li>
     </ul>
   </div>
 
   <div>
     <h4 class="font-bold text-lg">Company</h4>
     <ul class="footer-links">
-      <li><a href="about.html">About Dakshayani Enterprises</a></li>
-      <li><a href="meera-gh2.html">Meera GH2 (Hydrogen)</a></li>
-      <li><a href="news.html">AI Newsroom</a></li>
-      <li><a href="blog/index.php">Blog &amp; News</a></li>
-      <li><a href="policies.html#terms">T&amp;C / Warranty</a></li>
-      <li><a href="contact.html">Contact &amp; Support</a></li>
+      <li><a href="/about.html">About Dakshayani Enterprises</a></li>
+      <li><a href="/meera-gh2.html">Meera GH2 (Hydrogen)</a></li>
+      <li><a href="/news.html">AI Newsroom</a></li>
+      <li><a href="/blog/index.php">Blog &amp; News</a></li>
+      <li><a href="/policies.html#terms">T&amp;C / Warranty</a></li>
+      <li><a href="/contact.html">Contact &amp; Support</a></li>
     </ul>
   </div>
 </div>
@@ -198,7 +198,7 @@ const INLINE_PARTIALS = {
     aria-label="Open Dakshayani support options"
     data-floating-toggle
   >
-    <img src="images/Logopngsmallest.png" alt="Dakshayani Enterprises" />
+    <img src="/images/Logopngsmallest.png" alt="Dakshayani Enterprises" />
   </button>
 
   <div
@@ -258,7 +258,7 @@ const INLINE_PARTIALS = {
 
       <div class="quick-access-group">
         <h3>Need detailed assistance?</h3>
-        <a href="contact.html" class="quick-access-link quick-access-link--primary" data-close-floating>
+        <a href="/contact.html" class="quick-access-link quick-access-link--primary" data-close-floating>
           <i class="fa-solid fa-comments"></i>
           Consult / Complaint / Connect
         </a>
