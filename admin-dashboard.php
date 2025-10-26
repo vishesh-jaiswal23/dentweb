@@ -40,6 +40,267 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 $apiBase = $pathFor('api/admin.php');
+
+$taskTeam = [
+    ['id' => 'inst-priya', 'name' => 'Priya Singh', 'role' => 'Installer'],
+    ['id' => 'emp-aarav', 'name' => 'Aarav Mehta', 'role' => 'Project Engineer'],
+    ['id' => 'inst-kavya', 'name' => 'Kavya Patel', 'role' => 'Installer'],
+    ['id' => 'mgr-rohan', 'name' => 'Rohan Iyer', 'role' => 'Operations Manager'],
+];
+
+$taskItems = [
+    [
+        'id' => 2401,
+        'title' => 'Site inspection at Hatia',
+        'assigneeId' => 'inst-priya',
+        'status' => 'todo',
+        'dueDate' => date('Y-m-d', strtotime('+2 days')),
+        'priority' => 'high',
+        'linkedTo' => 'Lead #L-101',
+        'notes' => 'Capture rooftop photographs and verify load availability.',
+    ],
+    [
+        'id' => 2402,
+        'title' => 'Commercial proposal review',
+        'assigneeId' => 'emp-aarav',
+        'status' => 'in_progress',
+        'dueDate' => date('Y-m-d', strtotime('+1 day')),
+        'priority' => 'medium',
+        'linkedTo' => 'Customer #C-214',
+        'notes' => 'Update pricing to include net-metering scope.',
+    ],
+    [
+        'id' => 2403,
+        'title' => 'Submit DISCOM meter request',
+        'assigneeId' => 'mgr-rohan',
+        'status' => 'done',
+        'dueDate' => date('Y-m-d', strtotime('-1 day')),
+        'priority' => 'medium',
+        'linkedTo' => 'Subsidy case SUB-2398',
+        'notes' => 'Attach inspection certificate and load approval.',
+        'completedAt' => date('c', strtotime('-1 day')),
+    ],
+    [
+        'id' => 2404,
+        'title' => 'Installer briefing – Doranda rooftop',
+        'assigneeId' => 'inst-kavya',
+        'status' => 'todo',
+        'dueDate' => date('Y-m-d', strtotime('+4 days')),
+        'priority' => 'low',
+        'linkedTo' => 'Customer #C-229',
+        'notes' => 'Confirm safety harness availability and inverter model.',
+    ],
+];
+
+$documents = [
+    [
+        'id' => 501,
+        'name' => 'Subsidy inspection report',
+        'linkedTo' => 'customer',
+        'reference' => 'Customer #C-220',
+        'tags' => ['subsidy', 'inspection'],
+        'url' => 'https://vault.dentweb.in/subsidy/C-220/report-v2.pdf',
+        'version' => 2,
+        'updatedAt' => date('c', strtotime('-1 day')),
+        'uploadedBy' => 'Priya Singh',
+    ],
+    [
+        'id' => 502,
+        'name' => 'Warranty certificate',
+        'linkedTo' => 'customer',
+        'reference' => 'Customer #C-214',
+        'tags' => ['warranty', 'pm-surya-ghar'],
+        'url' => 'https://vault.dentweb.in/warranty/C-214.pdf',
+        'version' => 1,
+        'updatedAt' => date('c', strtotime('-5 days')),
+        'uploadedBy' => 'Operations Desk',
+    ],
+    [
+        'id' => 503,
+        'name' => 'Ticket evidence - inverter fault',
+        'linkedTo' => 'ticket',
+        'reference' => 'Ticket #T-872',
+        'tags' => ['service', 'photos'],
+        'url' => 'https://vault.dentweb.in/tickets/T-872.zip',
+        'version' => 3,
+        'updatedAt' => date('c', strtotime('-2 days')),
+        'uploadedBy' => 'Service Command Center',
+    ],
+];
+
+$dataQuality = [
+    'validations' => [
+        ['field' => 'Phone number', 'status' => 'enforced', 'description' => '10-digit mobile validation with OTP cross-check.'],
+        ['field' => 'Pincode', 'status' => 'enforced', 'description' => 'Validated against India Post master list.'],
+        ['field' => 'Preferred installation date', 'status' => 'enforced', 'description' => 'Future-date validation for scheduling accuracy.'],
+        ['field' => 'Yes/No declarations', 'status' => 'monitored', 'description' => 'Ensures subsidy eligibility questions are answered.'],
+        ['field' => 'System size (kW)', 'status' => 'enforced', 'description' => 'Range validation between 1 kW and 20 kW.'],
+    ],
+    'duplicates' => [
+        ['id' => 301, 'primary' => 'Lead #L-089', 'duplicate' => 'Lead #L-102', 'reason' => 'Same phone + address from referrer import.'],
+        ['id' => 302, 'primary' => 'Customer #C-214', 'duplicate' => 'Customer #C-214A', 'reason' => 'Employee update created parallel record.'],
+    ],
+    'approvals' => [
+        ['id' => 401, 'employee' => 'Seema Rao', 'change' => 'Updated phone number for Customer #C-198 (OTP verified).'],
+        ['id' => 402, 'employee' => 'Nikhil Verma', 'change' => 'Adjusted subsidy stage to "Inspected" for SUB-2410.'],
+    ],
+];
+
+$crmData = [
+    'leads' => [
+        [
+            'id' => 101,
+            'name' => 'Rakesh Kumar',
+            'phone' => '+91 98765 44321',
+            'source' => 'Website form',
+            'interest' => '5 kW rooftop',
+            'status' => 'new',
+            'reference' => 'Lead #L-101',
+            'systemSize' => '5 kW',
+        ],
+        [
+            'id' => 102,
+            'name' => 'Asha Devi',
+            'phone' => '+91 91234 77889',
+            'source' => 'Referrer - EcoLink Energy',
+            'interest' => '3 kW residential',
+            'status' => 'contacted',
+            'reference' => 'Lead #L-118',
+            'systemSize' => '3 kW',
+        ],
+        [
+            'id' => 103,
+            'name' => 'Sunrise Apartments',
+            'phone' => '+91 99345 11002',
+            'source' => 'CSR campaign',
+            'interest' => '15 kW common-area plant',
+            'status' => 'proposal-sent',
+            'reference' => 'Lead #L-134',
+            'systemSize' => '15 kW',
+        ],
+    ],
+    'customers' => [
+        [
+            'id' => 'C-220',
+            'name' => 'Anita Sharma',
+            'idNumber' => 'Customer #C-220',
+            'systemSize' => '5 kW',
+            'installationDate' => date('Y-m-d', strtotime('+5 days')),
+            'leadReference' => 'Lead #L-101',
+        ],
+        [
+            'id' => 'C-214',
+            'name' => 'Rajesh Patel',
+            'idNumber' => 'Customer #C-214',
+            'systemSize' => '3 kW',
+            'installationDate' => date('Y-m-d', strtotime('-3 days')),
+            'leadReference' => 'Lead #L-095',
+        ],
+    ],
+];
+
+$referrers = [
+    [
+        'id' => 1,
+        'name' => 'EcoLink Energy',
+        'company' => 'EcoLink Energy Pvt Ltd',
+        'kycStatus' => 'verified',
+        'leads' => 12,
+        'conversions' => 7,
+        'lastPayout' => date('d M Y', strtotime('-6 days')),
+    ],
+    [
+        'id' => 2,
+        'name' => 'SolarPlus Partners',
+        'company' => 'SolarPlus Solutions',
+        'kycStatus' => 'pending',
+        'leads' => 5,
+        'conversions' => 2,
+        'lastPayout' => '',
+        'alert' => 'GST certificate expires next month – request renewal.',
+    ],
+    [
+        'id' => 3,
+        'name' => 'GreenGrid Associates',
+        'company' => 'GreenGrid LLP',
+        'kycStatus' => 'verified',
+        'leads' => 9,
+        'conversions' => 4,
+        'lastPayout' => date('d M Y', strtotime('-20 days')),
+    ],
+];
+
+$subsidyApplications = [
+    [
+        'id' => 701,
+        'reference' => 'SUB-2401',
+        'customer' => 'Anita Sharma',
+        'capacity' => '5 kW',
+        'stage' => 'applied',
+        'updatedAt' => date('c', strtotime('-2 days')),
+        'processingDays' => 12,
+    ],
+    [
+        'id' => 702,
+        'reference' => 'SUB-2398',
+        'customer' => 'Rajesh Patel',
+        'capacity' => '3 kW',
+        'stage' => 'sanctioned',
+        'updatedAt' => date('c', strtotime('-4 days')),
+        'processingDays' => 18,
+    ],
+    [
+        'id' => 703,
+        'reference' => 'SUB-2389',
+        'customer' => 'Nisha Verma',
+        'capacity' => '4 kW',
+        'stage' => 'inspected',
+        'updatedAt' => date('c', strtotime('-3 days')),
+        'processingDays' => 21,
+    ],
+    [
+        'id' => 704,
+        'reference' => 'SUB-2375',
+        'customer' => 'Horizon School',
+        'capacity' => '10 kW',
+        'stage' => 'redeemed',
+        'updatedAt' => date('c', strtotime('-5 days')),
+        'processingDays' => 28,
+    ],
+    [
+        'id' => 705,
+        'reference' => 'SUB-2360',
+        'customer' => 'Mahesh Gupta',
+        'capacity' => '6 kW',
+        'stage' => 'closed',
+        'updatedAt' => date('c', strtotime('-10 days')),
+        'processingDays' => 32,
+    ],
+];
+
+for ($i = 0; $i < 27; $i++) {
+    $subsidyApplications[] = [
+        'id' => 800 + $i,
+        'reference' => 'SUB-INS-' . str_pad((string) ($i + 1), 3, '0', STR_PAD_LEFT),
+        'customer' => 'Inspection Batch ' . ($i + 1),
+        'capacity' => (3 + ($i % 4)) . ' kW',
+        'stage' => 'inspected',
+        'updatedAt' => date('c', strtotime('-' . (2 + ($i % 4)) . ' days')),
+        'processingDays' => 15 + ($i % 5),
+    ];
+}
+
+for ($i = 0; $i < 14; $i++) {
+    $subsidyApplications[] = [
+        'id' => 900 + $i,
+        'reference' => 'SUB-RED-' . str_pad((string) ($i + 1), 3, '0', STR_PAD_LEFT),
+        'customer' => 'Redeemed Batch ' . ($i + 1),
+        'capacity' => (4 + ($i % 3)) . ' kW',
+        'stage' => 'redeemed',
+        'updatedAt' => date('c', strtotime('-' . (5 + ($i % 3)) . ' days')),
+        'processingDays' => 20 + ($i % 6),
+    ];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -148,6 +409,36 @@ $apiBase = $pathFor('api/admin.php');
             <li>
               <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="onboarding">
                 <i class="fa-solid fa-user-plus"></i> Onboarding &amp; Approvals
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="tasks">
+                <i class="fa-solid fa-list-check"></i> Tasks &amp; My Work
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="documents">
+                <i class="fa-solid fa-folder-tree"></i> Document Vault
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="data-quality">
+                <i class="fa-solid fa-spell-check"></i> Data Quality &amp; Approvals
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="crm">
+                <i class="fa-solid fa-people-arrows"></i> Leads &amp; CRM
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="referrers">
+                <i class="fa-solid fa-handshake"></i> Referrers &amp; Partners
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="subsidy">
+                <i class="fa-solid fa-indian-rupee-sign"></i> Subsidy Pipeline
               </button>
             </li>
             <li>
@@ -343,6 +634,505 @@ $apiBase = $pathFor('api/admin.php');
                 </table>
               </div>
             </section>
+          </section>
+
+          <section class="dashboard-section" id="tasks" role="tabpanel" data-tab-panel hidden>
+            <h2>Tasks &amp; workload coordination</h2>
+            <p class="dashboard-section-sub">
+              Create tasks for employees and installers, track execution through Kanban stages, and monitor workload balance in
+              one place.
+            </p>
+            <div class="dashboard-profile-grid">
+              <form class="dashboard-form" data-task-form>
+                <h3>Create &amp; assign task</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Task title
+                    <input type="text" name="title" placeholder="Site inspection at Hatia" required />
+                  </label>
+                  <label>
+                    Assign to
+                    <select name="assignee" required data-task-assignee>
+                      <option value="">Select team member…</option>
+                    </select>
+                  </label>
+                  <label>
+                    Status
+                    <select name="status" required>
+                      <option value="todo">To Do</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="done">Done</option>
+                    </select>
+                  </label>
+                  <label>
+                    Due date
+                    <input type="date" name="dueDate" />
+                  </label>
+                  <label>
+                    Priority
+                    <select name="priority">
+                      <option value="medium" selected>Medium</option>
+                      <option value="high">High</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </label>
+                  <label>
+                    Linked record
+                    <input type="text" name="linkedTo" placeholder="Customer #C-220" />
+                  </label>
+                </div>
+                <label>
+                  Notes
+                  <textarea name="notes" rows="3" placeholder="Add site access instructions or material checklist"></textarea>
+                </label>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  Tasks instantly appear on the Kanban board and workload summary once saved.
+                </p>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Add task</button>
+                  <button type="reset" class="btn btn-ghost">Clear</button>
+                </div>
+              </form>
+
+              <section class="dashboard-form dashboard-form--list">
+                <h3>Task board</h3>
+                <div class="dashboard-lists dashboard-lists--columns" data-task-board>
+                  <div class="dashboard-list">
+                    <header>
+                      <i class="fa-solid fa-clipboard-list" aria-hidden="true"></i>
+                      <h3>To Do</h3>
+                    </header>
+                    <ul data-task-column="todo">
+                      <li class="dashboard-list-empty" data-task-empty="todo">
+                        <p class="primary">No tasks queued.</p>
+                        <p class="secondary">Create assignments to populate this stage.</p>
+                      </li>
+                    </ul>
+                  </div>
+                  <div class="dashboard-list">
+                    <header>
+                      <i class="fa-solid fa-person-digging" aria-hidden="true"></i>
+                      <h3>In Progress</h3>
+                    </header>
+                    <ul data-task-column="in_progress">
+                      <li class="dashboard-list-empty" data-task-empty="in_progress">
+                        <p class="primary">No active work.</p>
+                        <p class="secondary">Move tasks here as field teams begin execution.</p>
+                      </li>
+                    </ul>
+                  </div>
+                  <div class="dashboard-list">
+                    <header>
+                      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                      <h3>Done</h3>
+                    </header>
+                    <ul data-task-column="done">
+                      <li class="dashboard-list-empty" data-task-empty="done">
+                        <p class="primary">Nothing closed yet.</p>
+                        <p class="secondary">Completed work will roll into this column.</p>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </section>
+
+              <article class="dashboard-form">
+                <h3>Workload distribution</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Overall tasks
+                    <input type="text" data-workload-summary value="0 open" readonly />
+                  </label>
+                  <label>
+                    Installers vs. employees
+                    <input type="text" data-workload-split value="0 / 0" readonly />
+                  </label>
+                </div>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Team member</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">To Do</th>
+                        <th scope="col">In Progress</th>
+                        <th scope="col">Done (7d)</th>
+                      </tr>
+                    </thead>
+                    <tbody data-workload-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="5">No workload recorded yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-user-group" aria-hidden="true"></i>
+                  Quickly assess utilisation before assigning the next ticket or inspection.
+                </p>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="documents" role="tabpanel" data-tab-panel hidden>
+            <h2>Document vault &amp; version control</h2>
+            <p class="dashboard-section-sub">
+              Keep subsidy artefacts, customer paperwork, and ticket evidence organised with automatic version history.
+            </p>
+            <div class="dashboard-profile-grid">
+              <form class="dashboard-form" data-document-form>
+                <h3>Upload or replace file</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Document name
+                    <input type="text" name="name" placeholder="Subsidy inspection report" required />
+                  </label>
+                  <label>
+                    Linked to
+                    <select name="linkedTo" required>
+                      <option value="">Choose record…</option>
+                      <option value="customer">Customer</option>
+                      <option value="ticket">Ticket</option>
+                      <option value="lead">Lead</option>
+                    </select>
+                  </label>
+                  <label>
+                    Reference ID
+                    <input type="text" name="reference" placeholder="Customer #C-220" />
+                  </label>
+                  <label>
+                    Tags
+                    <input type="text" name="tags" placeholder="inspection, subsidy" />
+                  </label>
+                </div>
+                <label>
+                  Secure file URL
+                  <input type="url" name="url" placeholder="https://vault.example.com/report.pdf" />
+                </label>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                  Files stay encrypted at rest. Re-uploads automatically increment the version counter.
+                </p>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Save to vault</button>
+                  <button type="reset" class="btn btn-ghost">Reset</button>
+                </div>
+              </form>
+
+              <article class="dashboard-form">
+                <h3>Vault catalogue</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Filter by visibility
+                    <select name="visibility" data-document-filter>
+                      <option value="all">All records</option>
+                      <option value="customer">Customers</option>
+                      <option value="ticket">Tickets</option>
+                      <option value="lead">Leads</option>
+                    </select>
+                  </label>
+                  <label>
+                    Download control
+                    <input type="text" value="Admin gated" readonly />
+                  </label>
+                </div>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Document</th>
+                        <th scope="col">Linked record</th>
+                        <th scope="col">Version</th>
+                        <th scope="col">Tags</th>
+                        <th scope="col">Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody data-document-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="5">No documents stored yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-tag" aria-hidden="true"></i>
+                  Tag documents for faster retrieval during audits or subsidy reviews.
+                </p>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="data-quality" role="tabpanel" data-tab-panel hidden>
+            <h2>Data quality &amp; pending approvals</h2>
+            <p class="dashboard-section-sub">
+              Enforce validation rules, merge duplicates, and close out employee-submitted change requests.
+            </p>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Validation coverage</h3>
+                <ul class="dashboard-list" data-validation-list>
+                  <li class="dashboard-list-empty">
+                    <p class="primary">No validation rules loaded.</p>
+                    <p class="secondary">Bootstrap will hydrate the matrix of enforced fields.</p>
+                  </li>
+                </ul>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-square-check" aria-hidden="true"></i>
+                  Phone, pincode, date, yes/no, and system-size fields are monitored for accuracy.
+                </p>
+              </article>
+
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Duplicate review queue</h3>
+                <ul class="dashboard-list" data-duplicate-list>
+                  <li class="dashboard-list-empty">
+                    <p class="primary">No duplicates flagged.</p>
+                    <p class="secondary">CRM syncing will surface potential merge candidates here.</p>
+                  </li>
+                </ul>
+              </article>
+
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Approvals awaiting action</h3>
+                <ul class="dashboard-list" data-approval-list>
+                  <li class="dashboard-list-empty">
+                    <p class="primary">No pending approvals.</p>
+                    <p class="secondary">Employee-initiated updates will require sign-off before publishing.</p>
+                  </li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="crm" role="tabpanel" data-tab-panel hidden>
+            <h2>Leads, customers &amp; CRM</h2>
+            <p class="dashboard-section-sub">
+              Track the full lifecycle from lead capture through PM Surya Ghar conversion and installation scheduling.
+            </p>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-form">
+                <h3>Lead pipeline</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Active leads
+                    <input type="text" data-lead-count value="0" readonly />
+                  </label>
+                  <label>
+                    Conversion rate
+                    <input type="text" data-lead-conversion value="0%" readonly />
+                  </label>
+                </div>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Lead</th>
+                        <th scope="col">Source</th>
+                        <th scope="col">Interest</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody data-leads-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="5">No leads recorded.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-form">
+                <h3>Customers under PM Surya Ghar</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Active customers
+                    <input type="text" data-customer-count value="0" readonly />
+                  </label>
+                  <label>
+                    Upcoming installations
+                    <input type="text" data-installation-count value="0" readonly />
+                  </label>
+                </div>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Customer</th>
+                        <th scope="col">System size</th>
+                        <th scope="col">Schedule</th>
+                        <th scope="col">Lead ref</th>
+                        <th scope="col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody data-customers-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="5">No PM Surya Ghar customers.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-file-import" aria-hidden="true"></i>
+                  Import or export CSV records with validation using the quick actions below.
+                </p>
+                <div class="dashboard-inline-actions">
+                  <button type="button" class="btn btn-ghost" data-action="import-crm">Import CSV</button>
+                  <button type="button" class="btn btn-tertiary" data-action="export-crm">Export CSV</button>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="referrers" role="tabpanel" data-tab-panel hidden>
+            <h2>Referrers &amp; partners</h2>
+            <p class="dashboard-section-sub">
+              Verify KYC and bank details, then track conversion success for each referral partner.
+            </p>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-form">
+                <h3>Partner roster</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Verified partners
+                    <input type="text" data-referrer-verified value="0" readonly />
+                  </label>
+                  <label>
+                    Leads this month
+                    <input type="text" data-referrer-leads value="0" readonly />
+                  </label>
+                </div>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Partner</th>
+                        <th scope="col">KYC</th>
+                        <th scope="col">Leads</th>
+                        <th scope="col">Conversions</th>
+                        <th scope="col">Payout</th>
+                        <th scope="col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody data-referrer-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="6">No partners registered.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Highlights</h3>
+                <ul class="dashboard-list" data-referrer-summary>
+                  <li class="dashboard-list-empty">
+                    <p class="primary">No partner activity logged.</p>
+                    <p class="secondary">Approved referrers and installers will surface key stats here.</p>
+                  </li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section class="dashboard-section" id="subsidy" role="tabpanel" data-tab-panel hidden>
+            <h2>Subsidy (PM Surya Ghar) pipeline</h2>
+            <p class="dashboard-section-sub">
+              Move applications through Applied → Sanctioned → Inspected → Redeemed → Closed while tracking SLA progress.
+            </p>
+            <div class="dashboard-cards dashboard-cards--stretch">
+              <article class="dashboard-card">
+                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-file-pen"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Applied</p>
+                  <p class="dashboard-card-value" data-subsidy-stage="applied">0</p>
+                  <p class="dashboard-card-meta">Applications submitted and awaiting sanction.</p>
+                </div>
+              </article>
+              <article class="dashboard-card">
+                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-file-signature"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Sanctioned</p>
+                  <p class="dashboard-card-value" data-subsidy-stage="sanctioned">0</p>
+                  <p class="dashboard-card-meta">Approved by DISCOM and ready for inspection scheduling.</p>
+                </div>
+              </article>
+              <article class="dashboard-card">
+                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-binoculars"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Inspected</p>
+                  <p class="dashboard-card-value" data-subsidy-stage="inspected">0</p>
+                  <p class="dashboard-card-meta">Field verification completed, awaiting redemption.</p>
+                </div>
+              </article>
+              <article class="dashboard-card">
+                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-sack-dollar"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Redeemed</p>
+                  <p class="dashboard-card-value" data-subsidy-stage="redeemed">0</p>
+                  <p class="dashboard-card-meta">Funds disbursed to beneficiaries.</p>
+                </div>
+              </article>
+              <article class="dashboard-card">
+                <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-circle-check"></i></div>
+                <div>
+                  <p class="dashboard-card-title">Closed</p>
+                  <p class="dashboard-card-value" data-subsidy-stage="closed">0</p>
+                  <p class="dashboard-card-meta">All documentation archived and subsidy closed.</p>
+                </div>
+              </article>
+            </div>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-form">
+                <h3>Pipeline tracker</h3>
+                <label>
+                  Average processing time (days)
+                  <input type="text" data-subsidy-average value="0" readonly />
+                </label>
+                <div class="dashboard-table-wrapper" role="region">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Application</th>
+                        <th scope="col">Customer</th>
+                        <th scope="col">Capacity</th>
+                        <th scope="col">Stage</th>
+                        <th scope="col">Last update</th>
+                        <th scope="col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody data-subsidy-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="6">No subsidy applications tracked yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Stage checklist</h3>
+                <ul class="dashboard-list">
+                  <li>
+                    <p class="primary">Applied → Sanctioned</p>
+                    <p class="secondary">Ensure application form, Aadhaar, and load sanction letter uploaded.</p>
+                  </li>
+                  <li>
+                    <p class="primary">Sanctioned → Inspected</p>
+                    <p class="secondary">Schedule inspection after payment verification and installation photos.</p>
+                  </li>
+                  <li>
+                    <p class="primary">Inspected → Redeemed</p>
+                    <p class="secondary">Upload inspection report and DISCOM approval letter.</p>
+                  </li>
+                  <li>
+                    <p class="primary">Redeemed → Closed</p>
+                    <p class="secondary">Confirm subsidy receipt and archive completion certificate.</p>
+                  </li>
+                </ul>
+              </article>
+            </div>
           </section>
 
           <section class="dashboard-section" id="access" role="tabpanel" data-tab-panel hidden>
@@ -706,7 +1496,13 @@ $apiBase = $pathFor('api/admin.php');
         'disk_usage' => $diskUsage,
         'uptime' => $uptime,
       ],
-    ]) ?>
+    ]) ?>,
+    tasks: <?= json_encode(['items' => $taskItems, 'team' => $taskTeam]) ?>,
+    documents: <?= json_encode($documents) ?>,
+    dataQuality: <?= json_encode($dataQuality) ?>,
+    crm: <?= json_encode($crmData) ?>,
+    referrers: <?= json_encode($referrers) ?>,
+    subsidy: <?= json_encode(['applications' => $subsidyApplications]) ?>
   });
 </script>
 <script src="admin-dashboard.js" defer></script>
