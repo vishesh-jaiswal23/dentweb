@@ -2,4 +2,5 @@
 require_once __DIR__ . '/users/common/auth.php';
 
 portal_logout();
-portal_redirect('login.php');
+// After logout, take the user to the public home page
+portal_redirect('index.html');
