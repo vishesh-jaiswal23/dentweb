@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Complaints &amp; Service Workflow | Dakshayani Enterprises</title>
+  <meta name="description" content="Unified complaints, service, and document governance workspace with SLA tracking, staff tasking, and anomaly monitoring." />
+  <link rel="icon" href="images/favicon.ico" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="workflow.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&amp;display=swap"
+    rel="stylesheet"
+  />
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    crossorigin="anonymous"
+    referrerpolicy="no-referrer"
+  />
+</head>
+<body>
+  <header class="site-header"></header>
+  <main class="workflow-main">
+    <section class="section hero workflow-hero">
+      <div class="container workflow-hero__grid">
+        <div>
+          <p class="badge">Service Control Tower</p>
+          <h1>Complaints, Tasks &amp; Governance in One Command Centre</h1>
+          <p>
+            Intake issues from every channel, triage faster with guided priorities, and keep resolution on track with SLA
+            automation, activity trails, and a governed document vault. Built for subsidy-backed service operations in the
+            field.
+          </p>
+          <ul class="workflow-hero__points">
+            <li><i class="fa-solid fa-ticket"></i>Unique ticket IDs and duplicate detection stop double handling.</li>
+            <li><i class="fa-solid fa-bell"></i>Smart SLA reminders, escalation badges, and staff notifications.</li>
+            <li><i class="fa-solid fa-vault"></i>Linked document vault with versioning, tags, and secure download logs.</li>
+          </ul>
+        </div>
+        <aside class="workflow-hero__aside">
+          <div class="metric-card">
+            <p class="metric-label">Live SLA at Risk</p>
+            <p class="metric-value" data-sla-risk-count>0</p>
+          </div>
+          <div class="metric-card">
+            <p class="metric-label">Awaiting Approval</p>
+            <p class="metric-value" data-approval-count>0</p>
+          </div>
+          <div class="metric-card">
+            <p class="metric-label">Document Versions</p>
+            <p class="metric-value" data-document-version-count>0</p>
+          </div>
+          <div class="metric-card">
+            <p class="metric-label">Anomaly Alerts</p>
+            <p class="metric-value" data-anomaly-count>0</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section" id="intake">
+      <div class="container">
+        <div class="head">
+          <h2>Intake &amp; Ticket Creation</h2>
+          <p>Capture every complaint from public and internal sources with field validation, attachments, and duplicate control.</p>
+        </div>
+        <div class="intake-grid">
+          <article class="card">
+            <h3>Public Complaint Form</h3>
+            <form id="public-intake-form" class="workflow-form" novalidate>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="public-customer-name" class="form-label">Customer Name</label>
+                  <input type="text" id="public-customer-name" name="customerName" class="form-control" required />
+                </div>
+                <div class="form-group">
+                  <label for="public-customer-email" class="form-label">Email</label>
+                  <input type="email" id="public-customer-email" name="email" class="form-control" required />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="public-customer-phone" class="form-label">Phone</label>
+                  <input type="tel" id="public-customer-phone" name="phone" class="form-control" required minlength="10" />
+                </div>
+                <div class="form-group">
+                  <label for="public-customer-pincode" class="form-label">Pincode</label>
+                  <input type="text" id="public-customer-pincode" name="pincode" class="form-control" minlength="6" maxlength="6" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="public-contact-method" class="form-label">Preferred Contact</label>
+                <select id="public-contact-method" name="contactMethod" class="form-control" required>
+                  <option value="">Select</option>
+                  <option value="Phone">Phone</option>
+                  <option value="Email">Email</option>
+                  <option value="WhatsApp">WhatsApp</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="public-issue-category" class="form-label">Complaint Category</label>
+                <select id="public-issue-category" name="category" class="form-control" required>
+                  <option value="">Select category</option>
+                  <option value="Subsidy Status">Subsidy Status</option>
+                  <option value="System Performance">System Performance</option>
+                  <option value="Billing &amp; Payments">Billing &amp; Payments</option>
+                  <option value="Maintenance">Maintenance</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="public-description" class="form-label">Issue Description</label>
+                <textarea id="public-description" name="description" class="form-control" rows="3" required></textarea>
+              </div>
+              <div class="form-group">
+                <label for="public-attachments" class="form-label">Attachments</label>
+                <input type="file" id="public-attachments" name="attachments" class="form-control" multiple />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Consent to follow-up</label>
+                <div class="toggle-group" role="radiogroup">
+                  <label><input type="radio" name="public-consent" value="Yes" checked /> Yes</label>
+                  <label><input type="radio" name="public-consent" value="No" /> No</label>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Create Ticket</button>
+              </div>
+              <div class="form-alert" data-public-intake-alert aria-live="polite"></div>
+            </form>
+          </article>
+          <article class="card">
+            <h3>Internal Service Desk Entry</h3>
+            <form id="internal-intake-form" class="workflow-form" novalidate>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="internal-customer-name" class="form-label">Customer Name</label>
+                  <input type="text" id="internal-customer-name" name="customerName" class="form-control" required />
+                </div>
+                <div class="form-group">
+                  <label for="internal-customer-email" class="form-label">Email</label>
+                  <input type="email" id="internal-customer-email" name="email" class="form-control" required />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="internal-customer-phone" class="form-label">Phone</label>
+                  <input type="tel" id="internal-customer-phone" name="phone" class="form-control" required minlength="10" />
+                </div>
+                <div class="form-group">
+                  <label for="internal-stage" class="form-label">Subsidy Stage</label>
+                  <select id="internal-stage" name="subsidyStage" class="form-control">
+                    <option value="Application">Application</option>
+                    <option value="Inspection">Inspection</option>
+                    <option value="Commissioning">Commissioning</option>
+                    <option value="Disbursement">Disbursement</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="internal-description" class="form-label">Issue Summary</label>
+                <textarea id="internal-description" name="description" class="form-control" rows="3" required></textarea>
+              </div>
+              <div class="form-group">
+                <label for="internal-attachments" class="form-label">Internal Attachments</label>
+                <input type="file" id="internal-attachments" name="attachments" class="form-control" multiple />
+              </div>
+              <div class="form-group">
+                <label for="internal-yesno" class="form-label">Requires Site Visit?</label>
+                <select id="internal-yesno" name="requiresSiteVisit" class="form-control">
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                </select>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary">Log Internal Ticket</button>
+              </div>
+              <div class="form-alert" data-internal-intake-alert aria-live="polite"></div>
+            </form>
+          </article>
+          <aside class="card duplicate-review" data-duplicate-alert hidden>
+            <h3>Potential Duplicate Detected</h3>
+            <p>The phone or email already exists on ticket <span data-duplicate-ticket-id></span>. Choose how to proceed.</p>
+            <div class="duplicate-details" data-duplicate-details></div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-primary" data-merge-ticket>Merge with Existing Ticket</button>
+              <button type="button" class="btn btn-outline" data-create-new>Open as Separate Ticket</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="operations">
+      <div class="container operations-grid">
+        <div class="head">
+          <h2>Operational Command Centre</h2>
+          <p>Triage complaints, maintain chronological timelines, and keep the assignee accountable with real-time context.</p>
+        </div>
+        <div class="operations-layout">
+          <article class="card">
+            <header class="card-head">
+              <h3>Ticket Queue</h3>
+              <div class="sla-filters">
+                <label>
+                  <span>Status</span>
+                  <select data-ticket-status-filter class="form-control form-control-sm">
+                    <option value="all">All</option>
+                    <option value="New">New</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Waiting">Waiting</option>
+                    <option value="Resolved">Resolved</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Assignee</span>
+                  <select data-ticket-assignee-filter class="form-control form-control-sm">
+                    <option value="all">All</option>
+                  </select>
+                </label>
+              </div>
+            </header>
+            <div class="table-responsive">
+              <table class="ticket-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Customer</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>SLA Due</th>
+                    <th>Assignee</th>
+                  </tr>
+                </thead>
+                <tbody data-ticket-list></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="card" data-ticket-detail hidden>
+            <header class="card-head">
+              <div>
+                <h3 data-ticket-detail-title>Ticket Detail</h3>
+                <p class="sub" data-ticket-detail-sub></p>
+              </div>
+              <div class="ticket-badges" data-ticket-badges></div>
+            </header>
+            <div class="ticket-detail__grid">
+              <section>
+                <h4>Customer &amp; Ticket Info</h4>
+                <dl class="info-grid" data-ticket-info></dl>
+                <form class="workflow-inline-form" data-triage-form>
+                  <h4>Triage &amp; Assignment</h4>
+                  <div class="form-row">
+                    <label class="form-label">Priority
+                      <select name="priority" class="form-control" required>
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                        <option value="Critical">Critical</option>
+                      </select>
+                    </label>
+                    <label class="form-label">Status
+                      <select name="status" class="form-control" required>
+                        <option value="New">New</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Waiting">Waiting</option>
+                        <option value="Resolved">Resolved</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="form-row">
+                    <label class="form-label">Category
+                      <select name="category" class="form-control" required>
+                        <option value="Subsidy Status">Subsidy Status</option>
+                        <option value="System Performance">System Performance</option>
+                        <option value="Billing &amp; Payments">Billing &amp; Payments</option>
+                        <option value="Maintenance">Maintenance</option>
+                      </select>
+                    </label>
+                    <label class="form-label">Assignee
+                      <select name="assignee" class="form-control" required data-triage-assignee></select>
+                    </label>
+                  </div>
+                  <label class="form-label">SLA Due Date
+                    <input type="datetime-local" name="slaDue" class="form-control" required />
+                  </label>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">Update Triage</button>
+                </div>
+                <div class="form-alert" aria-live="polite"></div>
+              </form>
+              <form class="workflow-inline-form" data-resolution-form>
+                <h4>Resolution &amp; Customer Feedback</h4>
+                  <label class="form-label">Resolution Notes
+                    <textarea name="resolutionNotes" rows="3" class="form-control"></textarea>
+                  </label>
+                  <label class="form-label">Trigger Follow-up Survey?
+                    <select name="followUp" class="form-control">
+                      <option value="No">No</option>
+                      <option value="Yes">Yes</option>
+                    </select>
+                  </label>
+                  <div class="form-row">
+                    <label class="form-label">Customer Rating
+                      <select name="rating" class="form-control">
+                        <option value="">Not captured</option>
+                        <option value="1">1 - Poor</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5 - Excellent</option>
+                      </select>
+                    </label>
+                    <label class="form-label">Customer Feedback
+                      <input type="text" name="feedback" class="form-control" placeholder="Optional customer remark" />
+                    </label>
+                  </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-secondary">Mark Resolved</button>
+                </div>
+                <div class="form-alert" aria-live="polite"></div>
+              </form>
+            </section>
+            <section>
+              <form class="workflow-inline-form" data-note-form>
+                  <h4>Internal Notes &amp; Files</h4>
+                  <label class="form-label">Internal Note
+                    <textarea name="note" rows="3" class="form-control" placeholder="Add update for the team"></textarea>
+                  </label>
+                  <div class="form-row">
+                    <label class="form-label">Attachment
+                      <input type="file" name="noteAttachment" class="form-control" />
+                    </label>
+                    <label class="form-label">Visible to Customer?
+                      <select name="isCustomerVisible" class="form-control">
+                        <option value="No">No</option>
+                        <option value="Yes">Yes</option>
+                      </select>
+                    </label>
+                  </div>
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-outline">Post Update</button>
+                </div>
+                <div class="form-alert" aria-live="polite"></div>
+              </form>
+              <h4>Timeline</h4>
+              <ol class="timeline" data-ticket-timeline></ol>
+              </section>
+            </div>
+          </article>
+
+          <aside class="card notifications-panel">
+            <header class="card-head">
+              <h3>Notifications &amp; Reminders</h3>
+              <span class="badge badge-muted" data-notification-count>0</span>
+            </header>
+            <div class="notifications-body" data-notification-feed></div>
+            <div class="notifications-body">
+              <h4>Upcoming SLA Reminders</h4>
+              <ul class="reminder-list" data-sla-reminders></ul>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="tasks">
+      <div class="container">
+        <div class="head">
+          <h2>Tasks &amp; My Work</h2>
+          <p>Employees manage assigned tickets with drag-free quick actions, inline notes, and instant timeline updates.</p>
+        </div>
+        <div class="task-board" data-task-board>
+          <div class="task-column" data-task-column="New">
+            <header>New</header>
+            <div class="task-cards"></div>
+          </div>
+          <div class="task-column" data-task-column="In Progress">
+            <header>In Progress</header>
+            <div class="task-cards"></div>
+          </div>
+          <div class="task-column" data-task-column="Waiting">
+            <header>Waiting</header>
+            <div class="task-cards"></div>
+          </div>
+          <div class="task-column" data-task-column="Resolved">
+            <header>Resolved</header>
+            <div class="task-cards"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="document-vault">
+      <div class="container">
+        <div class="head">
+          <h2>Document Vault</h2>
+          <p>Version-controlled repository linked to customers, tickets, and subsidy milestones with secure download logging.</p>
+        </div>
+        <div class="vault-grid">
+          <article class="card">
+            <h3>Upload &amp; Version</h3>
+            <form id="document-upload-form" class="workflow-form" novalidate>
+              <div class="form-group">
+                <label for="doc-name" class="form-label">Document Name</label>
+                <input type="text" id="doc-name" name="name" class="form-control" required />
+              </div>
+              <div class="form-row">
+                <label class="form-label">Document Type
+                  <select name="type" class="form-control" required>
+                    <option value="Invoice">Invoice</option>
+                    <option value="Agreement">Agreement</option>
+                    <option value="SLA">SLA</option>
+                    <option value="Permit">Permit</option>
+                    <option value="Photo">Photo</option>
+                  </select>
+                </label>
+                <label class="form-label">Linked Entity
+                  <select name="linkedEntity" class="form-control" required>
+                    <option value="Customer">Customer</option>
+                    <option value="Ticket">Ticket</option>
+                    <option value="Subsidy Stage">Subsidy Stage</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Reference ID</label>
+                <input type="text" name="reference" class="form-control" placeholder="Customer/ticket/stage reference" required />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tags (comma separated)</label>
+                <input type="text" name="tags" class="form-control" placeholder="Inspection, KYC, Subsidy" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Upload File</label>
+                <input type="file" name="file" class="form-control" required />
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save to Vault</button>
+              </div>
+              <div class="form-alert" data-document-upload-alert aria-live="polite"></div>
+            </form>
+          </article>
+          <article class="card">
+            <h3>Search &amp; Filter</h3>
+            <form id="document-filter-form" class="workflow-inline-form">
+              <div class="form-row">
+                <label class="form-label">Type
+                  <select name="type" class="form-control form-control-sm">
+                    <option value="">All</option>
+                    <option value="Invoice">Invoice</option>
+                    <option value="Agreement">Agreement</option>
+                    <option value="SLA">SLA</option>
+                    <option value="Permit">Permit</option>
+                    <option value="Photo">Photo</option>
+                  </select>
+                </label>
+                <label class="form-label">Tag
+                  <input type="text" name="tag" class="form-control form-control-sm" placeholder="e.g. Inspection" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Linked Entity
+                  <select name="linkedEntity" class="form-control form-control-sm">
+                    <option value="">All</option>
+                    <option value="Customer">Customer</option>
+                    <option value="Ticket">Ticket</option>
+                    <option value="Subsidy Stage">Subsidy Stage</option>
+                  </select>
+                </label>
+                <label class="form-label">Date From
+                  <input type="date" name="dateFrom" class="form-control form-control-sm" />
+                </label>
+                <label class="form-label">Date To
+                  <input type="date" name="dateTo" class="form-control form-control-sm" />
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-outline btn-sm">Apply Filters</button>
+                <button type="reset" class="btn btn-text btn-sm" data-reset-doc-filters>Reset</button>
+              </div>
+            </form>
+            <div class="document-list" data-document-list></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="governance">
+      <div class="container governance-grid">
+        <div class="head">
+          <h2>Data Quality &amp; Governance</h2>
+          <p>Validation, approvals, and anomaly detection keep your complaint operations trustworthy and audit-ready.</p>
+        </div>
+        <div class="governance-layout">
+          <article class="card">
+            <h3>Approvals Queue</h3>
+            <form id="change-proposal-form" class="workflow-inline-form" novalidate>
+              <div class="form-row">
+                <label class="form-label">Ticket ID
+                  <input type="text" name="ticketId" class="form-control" placeholder="CMP-2024-001" required />
+                </label>
+                <label class="form-label">Field
+                  <select name="field" class="form-control">
+                    <option value="category">Category</option>
+                    <option value="priority">Priority</option>
+                    <option value="slaDue">SLA Due Date</option>
+                    <option value="contactMethod">Contact Method</option>
+                    <option value="requiresSiteVisit">Requires Site Visit</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Proposed Value
+                  <input type="text" name="newValue" class="form-control" required />
+                </label>
+                <label class="form-label">Proposed By
+                  <input type="text" name="proposedBy" class="form-control" required />
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary">Submit for Approval</button>
+              </div>
+              <div class="form-alert" data-change-proposal-alert aria-live="polite"></div>
+            </form>
+            <div class="approvals-list" data-approvals-list></div>
+          </article>
+          <article class="card">
+            <h3>Anomaly Alerts &amp; Monitoring</h3>
+            <form id="anomaly-simulator" class="workflow-inline-form">
+              <div class="form-row">
+                <label class="form-label">Event Type
+                  <select name="eventType" class="form-control">
+                    <option value="Bulk Delete">Bulk Delete</option>
+                    <option value="Large Import">Large Import</option>
+                    <option value="Login Burst">Login Burst</option>
+                    <option value="Low Disk">Low Disk</option>
+                  </select>
+                </label>
+                <label class="form-label">Quantity / Detail
+                  <input type="number" name="quantity" class="form-control" placeholder="Records or %" min="0" />
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-outline">Simulate Event</button>
+              </div>
+            </form>
+            <ul class="anomaly-list" data-anomaly-list></ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="observability">
+      <div class="container">
+        <div class="head">
+          <h2>Activity Trail &amp; Error Dashboard</h2>
+          <p>Every action is logged for compliance. Errors surface instantly for remediation.</p>
+        </div>
+        <div class="observability-grid">
+          <article class="card">
+            <h3>Activity Log</h3>
+            <ul class="activity-log" data-activity-log></ul>
+          </article>
+          <article class="card">
+            <h3>Error Dashboard</h3>
+            <ul class="error-log" data-error-log></ul>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer"></footer>
+
+  <script src="script.js" defer></script>
+  <script src="workflow.js" defer></script>
+</body>
+</html>
