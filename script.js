@@ -24,6 +24,7 @@ const INLINE_PARTIALS = {
         <nav class="nav-desktop" aria-label="Primary navigation">
           <a href="index.html" class="nav-link">Home</a>
           <a href="about.html" class="nav-link">About Us</a>
+          <a href="crm-portal.html" class="nav-link">CRM Workspace</a>
           <div class="nav-dropdown">
             <button type="button" class="nav-link nav-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
               Solutions
@@ -78,6 +79,7 @@ const INLINE_PARTIALS = {
         <div class="nav-mobile-section" aria-label="Primary pages">
           <a href="index.html">Home</a>
           <a href="about.html">About Us</a>
+          <a href="crm-portal.html">CRM Workspace</a>
           <a href="solar-projects.html">Solar Projects</a>
         </div>
         <div class="nav-mobile-divider" role="presentation"></div>
