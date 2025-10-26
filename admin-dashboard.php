@@ -133,6 +133,8 @@ $documents = [
     ],
 ];
 
+$blogPosts = blog_admin_list($db);
+
 $dataQuality = [
     'validations' => [
         ['field' => 'Phone number', 'status' => 'enforced', 'description' => '10-digit mobile validation with OTP cross-check.'],
@@ -680,6 +682,11 @@ for ($i = 0; $i < 14; $i++) {
             <li>
               <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="health">
                 <i class="fa-solid fa-heart-pulse"></i> Backups &amp; Health
+              </button>
+            </li>
+            <li>
+              <button class="dashboard-nav-link" type="button" role="tab" aria-selected="false" data-tab-target="blog">
+                <i class="fa-solid fa-blog"></i> Blog Publishing
               </button>
             </li>
             <li>
@@ -1825,6 +1832,96 @@ for ($i = 0; $i < 14; $i++) {
             </div>
           </section>
 
+          <section class="dashboard-section" id="blog" role="tabpanel" data-tab-panel hidden>
+            <h2>Blog publishing</h2>
+            <p class="dashboard-section-sub">
+              Draft, review, and publish posts for the public blog. Only published entries appear on the website; drafts and archived posts stay internal.
+            </p>
+            <div class="dashboard-profile-grid">
+              <section class="dashboard-form dashboard-form--table" aria-labelledby="blog-posts-heading">
+                <div class="dashboard-table-toolbar">
+                  <div>
+                    <h3 id="blog-posts-heading">Posts overview</h3>
+                    <p class="dashboard-form-note">Statuses update instantly after saving or publishing.</p>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm" data-blog-new>
+                    <i class="fa-solid fa-plus"></i> New post
+                  </button>
+                </div>
+                <div class="dashboard-table-wrapper" role="region" aria-live="polite">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Title</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Updated</th>
+                        <th scope="col">Published</th>
+                        <th scope="col" class="text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody data-blog-post-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="5">No blog posts yet. Create one to get started.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <form class="dashboard-form" data-blog-form novalidate>
+                <h3>Post editor</h3>
+                <input type="hidden" name="id" value="" />
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Title
+                    <input type="text" name="title" required maxlength="160" />
+                  </label>
+                  <label>
+                    Slug
+                    <input type="text" name="slug" placeholder="auto-generated if empty" maxlength="160" />
+                  </label>
+                  <label>
+                    Author name (optional)
+                    <input type="text" name="author" maxlength="120" />
+                  </label>
+                  <label>
+                    Tags (comma separated)
+                    <input type="text" name="tags" placeholder="e.g. PM Surya Ghar, Residential" />
+                  </label>
+                  <label>
+                    Cover image URL (optional)
+                    <input type="url" name="cover" placeholder="https://… or /images/…" />
+                  </label>
+                  <label>
+                    Cover image alt text
+                    <input type="text" name="coverAlt" maxlength="180" />
+                  </label>
+                </div>
+                <label>
+                  Excerpt (shown on listing)
+                  <textarea name="excerpt" rows="3" maxlength="280"></textarea>
+                </label>
+                <label>
+                  Body content (HTML supported, sanitised on save)
+                  <textarea name="body" rows="12" required></textarea>
+                </label>
+                <div class="dashboard-form-actions">
+                  <button type="submit" class="btn btn-secondary">Save draft</button>
+                  <button type="button" class="btn btn-primary" data-blog-publish>Publish</button>
+                  <button type="button" class="btn btn-outline" data-blog-archive>Archive</button>
+                  <button type="reset" class="btn btn-ghost" data-blog-reset>Clear</button>
+                </div>
+                <div class="dashboard-inline-status" data-blog-status hidden>
+                  <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  <div>
+                    <strong data-blog-status-title>Blog status</strong>
+                    <p data-blog-status-message>Saved changes will appear here.</p>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </section>
+
           <section class="dashboard-section" id="ai" role="tabpanel" data-tab-panel hidden>
             <h2>AI-generated content (blogs, images, audio)</h2>
             <p class="dashboard-section-sub">
@@ -2250,7 +2347,8 @@ for ($i = 0; $i < 14; $i++) {
     installations: <?= json_encode($installations) ?>,
     analytics: <?= json_encode($analytics) ?>,
     governance: <?= json_encode($governance) ?>,
-    retention: <?= json_encode($retentionSettings) ?>
+    retention: <?= json_encode($retentionSettings) ?>,
+    blog: <?= json_encode(['posts' => $blogPosts]) ?>
   });
 </script>
 <script src="admin-dashboard.js" defer></script>
