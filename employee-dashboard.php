@@ -179,54 +179,9 @@ foreach ($taskColumns as $columnKey => $column) {
     $pendingTasksCount += count($column['items']);
 }
 
-$leadsHandledCount = count(array_filter($leadRecords, static function (array $record): bool {
-    return ($record['type'] ?? '') === 'lead';
-}));
-
-$amcRecords = array_values(array_filter($leadRecords, static function (array $record): bool {
-    return stripos($record['statusLabel'] ?? '', 'AMC') !== false;
-}));
-$amcDueSoonCount = count($amcRecords);
-$amcMeta = $amcDueSoonCount > 0
-    ? sprintf('Next visit: %s · %s.', $amcRecords[0]['nextAction'], $amcRecords[0]['description'])
-    : 'No AMC visits scheduled.';
-
 $summaryMetrics = [
     'activeComplaints' => $activeComplaintsCount,
     'pendingTasks' => $pendingTasksCount,
-];
-
-$overviewMetrics = [
-    [
-        'icon' => 'fa-solid fa-ticket',
-        'tone' => 'neutral',
-        'title' => 'Active complaints',
-        'value' => $summaryMetrics['activeComplaints'],
-        'meta' => 'Tickets currently assigned to you.',
-        'dataTarget' => 'activeComplaints',
-    ],
-    [
-        'icon' => 'fa-solid fa-list-check',
-        'tone' => 'warning',
-        'title' => 'Pending tasks',
-        'value' => $summaryMetrics['pendingTasks'],
-        'meta' => 'Includes to-do and in-progress activities.',
-        'dataTarget' => 'pendingTasks',
-    ],
-    [
-        'icon' => 'fa-solid fa-user-plus',
-        'tone' => 'neutral',
-        'title' => 'Leads handled',
-        'value' => $leadsHandledCount,
-        'meta' => 'Active prospects owned by the Service desk.',
-    ],
-    [
-        'icon' => 'fa-solid fa-calendar-check',
-        'tone' => 'positive',
-        'title' => 'AMC visits due soon',
-        'value' => $amcDueSoonCount,
-        'meta' => $amcMeta,
-    ],
 ];
 
 $taskActivity = [
@@ -306,6 +261,51 @@ $leadRecords = [
         'statusLabel' => 'Resolved',
         'nextAction' => 'Completed AMC review',
         'owner' => 'Service Desk',
+    ],
+];
+
+$leadsHandledCount = count(array_filter($leadRecords, static function (array $record): bool {
+    return ($record['type'] ?? '') === 'lead';
+}));
+
+$amcRecords = array_values(array_filter($leadRecords, static function (array $record): bool {
+    return stripos($record['statusLabel'] ?? '', 'AMC') !== false;
+}));
+$amcDueSoonCount = count($amcRecords);
+$amcMeta = $amcDueSoonCount > 0
+    ? sprintf('Next visit: %s · %s.', $amcRecords[0]['nextAction'], $amcRecords[0]['description'])
+    : 'No AMC visits scheduled.';
+
+$overviewMetrics = [
+    [
+        'icon' => 'fa-solid fa-ticket',
+        'tone' => 'neutral',
+        'title' => 'Active complaints',
+        'value' => $summaryMetrics['activeComplaints'],
+        'meta' => 'Tickets currently assigned to you.',
+        'dataTarget' => 'activeComplaints',
+    ],
+    [
+        'icon' => 'fa-solid fa-list-check',
+        'tone' => 'warning',
+        'title' => 'Pending tasks',
+        'value' => $summaryMetrics['pendingTasks'],
+        'meta' => 'Includes to-do and in-progress activities.',
+        'dataTarget' => 'pendingTasks',
+    ],
+    [
+        'icon' => 'fa-solid fa-user-plus',
+        'tone' => 'neutral',
+        'title' => 'Leads handled',
+        'value' => $leadsHandledCount,
+        'meta' => 'Active prospects owned by the Service desk.',
+    ],
+    [
+        'icon' => 'fa-solid fa-calendar-check',
+        'tone' => 'positive',
+        'title' => 'AMC visits due soon',
+        'value' => $amcDueSoonCount,
+        'meta' => $amcMeta,
     ],
 ];
 
