@@ -71,6 +71,88 @@
       </div>
     </section>
 
+    <section class="section alt" id="ai-studio">
+      <div class="container">
+        <div class="head">
+          <h2>AI-assisted publishing studio</h2>
+          <p>Draft blogs, artwork, and audio briefings in minutes while retaining editorial control.</p>
+        </div>
+        <div class="ai-studio-grid">
+          <article class="card">
+            <h3>Generate draft</h3>
+            <form class="ai-form" data-ai-blog-form novalidate>
+              <label class="form-label">Topic
+                <input type="text" name="topic" placeholder="e.g. PM Surya Ghar subsidy disbursal timeline" required />
+              </label>
+              <label class="form-label">Keywords (comma separated)
+                <input type="text" name="keywords" placeholder="Jharkhand, net-metering, subsidy" />
+              </label>
+              <label class="form-label">Target length
+                <select name="length" required>
+                  <option value="short">Short (350-450 words)</option>
+                  <option value="medium" selected>Medium (600-750 words)</option>
+                  <option value="long">Long (900-1100 words)</option>
+                </select>
+              </label>
+              <label class="form-label">Editorial guidance
+                <textarea name="guidance" rows="3" placeholder="Tone, CTA, stats to include"></textarea>
+              </label>
+              <div class="ai-form__options">
+                <label><input type="checkbox" name="includeImage" checked /> Generate cover image</label>
+                <label><input type="checkbox" name="includeAudio" /> Create TTS audio brief</label>
+              </div>
+              <div class="ai-form__actions">
+                <button type="submit" class="btn btn-primary">Generate draft</button>
+                <button type="button" class="btn btn-outline" data-ai-refresh-config>Refresh AI settings</button>
+              </div>
+              <p class="form-hint">Model usage is logged automatically with the configured provider. API keys stay masked.</p>
+              <div class="form-alert" data-ai-form-alert aria-live="polite"></div>
+            </form>
+          </article>
+          <article class="card ai-draft" data-ai-draft hidden>
+            <div class="ai-draft__header">
+              <h3 data-ai-draft-title>Draft title</h3>
+              <button type="button" class="btn btn-secondary" data-ai-publish>Publish</button>
+            </div>
+            <p class="text-sm" data-ai-draft-meta></p>
+            <img data-ai-draft-cover alt="AI generated cover" hidden />
+            <div class="ai-draft__body" data-ai-draft-content></div>
+            <figure class="ai-draft__audio" hidden>
+              <figcaption>Audio narration</figcaption>
+              <audio controls data-ai-draft-audio></audio>
+            </figure>
+            <div class="ai-draft__footer">
+              <p class="text-sm">Edits stay local until you publish. Publishing fires a newsroom event and updates the log.</p>
+            </div>
+          </article>
+          <article class="card">
+            <h3>Automation &amp; logs</h3>
+            <form class="ai-form" data-ai-auto-form novalidate>
+              <label class="form-label">Auto-publish time (IST)
+                <input type="time" name="time" required />
+              </label>
+              <label class="form-label">Topics pool (one per line)
+                <textarea name="topics" rows="4" placeholder="Rooftop payback calculator\nInstaller spotlight: Hazaribagh"></textarea>
+              </label>
+              <label class="form-label ai-form__checkbox">
+                <input type="checkbox" name="dedupe" checked /> Skip topics already published in the last 30 days
+              </label>
+              <div class="ai-form__actions">
+                <button type="submit" class="btn btn-secondary">Save automation</button>
+              </div>
+              <div class="form-alert" data-ai-auto-alert aria-live="polite"></div>
+            </form>
+            <div class="ai-log">
+              <h4>Upcoming auto topics</h4>
+              <ul class="ai-list" data-ai-schedule-list></ul>
+              <h4>Model usage log</h4>
+              <ul class="ai-list" data-ai-usage-log></ul>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
     <section class="section alt">
       <div class="container">
         <div class="head">

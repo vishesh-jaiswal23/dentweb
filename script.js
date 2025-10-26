@@ -1010,27 +1010,109 @@ function setupGlobalSearch(rootEl = document) {
   });
 
   const renderResults = (items = [], query = '') => {
+    resultsHost.innerHTML = '';
+
     if (!items.length) {
-      resultsHost.innerHTML = `<p class="site-search-empty">No results for <strong>${query}</strong>. Try a different keyword.</p>`;
+      const empty = document.createElement('p');
+      empty.className = 'site-search-empty';
+      empty.textContent = query
+        ? `No results for "${query}". Try a different keyword.`
+        : 'No results found. Try a different keyword.';
+      resultsHost.appendChild(empty);
       return;
     }
-    const list = document.createElement('ul');
-    list.className = 'site-search-list';
-    items.forEach((item) => {
-      const entry = document.createElement('li');
-      entry.className = 'site-search-item';
-      entry.innerHTML = `
-        <a href="${item.url}" class="site-search-link">
-          <span class="site-search-type">${item.type}</span>
-          <span class="site-search-title">${item.title}</span>
-          <span class="site-search-excerpt">${item.excerpt || ''}</span>
-          <span class="site-search-tags">${(item.tags || []).join(' • ')}</span>
-        </a>
-      `;
-      list.appendChild(entry);
+
+    const grouped = items.reduce((acc, item) => {
+      const type = (item.group || item.type || 'Other').toString();
+      const key = type.trim() || 'Other';
+      if (!acc.has(key)) {
+        acc.set(key, []);
+      }
+      acc.get(key).push(item);
+      return acc;
+    }, new Map());
+
+    const quickNav = document.createElement('nav');
+    quickNav.className = 'site-search-quick-nav';
+    const quickNavList = document.createElement('ul');
+    quickNavList.className = 'site-search-quick-nav__list';
+
+    const container = document.createElement('div');
+    container.className = 'site-search-groups';
+
+    let index = 0;
+    grouped.forEach((groupItems, key) => {
+      const slug = `search-group-${key.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'group'}-${index}`;
+      const navItem = document.createElement('li');
+      const navLink = document.createElement('a');
+      navLink.href = `#${slug}`;
+      navLink.textContent = `${key} (${groupItems.length})`;
+      navLink.className = 'site-search-quick-nav__link';
+      navLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        const target = resultsHost.querySelector(`#${slug}`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+      navItem.appendChild(navLink);
+      quickNavList.appendChild(navItem);
+
+      const section = document.createElement('section');
+      section.className = 'site-search-group';
+      section.id = slug;
+      const heading = document.createElement('h3');
+      heading.textContent = key;
+      heading.className = 'site-search-group__title';
+      section.appendChild(heading);
+
+      const list = document.createElement('ul');
+      list.className = 'site-search-list';
+
+      groupItems.forEach((item) => {
+        const entry = document.createElement('li');
+        entry.className = 'site-search-item';
+
+        const link = document.createElement('a');
+        link.className = 'site-search-link';
+        link.href = item.url || '#';
+
+        const type = document.createElement('span');
+        type.className = 'site-search-type';
+        type.textContent = item.type || key;
+        link.appendChild(type);
+
+        const title = document.createElement('span');
+        title.className = 'site-search-title';
+        title.textContent = item.title || 'Untitled result';
+        link.appendChild(title);
+
+        if (item.excerpt) {
+          const excerpt = document.createElement('span');
+          excerpt.className = 'site-search-excerpt';
+          excerpt.textContent = item.excerpt;
+          link.appendChild(excerpt);
+        }
+
+        if (item.tags && item.tags.length) {
+          const tags = document.createElement('span');
+          tags.className = 'site-search-tags';
+          tags.textContent = item.tags.join(' • ');
+          link.appendChild(tags);
+        }
+
+        entry.appendChild(link);
+        list.appendChild(entry);
+      });
+
+      section.appendChild(list);
+      container.appendChild(section);
+      index += 1;
     });
-    resultsHost.innerHTML = '';
-    resultsHost.appendChild(list);
+
+    quickNav.appendChild(quickNavList);
+    resultsHost.appendChild(quickNav);
+    resultsHost.appendChild(container);
   };
 
   const setLoading = (state) => {

@@ -11,6 +11,11 @@
 
   const state = {
     ticketCounter: 0,
+    jobCounter: 0,
+    checklistCounter: 0,
+    commissioningCounter: 0,
+    backupCounter: 0,
+    alertCounter: 0,
     tickets: [],
     documents: [],
     approvals: [],
@@ -20,6 +25,27 @@
     notifications: [],
     selectedTicketId: null,
     pendingMerge: null,
+    jobs: [],
+    checklists: [],
+    commissioning: [],
+    amcSchedules: [],
+    analyticsRecords: [],
+    analyticsView: [],
+    analyticsFiltersApplied: false,
+    backupHistory: [],
+    systemAlerts: [],
+    healthSnapshot: {
+      lastBackup: '',
+      diskFree: '',
+      recentErrors: 0,
+      pendingAlerts: 0,
+      recordCounts: {
+        customers: 0,
+        tickets: 0,
+        documents: 0,
+        assets: 0
+      }
+    },
     docFilters: {
       type: '',
       tag: '',
@@ -87,6 +113,30 @@
     dom.duplicateDetails = document.querySelector('[data-duplicate-details]');
     dom.mergeTicketBtn = document.querySelector('[data-merge-ticket]');
     dom.createSeparateBtn = document.querySelector('[data-create-new]');
+    dom.jobAssignmentForm = document.getElementById('job-assignment-form');
+    dom.jobInstallerSelect = document.querySelector('[data-job-installer]');
+    dom.jobList = document.querySelector('[data-job-list]');
+    dom.checklistForm = document.getElementById('checklist-form');
+    dom.checklistJobSelect = document.querySelector('[data-checklist-job]');
+    dom.checklistList = document.querySelector('[data-checklist-list]');
+    dom.commissioningForm = document.getElementById('commissioning-form');
+    dom.commissioningJobSelect = document.querySelector('[data-commissioning-job]');
+    dom.commissioningList = document.querySelector('[data-commissioning-list]');
+    dom.amcForm = document.getElementById('amc-form');
+    dom.amcUpcoming = document.querySelector('[data-amc-upcoming]');
+    dom.amcDue = document.querySelector('[data-amc-due]');
+    dom.amcOverdue = document.querySelector('[data-amc-overdue]');
+    dom.amcSummary = document.querySelector('[data-amc-summary]');
+    dom.analyticsForm = document.getElementById('analytics-filter-form');
+    dom.analyticsCards = document.querySelector('[data-analytics-cards]');
+    dom.analyticsTable = document.querySelector('[data-analytics-table]');
+    dom.analyticsExport = document.querySelector('[data-analytics-export]');
+    dom.alertPanel = document.querySelector('[data-alert-panel]');
+    dom.backupForm = document.getElementById('backup-form');
+    dom.restoreForm = document.getElementById('restore-form');
+    dom.backupHistory = document.querySelector('[data-backup-history]');
+    dom.backupSelect = document.querySelector('[data-backup-select]');
+    dom.healthSummary = document.querySelector('[data-health-summary]');
   }
 
   function populateEmployees() {
@@ -112,6 +162,16 @@
         option.value = employee.name;
         option.textContent = employee.name;
         dom.triageAssigneeSelect.appendChild(option);
+      });
+    }
+
+    if (dom.jobInstallerSelect) {
+      dom.jobInstallerSelect.innerHTML = '<option value="">Select installer</option>';
+      employees.forEach((employee) => {
+        const option = document.createElement('option');
+        option.value = employee.name;
+        option.textContent = employee.name;
+        dom.jobInstallerSelect.appendChild(option);
       });
     }
   }
@@ -254,6 +314,55 @@
     dom.anomalyForm?.addEventListener('submit', (event) => {
       event.preventDefault();
       handleAnomalySimulation(new FormData(dom.anomalyForm));
+    });
+
+    dom.jobAssignmentForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      handleJobAssignment(new FormData(dom.jobAssignmentForm));
+    });
+
+    dom.checklistForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      handleChecklistSubmit(new FormData(dom.checklistForm));
+    });
+
+    dom.commissioningForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      handleCommissioningSubmit(new FormData(dom.commissioningForm));
+    });
+
+    dom.amcForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      handleAmcSchedule(new FormData(dom.amcForm));
+    });
+
+    dom.analyticsForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      applyAnalyticsFilters(new FormData(dom.analyticsForm));
+    });
+
+    dom.analyticsExport?.addEventListener('click', () => exportAnalyticsCsv());
+
+    dom.backupForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      triggerManualBackup();
+    });
+
+    dom.restoreForm?.addEventListener('submit', (event) => {
+      event.preventDefault();
+      handleRestore(new FormData(dom.restoreForm));
+    });
+
+    dom.alertPanel?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-alert-action]');
+      if (!button) return;
+      const alertId = button.dataset.alertId;
+      const action = button.dataset.alertAction;
+      if (action === 'ack') {
+        acknowledgeAlert(alertId);
+      } else if (action === 'dismiss') {
+        dismissAlert(alertId);
+      }
     });
   }
 
@@ -402,6 +511,186 @@
       severity: 'Medium'
     });
 
+    const job1 = {
+      id: generateJobId(),
+      type: 'Installation',
+      installer: 'Anita Sharma',
+      customer: 'Kavita Roy',
+      location: 'Ranchi',
+      notes: '5kW hybrid with subsidy paperwork',
+      scheduledAt: shiftHours(new Date(), -3).toISOString(),
+      status: 'On-Site',
+      createdAt: shiftHours(new Date(), -12).toISOString(),
+      checklistId: null,
+      commissioned: false,
+      completedAt: null
+    };
+
+    const job2 = {
+      id: generateJobId(),
+      type: 'AMC Service',
+      installer: 'Ravi Prasad',
+      customer: 'Prakash Singh',
+      location: 'Bokaro',
+      notes: 'Annual preventive maintenance',
+      scheduledAt: shiftHours(new Date(), 30).toISOString(),
+      status: 'Scheduled',
+      createdAt: shiftHours(new Date(), -6).toISOString(),
+      checklistId: null,
+      commissioned: false,
+      completedAt: null
+    };
+
+    state.jobs.push(job1, job2);
+
+    const checklist = {
+      id: generateChecklistId(),
+      jobId: job1.id,
+      arrival: shiftHours(new Date(), -2).toISOString(),
+      tasks: ['Safety brief', 'Structure verified', 'Photos captured'],
+      notes: 'Earthing pit resistance 1.8Ω. Customer requested extra conduit.',
+      signoff: {
+        name: 'Kavita Roy',
+        device: 'Installer App',
+        capturedAt: shiftHours(new Date(), -2).toISOString()
+      },
+      photo: { name: 'array.jpg', size: '1.2 MB', type: 'image/jpeg' }
+    };
+
+    state.checklists.push(checklist);
+    job1.checklistId = checklist.id;
+
+    const commissioning = {
+      id: generateCommissioningId(),
+      jobId: job1.id,
+      customer: job1.customer,
+      assetType: 'Inverter',
+      serial: 'SUN-INV-93844',
+      warrantyMonths: 60,
+      commissionedOn: shiftHours(new Date(), -1).toISOString(),
+      warrantyId: 'WR-2024-7782',
+      warrantyExpiresAt: shiftHours(new Date(), 60 * 24 * 30).toISOString()
+    };
+
+    state.commissioning.push(commissioning);
+    job1.commissioned = true;
+    job1.status = 'Completed';
+    job1.completedAt = commissioning.commissionedOn;
+
+    state.amcSchedules.push(
+      {
+        id: 'AMC-1',
+        customer: 'Mansi Verma',
+        frequency: 'Quarterly',
+        nextDue: shiftHours(new Date(), 48).toISOString(),
+        reminderDays: 7,
+        createdAt: shiftHours(new Date(), -10).toISOString(),
+        flags: {}
+      },
+      {
+        id: 'AMC-2',
+        customer: 'Prakash Singh',
+        frequency: 'Yearly',
+        nextDue: shiftHours(new Date(), -12).toISOString(),
+        reminderDays: 10,
+        createdAt: shiftHours(new Date(), -40).toISOString(),
+        flags: {}
+      }
+    );
+
+    state.analyticsRecords = [
+      {
+        date: '2024-06-15',
+        segment: 'residential',
+        avgTurnaroundHours: 26,
+        medianTurnaroundHours: 22,
+        resolvedTickets: 18,
+        firstContactResolved: 11,
+        installerJobsCompleted: 9,
+        installerTeamSize: 4,
+        leads: 32,
+        conversions: 12,
+        pmSuryaFunnel: { enquiry: 28, survey: 22, application: 17, inspection: 12, disbursement: 8 },
+        pmSuryaAging: { enquiry: 2.5, survey: 3.5, application: 4.5, inspection: 3.2, disbursement: 2.1 },
+        defects: 1,
+        returns: 0
+      },
+      {
+        date: '2024-07-01',
+        segment: 'commercial',
+        avgTurnaroundHours: 34,
+        medianTurnaroundHours: 30,
+        resolvedTickets: 14,
+        firstContactResolved: 7,
+        installerJobsCompleted: 6,
+        installerTeamSize: 3,
+        leads: 18,
+        conversions: 5,
+        pmSuryaFunnel: { enquiry: 12, survey: 9, application: 7, inspection: 5, disbursement: 3 },
+        pmSuryaAging: { enquiry: 3.5, survey: 4.8, application: 6.2, inspection: 4.5, disbursement: 3.1 },
+        defects: 2,
+        returns: 1
+      },
+      {
+        date: '2024-07-15',
+        segment: 'residential',
+        avgTurnaroundHours: 21,
+        medianTurnaroundHours: 18,
+        resolvedTickets: 22,
+        firstContactResolved: 15,
+        installerJobsCompleted: 11,
+        installerTeamSize: 4,
+        leads: 36,
+        conversions: 14,
+        pmSuryaFunnel: { enquiry: 30, survey: 26, application: 19, inspection: 15, disbursement: 11 },
+        pmSuryaAging: { enquiry: 2.1, survey: 3.2, application: 4.1, inspection: 3.0, disbursement: 2.0 },
+        defects: 1,
+        returns: 1
+      }
+    ];
+
+    state.analyticsView = state.analyticsRecords.slice();
+
+    state.backupHistory = [
+      {
+        id: generateBackupId(),
+        startedAt: shiftHours(new Date(), -30).toISOString(),
+        completedAt: shiftHours(new Date(), -30).toISOString(),
+        status: 'Completed',
+        initiatedBy: 'Scheduler'
+      },
+      {
+        id: generateBackupId(),
+        startedAt: shiftHours(new Date(), -6).toISOString(),
+        completedAt: shiftHours(new Date(), -6).toISOString(),
+        status: 'Completed',
+        initiatedBy: 'Scheduler'
+      }
+    ];
+
+    state.systemAlerts.push({
+      id: generateAlertId(),
+      severity: 'Medium',
+      summary: 'Low disk headroom',
+      detail: 'Storage utilisation at 78%. Consider pruning archives.',
+      refId: 'disk-warning',
+      createdAt: shiftHours(new Date(), -5).toISOString(),
+      acknowledged: false
+    });
+
+    state.healthSnapshot.lastBackup = state.backupHistory[0]?.completedAt || '';
+    state.healthSnapshot.diskFree = '71% free';
+    refreshJobSelectors();
+    renderJobAssignments();
+    renderChecklists();
+    renderCommissioning();
+    renderAmcBoards();
+    updateAmcAlerts();
+    renderAnalyticsView();
+    renderBackupHistory();
+    renderAlertPanel();
+    refreshHealthSnapshot();
+
     logActivity('Seed Data', 'Preloaded demo tickets, documents, and governance items for quick exploration.');
   }
 
@@ -415,6 +704,14 @@
     renderAnomalies();
     renderActivityLog();
     renderErrorLog();
+    renderJobAssignments();
+    renderChecklists();
+    renderCommissioning();
+    renderAmcBoards();
+    renderAnalyticsView();
+    renderBackupHistory();
+    renderHealthSummary();
+    renderAlertPanel();
     updateMetrics();
   }
 
@@ -735,6 +1032,7 @@
     renderTicketDetail(ticketId || state.selectedTicketId);
     renderTaskBoard();
     updateMetrics();
+    refreshHealthSnapshot();
   }
 
   function renderTicketList() {
@@ -1293,6 +1591,809 @@
       .join('');
   }
 
+  function handleJobAssignment(formData) {
+    const jobType = (formData.get('jobType') || '').trim();
+    const installer = (formData.get('installer') || '').trim();
+    const customer = (formData.get('customer') || '').trim();
+    const location = (formData.get('location') || '').trim();
+    const notes = (formData.get('notes') || '').trim();
+    const scheduledRaw = formData.get('scheduledAt');
+    const scheduledAt = scheduledRaw ? new Date(scheduledRaw) : null;
+
+    if (!jobType || !installer || !customer || !location || !scheduledAt || Number.isNaN(scheduledAt.getTime())) {
+      displayFormAlert(dom.jobAssignmentForm, 'Provide job type, installer, customer, location, and schedule.', 'error');
+      return;
+    }
+
+    const job = {
+      id: generateJobId(),
+      type: jobType,
+      installer,
+      customer,
+      location,
+      notes,
+      scheduledAt: scheduledAt.toISOString(),
+      status: 'Scheduled',
+      createdAt: new Date().toISOString(),
+      checklistId: null,
+      commissioned: false,
+      completedAt: null
+    };
+
+    state.jobs.push(job);
+    logActivity('Job Assigned', `Job ${job.id} scheduled for ${customer}.`, { jobId: job.id });
+    addNotification({
+      title: 'Job Assigned',
+      message: `${job.customer} scheduled with ${job.installer} (${job.type}).`,
+      ticketId: job.id
+    });
+    displayFormAlert(dom.jobAssignmentForm, 'Job assignment saved.', 'success');
+    dom.jobAssignmentForm?.reset();
+    refreshJobSelectors();
+    renderJobAssignments();
+    refreshHealthSnapshot();
+  }
+
+  function renderJobAssignments() {
+    if (!dom.jobList) return;
+    if (!state.jobs.length) {
+      dom.jobList.innerHTML = '<tr><td colspan="5">No jobs scheduled yet.</td></tr>';
+      return;
+    }
+
+    const now = new Date();
+    const rows = state.jobs
+      .slice()
+      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))
+      .map((job) => {
+        let status = job.status;
+        const scheduleDate = new Date(job.scheduledAt);
+        if (job.commissioned) {
+          status = 'Completed';
+        } else if (scheduleDate.getTime() < now.getTime()) {
+          status = job.checklistId ? 'On-Site' : 'Overdue';
+        } else if (scheduleDate.getTime() - now.getTime() < 6 * 60 * 60 * 1000) {
+          status = 'Due Soon';
+        } else {
+          status = 'Scheduled';
+        }
+        job.status = status;
+        return `
+          <tr>
+            <td>${job.id}</td>
+            <td>${job.customer}</td>
+            <td>${job.installer}</td>
+            <td>${formatDateTime(job.scheduledAt)}</td>
+            <td>${status}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    dom.jobList.innerHTML = rows;
+  }
+
+  function refreshJobSelectors() {
+    if (dom.checklistJobSelect) {
+      dom.checklistJobSelect.innerHTML = '<option value="">Select job</option>';
+      state.jobs
+        .filter((job) => !job.commissioned)
+        .forEach((job) => {
+          const option = document.createElement('option');
+          option.value = job.id;
+          option.textContent = `${job.id} • ${job.customer}`;
+          dom.checklistJobSelect.appendChild(option);
+        });
+    }
+
+    if (dom.commissioningJobSelect) {
+      dom.commissioningJobSelect.innerHTML = '<option value="">Select job</option>';
+      state.jobs
+        .filter((job) => !job.commissioned)
+        .forEach((job) => {
+          const option = document.createElement('option');
+          option.value = job.id;
+          option.textContent = `${job.id} • ${job.customer}`;
+          dom.commissioningJobSelect.appendChild(option);
+        });
+    }
+  }
+
+  function handleChecklistSubmit(formData) {
+    const jobId = formData.get('jobId');
+    const arrivalRaw = formData.get('arrival');
+    const arrival = arrivalRaw ? new Date(arrivalRaw) : null;
+    const tasks = formData.getAll('tasks').map((task) => task.toString());
+    const notes = (formData.get('notes') || '').trim();
+    const signoffName = (formData.get('signoffName') || '').trim();
+    const signoffDevice = (formData.get('signoffDevice') || 'Installer App').trim();
+    const photo = formData.get('photo');
+
+    const job = state.jobs.find((item) => item.id === jobId);
+    if (!job) {
+      displayFormAlert(dom.checklistForm, 'Select a valid job before submitting the checklist.', 'error');
+      return;
+    }
+
+    if (!arrival || Number.isNaN(arrival.getTime()) || !signoffName) {
+      displayFormAlert(dom.checklistForm, 'Arrival time and customer sign-off are required.', 'error');
+      return;
+    }
+
+    if (photo instanceof File && photo.size) {
+      const maxSize = 5 * 1024 * 1024;
+      if (!photo.type.startsWith('image/')) {
+        displayFormAlert(dom.checklistForm, 'Photo must be an image file.', 'error');
+        logError('Checklist photo rejected (type).', { jobId });
+        return;
+      }
+      if (photo.size > maxSize) {
+        displayFormAlert(dom.checklistForm, 'Photo exceeds 5MB limit.', 'error');
+        logError('Checklist photo rejected (size).', { jobId });
+        return;
+      }
+    }
+
+    const checklist = {
+      id: generateChecklistId(),
+      jobId,
+      arrival: arrival.toISOString(),
+      tasks: tasks.length ? tasks : ['Safety brief'],
+      notes,
+      signoff: {
+        name: signoffName,
+        device: signoffDevice,
+        capturedAt: new Date().toISOString()
+      },
+      photo:
+        photo instanceof File && photo.size
+          ? { name: photo.name, size: formatFileSize(photo.size), type: photo.type }
+          : null
+    };
+
+    state.checklists.push(checklist);
+    job.checklistId = checklist.id;
+    job.status = 'On-Site';
+    logActivity('Checklist Submitted', `On-site checklist logged for ${job.id}.`, { jobId: job.id });
+    addNotification({
+      title: 'Checklist Submitted',
+      message: `${job.customer} checklist signed by ${signoffName}.`,
+      ticketId: job.id
+    });
+    dom.checklistForm?.reset();
+    displayFormAlert(dom.checklistForm, 'Checklist captured with sign-off.', 'success');
+    renderChecklists();
+    renderJobAssignments();
+    refreshHealthSnapshot();
+  }
+
+  function renderChecklists() {
+    if (!dom.checklistList) return;
+    if (!state.checklists.length) {
+      dom.checklistList.innerHTML = '<li>No site checklists submitted yet.</li>';
+      return;
+    }
+    dom.checklistList.innerHTML = state.checklists
+      .slice(-6)
+      .reverse()
+      .map((entry) => {
+        const job = state.jobs.find((item) => item.id === entry.jobId);
+        const customer = job ? job.customer : entry.jobId;
+        const photoLabel = entry.photo ? `${entry.photo.name} (${entry.photo.size})` : 'No photo';
+        return `
+          <li>
+            <strong>${customer}</strong>
+            <span>${formatDateTime(entry.arrival)} • Tasks: ${entry.tasks.join(', ')}</span>
+            <span>Sign-off: ${entry.signoff.name} via ${entry.signoff.device}</span>
+            <span>${photoLabel}</span>
+          </li>
+        `;
+      })
+      .join('');
+  }
+
+  function handleCommissioningSubmit(formData) {
+    const jobId = formData.get('jobId');
+    const assetType = (formData.get('assetType') || '').trim();
+    const serial = (formData.get('serial') || '').trim();
+    const warrantyMonths = Number(formData.get('warrantyMonths') || 0);
+    const commissionedOnRaw = formData.get('commissionedOn');
+    const commissionedOn = commissionedOnRaw ? new Date(commissionedOnRaw) : null;
+    const warrantyId = (formData.get('warrantyId') || '').trim();
+
+    const job = state.jobs.find((item) => item.id === jobId);
+    if (!job) {
+      displayFormAlert(dom.commissioningForm, 'Select a job to mark commissioning.', 'error');
+      return;
+    }
+    if (!assetType || !serial || !commissionedOn || Number.isNaN(commissionedOn.getTime())) {
+      displayFormAlert(dom.commissioningForm, 'Asset type, serial, and commissioning date are mandatory.', 'error');
+      return;
+    }
+
+    const record = {
+      id: generateCommissioningId(),
+      jobId,
+      customer: job.customer,
+      assetType,
+      serial,
+      warrantyMonths: warrantyMonths || 0,
+      commissionedOn: commissionedOn.toISOString(),
+      warrantyId: warrantyId || 'Pending',
+      warrantyExpiresAt: commissionedOn
+        ? new Date(commissionedOn.getTime() + (warrantyMonths || 0) * 30 * 24 * 60 * 60 * 1000).toISOString()
+        : null
+    };
+
+    state.commissioning.push(record);
+    job.commissioned = true;
+    job.completedAt = record.commissionedOn;
+    job.status = 'Completed';
+    refreshJobSelectors();
+    logActivity('Commissioned', `Job ${job.id} commissioned with asset ${serial}.`, { jobId: job.id });
+    addNotification({
+      title: 'Commissioned',
+      message: `${job.customer} commissioning complete (${assetType}).`,
+      ticketId: job.id
+    });
+    dom.commissioningForm?.reset();
+    displayFormAlert(dom.commissioningForm, 'Commissioning recorded and warranty asset registered.', 'success');
+    renderCommissioning();
+    renderJobAssignments();
+    refreshHealthSnapshot();
+  }
+
+  function renderCommissioning() {
+    if (!dom.commissioningList) return;
+    if (!state.commissioning.length) {
+      dom.commissioningList.innerHTML = '<tr><td colspan="4">No commissioning events captured yet.</td></tr>';
+      return;
+    }
+    dom.commissioningList.innerHTML = state.commissioning
+      .slice()
+      .sort((a, b) => new Date(b.commissionedOn) - new Date(a.commissionedOn))
+      .map((record) => {
+        return `
+          <tr>
+            <td>${record.jobId} • ${record.customer}</td>
+            <td>${record.assetType}</td>
+            <td>${record.serial}</td>
+            <td>${record.warrantyMonths} mo${record.warrantyId ? ` • ${record.warrantyId}` : ''}</td>
+          </tr>
+        `;
+      })
+      .join('');
+  }
+
+  function handleAmcSchedule(formData) {
+    const customer = (formData.get('customer') || '').trim();
+    const frequency = (formData.get('frequency') || '').trim();
+    const nextDueRaw = formData.get('nextDue');
+    const reminderDays = Number(formData.get('reminderDays') || 7);
+    const nextDue = nextDueRaw ? new Date(nextDueRaw) : null;
+
+    if (!customer || !frequency || !nextDue || Number.isNaN(nextDue.getTime())) {
+      displayFormAlert(dom.amcForm, 'Customer, frequency, and next due date are required.', 'error');
+      return;
+    }
+
+    const schedule = {
+      id: `AMC-${state.amcSchedules.length + 1}`,
+      customer,
+      frequency,
+      nextDue: nextDue.toISOString(),
+      reminderDays,
+      createdAt: new Date().toISOString(),
+      flags: {}
+    };
+
+    state.amcSchedules.push(schedule);
+    dom.amcForm?.reset();
+    displayFormAlert(dom.amcForm, 'AMC schedule created.', 'success');
+    logActivity('AMC Scheduled', `${customer} scheduled (${frequency}).`, { scheduleId: schedule.id });
+    renderAmcBoards();
+    updateAmcAlerts();
+  }
+
+  function renderAmcBoards() {
+    if (!dom.amcUpcoming || !dom.amcDue || !dom.amcOverdue) return;
+    if (!state.amcSchedules.length) {
+      dom.amcUpcoming.innerHTML = '<li>No AMC schedules yet.</li>';
+      dom.amcDue.innerHTML = '<li>All caught up.</li>';
+      dom.amcOverdue.innerHTML = '<li>None overdue.</li>';
+      if (dom.amcSummary) dom.amcSummary.textContent = '';
+      return;
+    }
+
+    const now = new Date();
+    const upcoming = state.amcSchedules.slice().sort((a, b) => new Date(a.nextDue) - new Date(b.nextDue));
+    const dueSoon = [];
+    const overdue = [];
+
+    const renderList = (items, container, emptyMessage) => {
+      if (!items.length) {
+        container.innerHTML = `<li>${emptyMessage}</li>`;
+        return;
+      }
+      container.innerHTML = items
+        .map((item) => {
+          const due = new Date(item.nextDue);
+          return `<li><strong>${item.customer}</strong> • ${formatDateTime(item.nextDue)} • ${formatRelativeTime(due)}</li>`;
+        })
+        .join('');
+    };
+
+    upcoming.forEach((item) => {
+      const due = new Date(item.nextDue);
+      const diffDays = (due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+      if (diffDays < 0) {
+        overdue.push(item);
+      } else if (diffDays <= item.reminderDays) {
+        dueSoon.push(item);
+      }
+    });
+
+    renderList(upcoming, dom.amcUpcoming, 'No upcoming visits.');
+    renderList(dueSoon, dom.amcDue, 'No service due soon.');
+    renderList(overdue, dom.amcOverdue, 'No overdue visits.');
+
+    if (dom.amcSummary) {
+      dom.amcSummary.textContent = `${state.amcSchedules.length} schedules • ${dueSoon.length} due soon • ${overdue.length} overdue`;
+    }
+  }
+
+  function updateAmcAlerts() {
+    const now = new Date();
+    state.amcSchedules.forEach((schedule) => {
+      const due = new Date(schedule.nextDue);
+      const diffDays = (due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+      schedule.flags = schedule.flags || {};
+
+      if (diffDays <= schedule.reminderDays && diffDays >= 0 && !schedule.flags.dueSoonAlert) {
+        schedule.flags.dueSoonAlert = true;
+        addNotification({
+          title: 'AMC Due Soon',
+          message: `${schedule.customer} due ${due.toLocaleDateString('en-IN')}.`,
+          ticketId: schedule.id
+        });
+        addSystemAlert({
+          severity: 'Medium',
+          summary: 'AMC visit due soon',
+          detail: `${schedule.customer} due ${formatDateTime(schedule.nextDue)}`,
+          refId: schedule.id
+        });
+      }
+
+      if (diffDays < 0 && !schedule.flags.overdueAlert) {
+        schedule.flags.overdueAlert = true;
+        addNotification({
+          title: 'AMC Overdue',
+          message: `${schedule.customer} overdue by ${Math.abs(diffDays).toFixed(0)} day(s).`,
+          ticketId: schedule.id
+        });
+        addSystemAlert({
+          severity: 'High',
+          summary: 'AMC overdue',
+          detail: `${schedule.customer} missed visit on ${formatDateTime(schedule.nextDue)}`,
+          refId: `${schedule.id}-overdue`
+        });
+      }
+    });
+    renderAlertPanel();
+  }
+
+  function applyAnalyticsFilters(formData) {
+    if (!state.analyticsRecords.length) {
+      if (dom.analyticsCards) dom.analyticsCards.innerHTML = '<p>No analytics captured yet.</p>';
+      if (dom.analyticsTable) dom.analyticsTable.innerHTML = '';
+      return;
+    }
+
+    const fromValue = formData.get('from');
+    const toValue = formData.get('to');
+    const segment = (formData.get('segment') || 'all').toLowerCase();
+    const from = fromValue ? new Date(fromValue) : null;
+    const to = toValue ? new Date(toValue) : null;
+
+    const filtered = state.analyticsRecords.filter((record) => {
+      const recordDate = new Date(record.date);
+      if (from && recordDate < from) return false;
+      if (to) {
+        const endOfDay = new Date(to);
+        endOfDay.setHours(23, 59, 59, 999);
+        if (recordDate > endOfDay) return false;
+      }
+      if (segment !== 'all' && record.segment !== segment) return false;
+      return true;
+    });
+
+    state.analyticsView = filtered;
+    state.analyticsFiltersApplied = true;
+    if (dom.analyticsForm) {
+      const alert = dom.analyticsForm.querySelector('.form-alert');
+      if (alert) {
+        alert.textContent = filtered.length ? `${filtered.length} record(s) loaded.` : 'No data in the selected range.';
+        alert.classList.toggle('is-success', Boolean(filtered.length));
+        alert.classList.toggle('is-error', !filtered.length);
+      }
+    }
+    renderAnalyticsView();
+  }
+
+  function renderAnalyticsView() {
+    if (!dom.analyticsCards || !dom.analyticsTable) return;
+    const hasFilters = state.analyticsFiltersApplied;
+    const records = hasFilters ? state.analyticsView : state.analyticsRecords;
+    if (!records.length) {
+      dom.analyticsCards.innerHTML = hasFilters
+        ? '<p>No analytics match the selected filters.</p>'
+        : '<p>No analytics captured yet.</p>';
+      dom.analyticsTable.innerHTML = '';
+      return;
+    }
+
+    const summary = summariseAnalytics(records);
+    renderAnalyticsSummary(summary);
+    renderAnalyticsTable(records);
+  }
+
+  function summariseAnalytics(records) {
+    const totals = {
+      resolved: 0,
+      fcr: 0,
+      avgTurnaroundWeighted: 0,
+      medianAccumulator: 0,
+      installerJobs: 0,
+      installerTeam: 0,
+      leads: 0,
+      conversions: 0,
+      defects: 0,
+      returns: 0,
+      funnel: { enquiry: 0, survey: 0, application: 0, inspection: 0, disbursement: 0 },
+      aging: { enquiry: 0, survey: 0, application: 0, inspection: 0, disbursement: 0 }
+    };
+
+    records.forEach((record) => {
+      totals.resolved += record.resolvedTickets;
+      totals.fcr += record.firstContactResolved;
+      totals.avgTurnaroundWeighted += record.avgTurnaroundHours * record.resolvedTickets;
+      totals.medianAccumulator += record.medianTurnaroundHours;
+      totals.installerJobs += record.installerJobsCompleted;
+      totals.installerTeam += record.installerTeamSize;
+      totals.leads += record.leads;
+      totals.conversions += record.conversions;
+      totals.defects += record.defects;
+      totals.returns += record.returns;
+      Object.keys(totals.funnel).forEach((stage) => {
+        totals.funnel[stage] += record.pmSuryaFunnel[stage] || 0;
+        totals.aging[stage] += record.pmSuryaAging[stage] || 0;
+      });
+    });
+
+    const recordCount = records.length || 1;
+    const avgTurnaround = totals.resolved
+      ? totals.avgTurnaroundWeighted / totals.resolved
+      : totals.avgTurnaroundWeighted / recordCount;
+    const medianTurnaround = totals.medianAccumulator / recordCount;
+    const fcrRate = totals.resolved ? totals.fcr / totals.resolved : 0;
+    const productivity = totals.installerTeam
+      ? totals.installerJobs / totals.installerTeam
+      : totals.installerJobs / Math.max(recordCount, 1);
+    const conversionRate = totals.leads ? totals.conversions / totals.leads : 0;
+    const defectRate = totals.installerJobs ? (totals.defects + totals.returns) / totals.installerJobs : 0;
+    const averageAging = {};
+    Object.keys(totals.aging).forEach((stage) => {
+      averageAging[stage] = totals.aging[stage] / recordCount;
+    });
+
+    return {
+      avgTurnaround,
+      medianTurnaround,
+      fcrRate,
+      productivity,
+      conversionRate,
+      funnel: totals.funnel,
+      aging: averageAging,
+      defectRate
+    };
+  }
+
+  function renderAnalyticsSummary(summary) {
+    if (!dom.analyticsCards) return;
+    const funnel = summary.funnel;
+    const aging = summary.aging;
+    const agingText = Object.keys(aging)
+      .map((stage) => `${stage}: ${aging[stage].toFixed(1)}d`)
+      .join(' · ');
+    dom.analyticsCards.innerHTML = `
+      <article class="metric-card">
+        <p class="metric-label">Avg Turnaround</p>
+        <p class="metric-value">${summary.avgTurnaround.toFixed(1)}h</p>
+        <p class="metric-meta">Median ${summary.medianTurnaround.toFixed(1)}h</p>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">First-contact Resolution</p>
+        <p class="metric-value">${(summary.fcrRate * 100).toFixed(1)}%</p>
+        <p class="metric-meta">Target ≥ 60%</p>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Installer Productivity</p>
+        <p class="metric-value">${summary.productivity.toFixed(1)} jobs/installer</p>
+        <p class="metric-meta">Rolling 30-day</p>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Lead → Customer</p>
+        <p class="metric-value">${(summary.conversionRate * 100).toFixed(1)}%</p>
+        <p class="metric-meta">Includes PM Surya Ghar funnel</p>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">PM Surya Ghar Funnel</p>
+        <p class="metric-value">${funnel.enquiry}→${funnel.survey}→${funnel.application}→${funnel.inspection}→${funnel.disbursement}</p>
+        <p class="metric-meta">Average aging: ${agingText}</p>
+      </article>
+      <article class="metric-card">
+        <p class="metric-label">Defect / Return Rate</p>
+        <p class="metric-value">${(summary.defectRate * 100).toFixed(1)}%</p>
+        <p class="metric-meta">Post-install quality incidents</p>
+      </article>
+    `;
+  }
+
+  function renderAnalyticsTable(records) {
+    if (!dom.analyticsTable) return;
+    dom.analyticsTable.innerHTML = records
+      .map((record) => {
+        const conversion = record.leads ? ((record.conversions / record.leads) * 100).toFixed(1) : '0.0';
+        const fcr = record.resolvedTickets
+          ? ((record.firstContactResolved / record.resolvedTickets) * 100).toFixed(1)
+          : '0.0';
+        const productivity = record.installerTeamSize
+          ? (record.installerJobsCompleted / record.installerTeamSize).toFixed(1)
+          : record.installerJobsCompleted.toFixed(1);
+        const defectRate = record.installerJobsCompleted
+          ? (((record.defects + record.returns) / record.installerJobsCompleted) * 100).toFixed(1)
+          : '0.0';
+        const funnel = record.pmSuryaFunnel;
+        return `
+          <tr>
+            <td>${record.date}</td>
+            <td>${record.avgTurnaroundHours.toFixed(1)}</td>
+            <td>${record.medianTurnaroundHours.toFixed(1)}</td>
+            <td>${fcr}</td>
+            <td>${productivity}</td>
+            <td>${conversion}</td>
+            <td>${funnel.enquiry}→${funnel.survey}→${funnel.application}→${funnel.inspection}→${funnel.disbursement}</td>
+            <td>${defectRate}</td>
+          </tr>
+        `;
+      })
+      .join('');
+  }
+
+  function exportAnalyticsCsv() {
+    const records = state.analyticsView.length ? state.analyticsView : state.analyticsRecords;
+    if (!records.length) return;
+    const header = [
+      'Date',
+      'Segment',
+      'Avg Turnaround (hrs)',
+      'Median Turnaround (hrs)',
+      'Resolved Tickets',
+      'First-contact Resolved',
+      'Installer Jobs Completed',
+      'Installer Team Size',
+      'Leads',
+      'Conversions',
+      'PM Surya Enquiry',
+      'PM Surya Survey',
+      'PM Surya Application',
+      'PM Surya Inspection',
+      'PM Surya Disbursement',
+      'Defects',
+      'Returns'
+    ];
+    const rows = records.map((record) => [
+      record.date,
+      record.segment,
+      record.avgTurnaroundHours,
+      record.medianTurnaroundHours,
+      record.resolvedTickets,
+      record.firstContactResolved,
+      record.installerJobsCompleted,
+      record.installerTeamSize,
+      record.leads,
+      record.conversions,
+      record.pmSuryaFunnel.enquiry,
+      record.pmSuryaFunnel.survey,
+      record.pmSuryaFunnel.application,
+      record.pmSuryaFunnel.inspection,
+      record.pmSuryaFunnel.disbursement,
+      record.defects,
+      record.returns
+    ]);
+
+    const csv = [header.join(','), ...rows.map((row) => row.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `service-analytics-${Date.now()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    logActivity('Analytics Export', 'Analytics CSV exported.', {});
+  }
+
+  function triggerManualBackup() {
+    const backup = {
+      id: generateBackupId(),
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      status: 'Completed',
+      initiatedBy: 'Operations Admin'
+    };
+    state.backupHistory.unshift(backup);
+    if (state.backupHistory.length > 8) {
+      state.backupHistory.length = 8;
+    }
+    const diskFree = Math.max(52, Math.min(85, Math.round(70 + Math.random() * 6 - 3)));
+    state.healthSnapshot.diskFree = `${diskFree}% free`;
+    displayFormAlert(dom.backupForm, `Backup ${backup.id} started and completed successfully.`, 'success');
+    logActivity('Backup', `${backup.id} completed.`, { backupId: backup.id });
+    addSystemAlert({
+      severity: 'Low',
+      summary: 'Backup Completed',
+      detail: `${backup.id} finished at ${formatDateTime(backup.completedAt)}`,
+      refId: backup.id
+    });
+    renderBackupHistory();
+    refreshHealthSnapshot();
+  }
+
+  function handleRestore(formData) {
+    const backupId = formData.get('backupId');
+    const backup = state.backupHistory.find((item) => item.id === backupId);
+    if (!backup) {
+      displayFormAlert(dom.restoreForm, 'Select a backup snapshot to restore.', 'error');
+      return;
+    }
+    displayFormAlert(dom.restoreForm, `Restore for ${backup.id} queued. Sandbox verification in progress.`, 'success');
+    logActivity('Restore Requested', `${backup.id} restore queued.`, { backupId: backup.id });
+    addSystemAlert({
+      severity: 'Medium',
+      summary: 'Restore Pending',
+      detail: `${backup.id} restore awaiting approval`,
+      refId: `${backup.id}-restore`
+    });
+    renderAlertPanel();
+  }
+
+  function renderBackupHistory() {
+    if (!dom.backupHistory) return;
+    if (!state.backupHistory.length) {
+      dom.backupHistory.innerHTML = '<li>No backups executed yet.</li>';
+    } else {
+      dom.backupHistory.innerHTML = state.backupHistory
+        .map((backup) => `<li><strong>${backup.id}</strong> • ${backup.status} • ${formatDateTime(backup.completedAt)}</li>`)
+        .join('');
+    }
+
+    if (dom.backupSelect) {
+      dom.backupSelect.innerHTML = '<option value="">Select backup</option>';
+      state.backupHistory.forEach((backup) => {
+        const option = document.createElement('option');
+        option.value = backup.id;
+        option.textContent = `${backup.id} • ${formatDateTime(backup.completedAt)}`;
+        dom.backupSelect.appendChild(option);
+      });
+    }
+  }
+
+  function refreshHealthSnapshot() {
+    const snapshot = state.healthSnapshot;
+    const uniqueCustomers = new Set(state.tickets.map((ticket) => ticket.customer.email));
+    snapshot.recordCounts.customers = uniqueCustomers.size;
+    snapshot.recordCounts.tickets = state.tickets.length;
+    snapshot.recordCounts.documents = state.documents.length;
+    snapshot.recordCounts.assets = state.commissioning.length;
+    snapshot.recentErrors = state.errorLog.slice(-5).length;
+    snapshot.pendingAlerts = state.systemAlerts.filter((alert) => !alert.acknowledged).length;
+    if (state.backupHistory.length) {
+      snapshot.lastBackup = state.backupHistory[0].completedAt;
+    }
+    if (!snapshot.diskFree) {
+      snapshot.diskFree = '68% free';
+    }
+    renderHealthSummary();
+  }
+
+  function renderHealthSummary() {
+    if (!dom.healthSummary) return;
+    const snapshot = state.healthSnapshot;
+    if (!snapshot) {
+      dom.healthSummary.innerHTML = '<dt>Health</dt><dd>No data</dd>';
+      return;
+    }
+    dom.healthSummary.innerHTML = `
+      <dt>Last backup</dt><dd>${snapshot.lastBackup ? formatDateTime(snapshot.lastBackup) : 'Pending'}</dd>
+      <dt>Disk space</dt><dd>${snapshot.diskFree}</dd>
+      <dt>Recent errors</dt><dd>${snapshot.recentErrors}</dd>
+      <dt>Pending alerts</dt><dd>${snapshot.pendingAlerts}</dd>
+      <dt>Records</dt><dd>${snapshot.recordCounts.tickets} tickets · ${snapshot.recordCounts.documents} documents · ${snapshot.recordCounts.assets} assets</dd>
+    `;
+  }
+
+  function addSystemAlert(alert) {
+    if (!alert) return;
+    const exists = state.systemAlerts.some((item) => item.refId === alert.refId && item.summary === alert.summary);
+    if (exists) return;
+    const record = {
+      id: generateAlertId(),
+      severity: alert.severity || 'Low',
+      summary: alert.summary,
+      detail: alert.detail,
+      refId: alert.refId || '',
+      createdAt: new Date().toISOString(),
+      acknowledged: false
+    };
+    state.systemAlerts.unshift(record);
+    if (state.systemAlerts.length > 12) {
+      state.systemAlerts.length = 12;
+    }
+    state.healthSnapshot.pendingAlerts = state.systemAlerts.filter((item) => !item.acknowledged).length;
+    renderAlertPanel();
+  }
+
+  function renderAlertPanel() {
+    if (!dom.alertPanel) return;
+    if (!state.systemAlerts.length) {
+      dom.alertPanel.innerHTML = '<li>No alerts. Systems normal.</li>';
+      return;
+    }
+    dom.alertPanel.innerHTML = state.systemAlerts
+      .map((alert) => {
+        const severity = alert.severity.toLowerCase();
+        const acknowledged = alert.acknowledged ? 'acknowledged' : '';
+        return `
+          <li class="alert-panel__item alert-${severity} ${acknowledged}">
+            <div>
+              <strong>${alert.summary}</strong>
+              <p>${alert.detail}</p>
+              <small>${formatDateTime(alert.createdAt)}</small>
+            </div>
+            <div class="alert-panel__actions">
+              <button type="button" class="btn btn-text" data-alert-action="ack" data-alert-id="${alert.id}" ${
+                alert.acknowledged ? 'disabled' : ''
+              }>Acknowledge</button>
+              <button type="button" class="btn btn-text" data-alert-action="dismiss" data-alert-id="${alert.id}">Dismiss</button>
+            </div>
+          </li>
+        `;
+      })
+      .join('');
+  }
+
+  function acknowledgeAlert(alertId) {
+    const alert = state.systemAlerts.find((item) => item.id === alertId);
+    if (!alert) return;
+    alert.acknowledged = true;
+    logActivity('Alert Acknowledged', `${alert.summary}`, { alertId });
+    state.healthSnapshot.pendingAlerts = state.systemAlerts.filter((item) => !item.acknowledged).length;
+    renderAlertPanel();
+    renderHealthSummary();
+  }
+
+  function dismissAlert(alertId) {
+    const index = state.systemAlerts.findIndex((item) => item.id === alertId);
+    if (index === -1) return;
+    const [alert] = state.systemAlerts.splice(index, 1);
+    logActivity('Alert Dismissed', `${alert.summary}`, { alertId });
+    state.healthSnapshot.pendingAlerts = state.systemAlerts.filter((item) => !item.acknowledged).length;
+    renderAlertPanel();
+    renderHealthSummary();
+  }
+
   function renderActivityLog() {
     if (!dom.activityLog) return;
     dom.activityLog.innerHTML = state.activityLog
@@ -1536,6 +2637,31 @@
 
   function generateAnomalyId() {
     return `ANM-${state.anomalies.length + 1}`;
+  }
+
+  function generateJobId() {
+    state.jobCounter += 1;
+    return `JOB-${String(state.jobCounter).padStart(3, '0')}`;
+  }
+
+  function generateChecklistId() {
+    state.checklistCounter += 1;
+    return `CHK-${String(state.checklistCounter).padStart(3, '0')}`;
+  }
+
+  function generateCommissioningId() {
+    state.commissioningCounter += 1;
+    return `CMS-${String(state.commissioningCounter).padStart(3, '0')}`;
+  }
+
+  function generateBackupId() {
+    state.backupCounter += 1;
+    return `BKP-${String(state.backupCounter).padStart(3, '0')}`;
+  }
+
+  function generateAlertId() {
+    state.alertCounter += 1;
+    return `ALT-${String(state.alertCounter).padStart(3, '0')}`;
   }
 
   function createPlaceholderDownload(name) {
