@@ -39,7 +39,7 @@ define('PORTAL_STORAGE_PATH', rtrim($storageRoot, DIRECTORY_SEPARATOR));
 
 // Default AI provider configuration (Gemini)
 define('PORTAL_DEFAULT_AI_SETTINGS', [
-    'api_key' => 'AIzaSyAsCEn7cd9vZlb5M5z9kw3XwbGkOjg8md0',
+    'api_key' => 'REPLACE_WITH_API_KEY',
     'models' => [
         'text' => 'gemini-2.5-flash',
         'image' => 'gemini-2.5-flash-image',
