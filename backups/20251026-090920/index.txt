@@ -1,0 +1,14 @@
+Dakshayani Portal Removal Backup
+Timestamp (UTC): 20251026-090920
+
+Items backed up:
+- login.php
+- logout.php
+- users/ (directory)
+- crm.css
+- crm.js
+- workflow.css
+- workflow.js
+- partials/header.html
+- script.js
+- style.css
