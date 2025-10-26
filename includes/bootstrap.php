@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/blog.php';
+
 function get_db(): PDO
 {
     static $db = null;
@@ -142,6 +144,49 @@ CREATE TABLE IF NOT EXISTS login_policies (
 SQL
     );
 
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS blog_posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    excerpt TEXT,
+    body_html TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    cover_image TEXT,
+    cover_image_alt TEXT,
+    author_name TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','archived')),
+    published_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+SQL
+    );
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS blog_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+SQL
+    );
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS blog_post_tags (
+    post_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    PRIMARY KEY (post_id, tag_id),
+    FOREIGN KEY(post_id) REFERENCES blog_posts(id) ON DELETE CASCADE,
+    FOREIGN KEY(tag_id) REFERENCES blog_tags(id) ON DELETE CASCADE
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_posts_status_published_at ON blog_posts(status, published_at DESC)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_post_tags_tag ON blog_post_tags(tag_id)');
+
     apply_schema_patches($db);
 }
 
@@ -228,6 +273,8 @@ function seed_defaults(PDO $db): void
         ]);
     }
     $db->exec("INSERT OR IGNORE INTO login_policies(id, retry_limit, lockout_minutes, twofactor_mode, session_timeout) VALUES (1, 5, 30, 'admin', 45)");
+
+    blog_seed_default($db);
 }
 
 function get_setting(string $key, ?PDO $db = null): ?string
@@ -277,6 +324,8 @@ function upgrade_users_table(PDO $db): void
 
     $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)');
     $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+
+    ensure_blog_indexes($db);
 }
 
 function ensure_login_policy_row(PDO $db): void
@@ -285,4 +334,10 @@ function ensure_login_policy_row(PDO $db): void
     if ($count === 0) {
         $db->exec("INSERT INTO login_policies(id, retry_limit, lockout_minutes, twofactor_mode, session_timeout) VALUES (1, 5, 30, 'admin', 45)");
     }
+}
+
+function ensure_blog_indexes(PDO $db): void
+{
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_posts_status_published_at ON blog_posts(status, published_at DESC)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_post_tags_tag ON blog_post_tags(tag_id)');
 }
