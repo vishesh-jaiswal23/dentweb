@@ -264,9 +264,9 @@
         displayAlert(dom.conversionAlert, 'Customer phone is required.', true);
         return;
       }
-      const phoneDigits = customerPhone.replace(/\D/g, '');
-      if (phoneDigits.length !== 10) {
-        displayAlert(dom.conversionAlert, 'Customer phone must include 10 digits.', true);
+      const phoneDigits = extractPhoneDigits(customerPhone);
+      if (phoneDigits.length < 10) {
+        displayAlert(dom.conversionAlert, 'Customer phone must include at least 10 digits.', true);
         return;
       }
       const systemSizeValue = payload.systemSize?.trim();
@@ -674,10 +674,18 @@
     dom.stageAlert.textContent = '';
   }
 
+  function extractPhoneDigits(value) {
+    return (value || '').replace(/\D/g, '');
+  }
+
+  function hasRequiredPhoneDigits(value, requiredDigits = 10) {
+    return extractPhoneDigits(value).length >= requiredDigits;
+  }
+
   function validateLeadPayload(payload) {
     if (!payload.name?.trim()) return { valid: false, message: 'Name is required.' };
     if (!payload.email?.trim()) return { valid: false, message: 'Email is required.' };
-    if (!/\d{10}/.test(payload.phone || '')) return { valid: false, message: 'Phone must contain 10 digits.' };
+    if (!hasRequiredPhoneDigits(payload.phone)) return { valid: false, message: 'Phone must contain at least 10 digits.' };
     const systemSize = payload.systemSize ? parseFloat(payload.systemSize) : null;
     if (systemSize !== null && systemSize <= 0) return { valid: false, message: 'System size must be greater than zero.' };
     return { valid: true };
