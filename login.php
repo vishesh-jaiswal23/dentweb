@@ -49,6 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$user) {
                 $error = 'The provided credentials were incorrect or the account is inactive.';
             } else {
+                if (session_status() === PHP_SESSION_ACTIVE) {
+                    session_regenerate_id(true);
+                }
                 $_SESSION['user'] = [
                     'id' => $user['id'],
                     'full_name' => $user['full_name'],
