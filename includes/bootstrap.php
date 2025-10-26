@@ -193,8 +193,9 @@ function seed_defaults(PDO $db): void
         ]);
     }
 
+    $seededApiKey = getenv('GEMINI_API_KEY');
     $defaultGeminiSettings = [
-        'gemini_api_key' => 'AIzaSyAsCEn7cd9vZlb5M5z9kw3XwbGkOjg8md0',
+        'gemini_api_key' => $seededApiKey !== false && $seededApiKey !== '' ? $seededApiKey : 'SET_GEMINI_API_KEY_IN_ENV',
         'gemini_text_model' => 'gemini-2.5-flash',
         'gemini_image_model' => 'gemini-2.5-flash-image',
         'gemini_tts_model' => 'gemini-2.5-flash-preview-tts',
