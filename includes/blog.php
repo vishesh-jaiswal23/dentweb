@@ -116,7 +116,12 @@ function blog_sync_tags(PDO $db, int $postId, array $tags): array
         ];
     }
 
-    $db->beginTransaction();
+    $startedTransaction = false;
+    if (!$db->inTransaction()) {
+        $db->beginTransaction();
+        $startedTransaction = true;
+    }
+
     try {
         $tagIds = [];
         $select = $db->prepare('SELECT id, name, slug FROM blog_tags WHERE slug = :slug');
@@ -147,10 +152,13 @@ function blog_sync_tags(PDO $db, int $postId, array $tags): array
                 ]);
             }
         }
-
-        $db->commit();
+        if ($startedTransaction) {
+            $db->commit();
+        }
     } catch (Throwable $exception) {
-        $db->rollBack();
+        if ($startedTransaction && $db->inTransaction()) {
+            $db->rollBack();
+        }
         throw $exception;
     }
 
