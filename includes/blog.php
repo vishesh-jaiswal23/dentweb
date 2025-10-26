@@ -116,7 +116,16 @@ function blog_sync_tags(PDO $db, int $postId, array $tags): array
         ];
     }
 
-    $db->beginTransaction();
+    $ownsTransaction = false;
+    $savepointName = null;
+    if (!$db->inTransaction()) {
+        $db->beginTransaction();
+        $ownsTransaction = true;
+    } else {
+        $savepointName = 'sp_blog_sync_tags_' . bin2hex(random_bytes(4));
+        $db->exec('SAVEPOINT ' . $savepointName);
+    }
+
     try {
         $tagIds = [];
         $select = $db->prepare('SELECT id, name, slug FROM blog_tags WHERE slug = :slug');
@@ -148,9 +157,18 @@ function blog_sync_tags(PDO $db, int $postId, array $tags): array
             }
         }
 
-        $db->commit();
+        if ($ownsTransaction) {
+            $db->commit();
+        } elseif ($savepointName !== null) {
+            $db->exec('RELEASE SAVEPOINT ' . $savepointName);
+        }
     } catch (Throwable $exception) {
-        $db->rollBack();
+        if ($ownsTransaction) {
+            $db->rollBack();
+        } elseif ($savepointName !== null) {
+            $db->exec('ROLLBACK TO SAVEPOINT ' . $savepointName);
+            $db->exec('RELEASE SAVEPOINT ' . $savepointName);
+        }
         throw $exception;
     }
 
