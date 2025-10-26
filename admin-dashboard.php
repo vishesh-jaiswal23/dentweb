@@ -398,6 +398,39 @@ $apiBase = $pathFor('api/admin.php');
                   Review the user roster to deactivate dormant accounts or adjust permissions.
                 </p>
               </section>
+
+              <form class="dashboard-form" data-password-form>
+                <h3>Change administrator password</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Current password
+                    <input type="password" name="currentPassword" autocomplete="current-password" required />
+                  </label>
+                  <label>
+                    New password
+                    <input type="password" name="newPassword" autocomplete="new-password" minlength="8" required />
+                  </label>
+                  <label>
+                    Confirm new password
+                    <input type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required />
+                  </label>
+                </div>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-key" aria-hidden="true"></i>
+                  Use at least 8 characters, mixing uppercase, lowercase, numbers, and symbols for stronger security.
+                </p>
+                <div>
+                  <button type="submit" class="btn btn-secondary" data-action="change-password">Update password</button>
+                  <button type="reset" class="btn btn-ghost">Clear</button>
+                </div>
+                <div class="dashboard-inline-status" data-password-status hidden>
+                  <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  <div>
+                    <strong>Password status</strong>
+                    <p>Submit the form to update your credentials.</p>
+                  </div>
+                </div>
+              </form>
             </div>
           </section>
 
@@ -489,6 +522,13 @@ $apiBase = $pathFor('api/admin.php');
                 <i class="fa-solid fa-shield" aria-hidden="true"></i>
                 API keys stay masked · Rotate quarterly or immediately after any suspected compromise.
               </p>
+              <div class="dashboard-inline-status" data-gemini-status hidden>
+                <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                <div>
+                  <strong>Status</strong>
+                  <p>Run a test to verify Gemini connectivity.</p>
+                </div>
+              </div>
               <div>
                 <button type="submit" class="btn btn-secondary" data-action="save-gemini">Save settings</button>
                 <button type="button" class="btn btn-ghost" data-action="reset-gemini">Reset defaults</button>

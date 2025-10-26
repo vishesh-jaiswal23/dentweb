@@ -26,11 +26,14 @@
   const geminiResetButton = document.querySelector('[data-action="reset-gemini"]');
   const geminiTestButton = document.querySelector('[data-action="test-gemini"]');
   const geminiSaveButton = document.querySelector('[data-action="save-gemini"]');
+  const geminiStatus = document.querySelector('[data-gemini-status]');
   const exportLogsButton = document.querySelector('[data-action="export-logs"]');
   const viewMonitoringButton = document.querySelector('[data-action="view-monitoring"]');
   const complaintPlaceholders = document.querySelectorAll('[data-placeholder^="complaint-"]');
   const auditPlaceholder = document.querySelector('[data-placeholder="activity-feed"]');
   const systemInputs = document.querySelectorAll('[data-system-metric]');
+  const passwordForm = document.querySelector('[data-password-form]');
+  const passwordStatus = document.querySelector('[data-password-status]');
 
   const state = {
     users: [],
@@ -521,6 +524,7 @@
       ttsModel: 'gemini-2.5-flash-preview-tts',
     };
     populateGemini();
+    clearInlineStatus(geminiStatus);
     showToast('Defaults restored', 'Gemini configuration reset to defaults.', 'info');
   });
 
@@ -533,13 +537,110 @@
     }
     geminiTestButton.disabled = true;
     geminiTestButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Testing…';
+    renderInlineStatus(
+      geminiStatus,
+      'progress',
+      'Testing connection…',
+      'Attempting to reach the Gemini models endpoint.'
+    );
     api('test-gemini', { method: 'POST', body: { apiKey } })
-      .then(() => showToast('Gemini verified', 'Gemini connection verified successfully.', 'success'))
-      .catch((error) => showToast('Test failed', error.message, 'error'))
+      .then((data) => {
+        const models = Array.isArray(data?.models) ? data.models : [];
+        const names = models
+          .map((model) => model.displayName || model.name)
+          .filter(Boolean)
+          .slice(0, 3);
+        const testedAt = data?.testedAt ? new Date(data.testedAt).toLocaleString() : '';
+        const detailParts = [];
+        if (testedAt) {
+          detailParts.push(`Tested at ${testedAt}`);
+        }
+        if (names.length) {
+          detailParts.push(`Sample models: ${names.join(', ')}`);
+        }
+        renderInlineStatus(
+          geminiStatus,
+          'success',
+          'Connection verified',
+          'Gemini responded successfully with accessible models.',
+          detailParts.join(' · ')
+        );
+        showToast('Gemini verified', 'Gemini connection verified successfully.', 'success');
+      })
+      .catch((error) => {
+        renderInlineStatus(geminiStatus, 'error', 'Test failed', error.message);
+        showToast('Test failed', error.message, 'error');
+      })
       .finally(() => {
         geminiTestButton.disabled = false;
         geminiTestButton.innerHTML = '<i class="fa-solid fa-plug-circle-check" aria-hidden="true"></i> Test connection';
       });
+  });
+
+  passwordForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(passwordForm);
+    const currentPassword = (formData.get('currentPassword') || '').toString();
+    const newPassword = (formData.get('newPassword') || '').toString();
+    const confirmPassword = (formData.get('confirmPassword') || '').toString();
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      renderInlineStatus(passwordStatus, 'error', 'Missing information', 'Fill in all password fields before submitting.');
+      showToast('Update failed', 'Complete all password fields before submitting.', 'error');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      renderInlineStatus(passwordStatus, 'error', 'Passwords do not match', 'Re-enter the new password so both fields match.');
+      showToast('Update failed', 'New password and confirmation must match.', 'error');
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      renderInlineStatus(passwordStatus, 'error', 'Password too short', 'Choose a password with at least 8 characters.');
+      showToast('Update failed', 'Password must be at least 8 characters.', 'error');
+      return;
+    }
+
+    const submitButton = passwordForm.querySelector('[data-action="change-password"]');
+    const originalLabel = submitButton?.innerHTML;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating…';
+    }
+
+    renderInlineStatus(passwordStatus, 'progress', 'Updating password…', 'Saving your new administrator credentials.');
+
+    api('change-password', {
+      method: 'POST',
+      body: { currentPassword, newPassword, confirmPassword },
+    })
+      .then((data) => {
+        passwordForm.reset();
+        const changedAt = data?.changedAt ? new Date(data.changedAt).toLocaleString() : '';
+        renderInlineStatus(
+          passwordStatus,
+          'success',
+          'Password updated',
+          'Your administrator password has been changed successfully.',
+          changedAt ? `Updated at ${changedAt}` : ''
+        );
+        showToast('Password updated', 'Administrator password updated successfully.', 'success');
+      })
+      .catch((error) => {
+        renderInlineStatus(passwordStatus, 'error', 'Update failed', error.message);
+        showToast('Update failed', error.message, 'error');
+      })
+      .finally(() => {
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.innerHTML = originalLabel || 'Update password';
+        }
+      });
+  });
+
+  passwordForm?.addEventListener('reset', () => {
+    clearInlineStatus(passwordStatus);
   });
 
   exportLogsButton?.addEventListener('click', () => {
@@ -573,6 +674,38 @@
       '"': '&quot;',
       "'": '&#39;',
     })[match]);
+  }
+
+  function renderInlineStatus(node, tone, title, message, details = '') {
+    if (!node) return;
+    const icons = {
+      success: 'fa-circle-check',
+      error: 'fa-triangle-exclamation',
+      progress: 'fa-arrows-rotate',
+      info: 'fa-circle-info',
+    };
+    const icon = icons[tone] || icons.info;
+    node.hidden = false;
+    node.dataset.tone = tone || 'info';
+    let html = `<i class="fa-solid ${icon}" aria-hidden="true"></i><div>`;
+    if (title) {
+      html += `<strong>${escapeHtml(title)}</strong>`;
+    }
+    if (message) {
+      html += `<p>${escapeHtml(message)}</p>`;
+    }
+    if (details) {
+      html += `<p>${escapeHtml(details)}</p>`;
+    }
+    html += '</div>';
+    node.innerHTML = html;
+  }
+
+  function clearInlineStatus(node) {
+    if (!node) return;
+    node.hidden = true;
+    node.innerHTML = '';
+    delete node.dataset.tone;
   }
 
   function capitalize(value) {

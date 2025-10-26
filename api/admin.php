@@ -59,6 +59,10 @@ try {
             require_method('POST');
             respond_success(test_gemini_connection(read_json()));
             break;
+        case 'change-password':
+            require_method('POST');
+            respond_success(change_password($db, read_json()));
+            break;
         case 'update-login-policy':
             require_method('POST');
             respond_success(update_login_policy($db, read_json()));
@@ -438,6 +442,10 @@ function test_gemini_connection(array $input): array
         throw new RuntimeException('Provide an API key to test.');
     }
 
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('PHP cURL extension is required to test Gemini connectivity.');
+    }
+
     $endpoint = 'https://generativelanguage.googleapis.com/v1beta/models';
     $query = http_build_query(['key' => $apiKey, 'pageSize' => 1]);
     $url = $endpoint . '?' . $query;
@@ -468,6 +476,61 @@ function test_gemini_connection(array $input): array
         'models' => $payload['models'] ?? [],
         'testedAt' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
     ];
+}
+
+function change_password(PDO $db, array $input): array
+{
+    $user = current_user();
+    if (!$user) {
+        throw new RuntimeException('Authentication required.');
+    }
+
+    $current = (string)($input['currentPassword'] ?? '');
+    $new = (string)($input['newPassword'] ?? '');
+    $confirm = (string)($input['confirmPassword'] ?? '');
+
+    if ($current === '' || $new === '' || $confirm === '') {
+        throw new RuntimeException('Provide current, new, and confirmation passwords.');
+    }
+
+    if ($new !== $confirm) {
+        throw new RuntimeException('New password and confirmation do not match.');
+    }
+
+    if (strlen($new) < 8) {
+        throw new RuntimeException('New password must be at least 8 characters long.');
+    }
+
+    $stmt = $db->prepare('SELECT id, password_hash FROM users WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $user['id']]);
+    $record = $stmt->fetch();
+    if (!$record) {
+        throw new RuntimeException('Unable to load the current user.');
+    }
+
+    if (!password_verify($current, $record['password_hash'])) {
+        throw new RuntimeException('Current password is incorrect.');
+    }
+
+    if (password_verify($new, $record['password_hash'])) {
+        throw new RuntimeException('New password must differ from the current password.');
+    }
+
+    $hash = password_hash($new, PASSWORD_DEFAULT);
+    $updatedAt = (new DateTimeImmutable())->format(DateTimeInterface::ATOM);
+
+    $update = $db->prepare("UPDATE users SET password_hash = :hash, password_last_set_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
+    $update->execute([
+        ':hash' => $hash,
+        ':id' => $user['id'],
+    ]);
+
+    start_session();
+    $_SESSION['user']['password_last_set_at'] = $updatedAt;
+
+    audit('change_password', 'user', (int)$user['id'], sprintf('Password updated for %s', $user['email'] ?? 'administrator'));
+
+    return ['changedAt' => $updatedAt];
 }
 
 function update_login_policy(PDO $db, array $input): array
