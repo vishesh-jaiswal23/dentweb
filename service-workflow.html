@@ -394,6 +394,216 @@
       </div>
     </section>
 
+    <section class="section alt" id="post-sale-ops">
+      <div class="container post-sale-grid">
+        <div class="head">
+          <h2>Post-Sale Field Operations</h2>
+          <p>Coordinate installers, capture on-site evidence, complete commissioning, and keep AMC schedules visible to service leaders.</p>
+        </div>
+        <div class="post-sale-layout">
+          <article class="card">
+            <h3>Job Assignment Board</h3>
+            <form id="job-assignment-form" class="workflow-form" novalidate>
+              <div class="form-row">
+                <label class="form-label">Job Type
+                  <select name="jobType" class="form-control" required>
+                    <option value="Installation">Installation</option>
+                    <option value="Warranty">Warranty</option>
+                    <option value="AMC Service">AMC Service</option>
+                    <option value="Inspection">Inspection</option>
+                  </select>
+                </label>
+                <label class="form-label">Installer
+                  <select name="installer" class="form-control" required data-job-installer></select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Customer / Site
+                  <input type="text" name="customer" class="form-control" placeholder="Customer name" required />
+                </label>
+                <label class="form-label">Location
+                  <input type="text" name="location" class="form-control" placeholder="Ranchi, Jharkhand" required />
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Schedule Date &amp; Time
+                  <input type="datetime-local" name="scheduledAt" class="form-control" required />
+                </label>
+                <label class="form-label">Job Notes
+                  <input type="text" name="notes" class="form-control" placeholder="Inverter swap, carry Form-17" />
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Assign Job</button>
+              </div>
+              <p class="text-sm" style="color:var(--base-500);">Installers receive checklists with site coordinates and warranty context.</p>
+              <div class="form-alert" aria-live="polite"></div>
+            </form>
+            <div class="table-responsive">
+              <table class="ticket-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Customer</th>
+                    <th>Installer</th>
+                    <th>Schedule</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody data-job-list></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="card">
+            <h3>On-Site Checklist &amp; Sign-off</h3>
+            <form id="checklist-form" class="workflow-form" novalidate>
+              <div class="form-row">
+                <label class="form-label">Job
+                  <select name="jobId" class="form-control" required data-checklist-job></select>
+                </label>
+                <label class="form-label">Arrival Time
+                  <input type="datetime-local" name="arrival" class="form-control" required />
+                </label>
+              </div>
+              <fieldset class="form-group">
+                <legend class="form-label">Checklist Tasks</legend>
+                <div class="toggle-group" role="group" aria-label="Checklist">
+                  <label><input type="checkbox" name="tasks" value="Safety brief" checked /> Safety brief done</label>
+                  <label><input type="checkbox" name="tasks" value="Structure verified" /> Structure verified</label>
+                  <label><input type="checkbox" name="tasks" value="Photos captured" /> Photos captured</label>
+                  <label><input type="checkbox" name="tasks" value="Performance test" /> Performance test</label>
+                </div>
+              </fieldset>
+              <div class="form-group">
+                <label class="form-label">Notes</label>
+                <textarea name="notes" class="form-control" rows="2" placeholder="Cable routing clarified with customer"></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Upload Site Photos (JPG/PNG up to 5MB)</label>
+                <input type="file" name="photo" accept="image/*" class="form-control" />
+              </div>
+              <div class="form-row">
+                <label class="form-label">Customer Sign-off Name
+                  <input type="text" name="signoffName" class="form-control" placeholder="Customer representative" required />
+                </label>
+                <label class="form-label">Captured On
+                  <select name="signoffDevice" class="form-control">
+                    <option value="Installer App">Installer App</option>
+                    <option value="Tablet">Tablet</option>
+                    <option value="Customer Phone">Customer Phone</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary">Submit Checklist</button>
+              </div>
+              <div class="form-alert" aria-live="polite"></div>
+            </form>
+            <ul class="checklist-log" data-checklist-list></ul>
+          </article>
+
+          <article class="card">
+            <h3>Commissioning &amp; Warranty Assets</h3>
+            <form id="commissioning-form" class="workflow-form" novalidate>
+              <div class="form-row">
+                <label class="form-label">Job
+                  <select name="jobId" class="form-control" required data-commissioning-job></select>
+                </label>
+                <label class="form-label">Asset Type
+                  <select name="assetType" class="form-control" required>
+                    <option value="Inverter">Inverter</option>
+                    <option value="Panel Array">Panel Array</option>
+                    <option value="Battery">Battery</option>
+                    <option value="Balance of System">Balance of System</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Serial Number
+                  <input type="text" name="serial" class="form-control" placeholder="SN-XXXXXXXX" required />
+                </label>
+                <label class="form-label">Warranty (months)
+                  <input type="number" name="warrantyMonths" min="12" max="300" step="12" class="form-control" value="60" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Commissioning Date
+                  <input type="date" name="commissionedOn" class="form-control" required />
+                </label>
+                <label class="form-label">Warranty Certificate #
+                  <input type="text" name="warrantyId" class="form-control" placeholder="Warranty ID" />
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Mark Commissioned</button>
+              </div>
+              <div class="form-alert" aria-live="polite"></div>
+            </form>
+            <div class="table-responsive">
+              <table class="ticket-table">
+                <thead>
+                  <tr>
+                    <th>Job</th>
+                    <th>Asset</th>
+                    <th>Serial</th>
+                    <th>Warranty</th>
+                  </tr>
+                </thead>
+                <tbody data-commissioning-list></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="card">
+            <h3>AMC Scheduler</h3>
+            <form id="amc-form" class="workflow-form" novalidate>
+              <div class="form-row">
+                <label class="form-label">Customer / Asset
+                  <input type="text" name="customer" class="form-control" placeholder="Customer or asset" required />
+                </label>
+                <label class="form-label">Frequency
+                  <select name="frequency" class="form-control" required>
+                    <option value="Quarterly">Quarterly</option>
+                    <option value="Half-yearly">Half-yearly</option>
+                    <option value="Yearly">Yearly</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Next Service Due
+                  <input type="date" name="nextDue" class="form-control" required />
+                </label>
+                <label class="form-label">Reminder (days before)
+                  <input type="number" name="reminderDays" class="form-control" min="1" max="60" value="7" />
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-secondary">Create Schedule</button>
+              </div>
+              <p class="text-sm" style="color:var(--base-500);">Due soon and overdue buckets drive alerts and installer tasking.</p>
+              <div class="form-alert" aria-live="polite"></div>
+            </form>
+            <div class="amc-board">
+              <div>
+                <h4>Upcoming Visits</h4>
+                <ul class="amc-list" data-amc-upcoming></ul>
+              </div>
+              <div>
+                <h4>Due Soon</h4>
+                <ul class="amc-list" data-amc-due></ul>
+              </div>
+              <div>
+                <h4>Overdue</h4>
+                <ul class="amc-list" data-amc-overdue></ul>
+              </div>
+            </div>
+            <div class="amc-summary" data-amc-summary></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
     <section class="section alt" id="document-vault">
       <div class="container">
         <div class="head">
@@ -489,6 +699,55 @@
       </div>
     </section>
 
+    <section class="section" id="analytics-intelligence">
+      <div class="container analytics-grid">
+        <div class="head">
+          <h2>Analytics &amp; KPIs</h2>
+          <p>Track service performance, conversion funnels, and installer productivity with exportable data slices.</p>
+        </div>
+        <form id="analytics-filter-form" class="workflow-inline-form" novalidate>
+          <div class="form-row">
+            <label class="form-label">From
+              <input type="date" name="from" class="form-control" />
+            </label>
+            <label class="form-label">To
+              <input type="date" name="to" class="form-control" />
+            </label>
+            <label class="form-label">Segment
+              <select name="segment" class="form-control">
+                <option value="all">All</option>
+                <option value="residential">Residential</option>
+                <option value="commercial">Commercial</option>
+              </select>
+            </label>
+            <div class="form-actions" style="align-self:flex-end;">
+              <button type="submit" class="btn btn-primary">Apply Filters</button>
+              <button type="button" class="btn btn-outline" data-analytics-export>Export CSV</button>
+            </div>
+          </div>
+          <div class="form-alert" aria-live="polite"></div>
+        </form>
+        <div class="analytics-cards" data-analytics-cards></div>
+        <div class="table-responsive">
+          <table class="ticket-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Avg Turnaround (hrs)</th>
+                <th>Median Turnaround (hrs)</th>
+                <th>FCR %</th>
+                <th>Installer Productivity</th>
+                <th>Conversion %</th>
+                <th>PM Surya Ghar Funnel</th>
+                <th>Defect / Return %</th>
+              </tr>
+            </thead>
+            <tbody data-analytics-table></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <section class="section" id="governance">
       <div class="container governance-grid">
         <div class="head">
@@ -551,6 +810,47 @@
             <ul class="anomaly-list" data-anomaly-list></ul>
           </article>
         </div>
+      </div>
+    </section>
+
+    <section class="section" id="resilience">
+      <div class="container resilience-grid">
+        <div class="head">
+          <h2>Alerts, Backups &amp; Health</h2>
+          <p>Monitor anomalies, trigger backups, and keep a pulse on infrastructure health without leaving the service console.</p>
+        </div>
+        <article class="card">
+          <h3>Alert Centre</h3>
+          <p class="text-sm" style="color:var(--base-600);">Acknowledge or dismiss anomalies, low disk warnings, and AMC breaches.</p>
+          <ul class="alert-panel" data-alert-panel></ul>
+        </article>
+        <article class="card">
+          <h3>Backups &amp; Restore</h3>
+          <form id="backup-form" class="workflow-inline-form" novalidate>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Run Manual Backup</button>
+            </div>
+            <p class="text-sm" style="color:var(--base-500);">All backups are encrypted with off-site replication. Manual runs take ~3 minutes.</p>
+            <div class="form-alert" aria-live="polite"></div>
+          </form>
+          <form id="restore-form" class="workflow-inline-form" novalidate>
+            <div class="form-row">
+              <label class="form-label">Restore Point
+                <select name="backupId" class="form-control" data-backup-select></select>
+              </label>
+              <div class="form-actions" style="align-self:flex-end;">
+                <button type="submit" class="btn btn-secondary">Restore Backup</button>
+              </div>
+            </div>
+            <p class="text-sm" style="color:var(--base-500);">Restores run in a sandbox first and need confirmation.</p>
+            <div class="form-alert" aria-live="polite"></div>
+          </form>
+          <ul class="backup-history" data-backup-history></ul>
+        </article>
+        <article class="card">
+          <h3>Health Summary</h3>
+          <dl class="info-grid" data-health-summary></dl>
+        </article>
       </div>
     </section>
 
