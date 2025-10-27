@@ -310,6 +310,20 @@ SQL
     );
 
     $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    identifier_hash TEXT NOT NULL,
+    ip_hash TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT,
+    last_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(identifier_hash, ip_hash)
+)
+SQL
+    );
+
+    $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS blog_posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -373,11 +387,11 @@ function seed_defaults(PDO $db): void
     ensure_default_user($db, [
         'role' => 'admin',
         'full_name' => 'Primary Administrator',
-        'email' => 'admin@dakshayani.in',
+        'email' => 'd.entranchi@gmail.com',
         'username' => 'admin',
         'password' => 'Dent@2025',
         'permissions_note' => 'Full access',
-        'legacy_emails' => ['d.entranchi@gmail.com'],
+        'legacy_emails' => ['admin@dakshayani.in', 'd.entranchi@gmail.com'],
         'legacy_usernames' => ['d.entranchi@gmail.com', 'sysadmin'],
     ]);
 
@@ -756,6 +770,381 @@ function get_session_timeout_minutes(PDO $db): int
     }
 
     return $timeout;
+}
+
+function get_login_policy(PDO $db): array
+{
+    ensure_login_policy_row($db);
+    $row = $db->query('SELECT retry_limit, lockout_minutes, session_timeout FROM login_policies WHERE id = 1')->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $retryLimit = (int) ($row['retry_limit'] ?? 5);
+    if ($retryLimit < 3) {
+        $retryLimit = 3;
+    }
+
+    $lockoutMinutes = (int) ($row['lockout_minutes'] ?? 30);
+    if ($lockoutMinutes < 1) {
+        $lockoutMinutes = 1;
+    }
+    if ($lockoutMinutes > 720) {
+        $lockoutMinutes = 720;
+    }
+
+    $sessionTimeout = get_session_timeout_minutes($db);
+
+    return [
+        'retry_limit' => $retryLimit,
+        'lockout_minutes' => $lockoutMinutes,
+        'session_timeout' => $sessionTimeout,
+    ];
+}
+
+function normalize_login_identifier(string $identifier): string
+{
+    $normalized = strtolower(trim($identifier));
+    return hash('sha256', $normalized);
+}
+
+function normalize_login_ip(string $ip): string
+{
+    $candidate = trim($ip);
+    if ($candidate === '') {
+        $candidate = '0.0.0.0';
+    }
+
+    return hash('sha256', $candidate);
+}
+
+function purge_login_attempts(PDO $db): void
+{
+    $db->exec("DELETE FROM login_attempts WHERE last_attempt_at < datetime('now', '-2 days')");
+}
+
+function login_attempt_snapshot(PDO $db, string $identifierHash, string $ipHash): ?array
+{
+    $stmt = $db->prepare('SELECT attempts, locked_until, last_attempt_at FROM login_attempts WHERE identifier_hash = :identifier_hash AND ip_hash = :ip_hash LIMIT 1');
+    $stmt->execute([
+        ':identifier_hash' => $identifierHash,
+        ':ip_hash' => $ipHash,
+    ]);
+
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ?: null;
+}
+
+function store_login_attempt(PDO $db, string $identifierHash, string $ipHash, int $attempts, ?string $lockedUntil): void
+{
+    $stmt = $db->prepare("INSERT INTO login_attempts(identifier_hash, ip_hash, attempts, locked_until, last_attempt_at) VALUES(:identifier_hash, :ip_hash, :attempts, :locked_until, datetime('now'))\n        ON CONFLICT(identifier_hash, ip_hash) DO UPDATE SET attempts = excluded.attempts, locked_until = excluded.locked_until, last_attempt_at = excluded.last_attempt_at");
+    $stmt->execute([
+        ':identifier_hash' => $identifierHash,
+        ':ip_hash' => $ipHash,
+        ':attempts' => $attempts,
+        ':locked_until' => $lockedUntil,
+    ]);
+}
+
+function login_rate_limit_status(PDO $db, string $identifier, string $ipAddress, array $policy): array
+{
+    purge_login_attempts($db);
+
+    $identifierHash = normalize_login_identifier($identifier);
+    $ipHash = normalize_login_ip($ipAddress);
+    $row = login_attempt_snapshot($db, $identifierHash, $ipHash);
+
+    $attempts = (int) ($row['attempts'] ?? 0);
+    $lockedUntilRaw = $row['locked_until'] ?? null;
+    $lockedSeconds = 0;
+
+    if (is_string($lockedUntilRaw) && $lockedUntilRaw !== '') {
+        try {
+            $lockedUntil = new DateTime($lockedUntilRaw, new DateTimeZone('UTC'));
+            $lockedSeconds = max(0, $lockedUntil->getTimestamp() - time());
+            if ($lockedSeconds <= 0) {
+                store_login_attempt($db, $identifierHash, $ipHash, 0, null);
+                $attempts = 0;
+                $lockedSeconds = 0;
+            }
+        } catch (Throwable $exception) {
+            error_log('Failed to parse locked_until: ' . $exception->getMessage());
+            store_login_attempt($db, $identifierHash, $ipHash, 0, null);
+            $attempts = 0;
+            $lockedSeconds = 0;
+        }
+    }
+
+    $retryLimit = (int) ($policy['retry_limit'] ?? 5);
+    if ($retryLimit < 1) {
+        $retryLimit = 5;
+    }
+
+    $remainingAttempts = $lockedSeconds > 0 ? 0 : max(0, $retryLimit - $attempts);
+
+    return [
+        'attempts' => $attempts,
+        'locked' => $lockedSeconds > 0,
+        'seconds_until_unlock' => $lockedSeconds,
+        'remaining_attempts' => $remainingAttempts,
+    ];
+}
+
+function login_rate_limit_register_failure(PDO $db, string $identifier, string $ipAddress, array $policy): array
+{
+    $identifierHash = normalize_login_identifier($identifier);
+    $ipHash = normalize_login_ip($ipAddress);
+    $row = login_attempt_snapshot($db, $identifierHash, $ipHash) ?: ['attempts' => 0, 'locked_until' => null];
+
+    $attempts = (int) ($row['attempts'] ?? 0);
+    $attempts++;
+
+    $retryLimit = (int) ($policy['retry_limit'] ?? 5);
+    if ($retryLimit < 1) {
+        $retryLimit = 5;
+    }
+
+    $lockoutMinutes = (int) ($policy['lockout_minutes'] ?? 30);
+    if ($lockoutMinutes < 1) {
+        $lockoutMinutes = 1;
+    }
+    if ($lockoutMinutes > 720) {
+        $lockoutMinutes = 720;
+    }
+
+    $lockedUntil = null;
+    $secondsUntilUnlock = 0;
+
+    if ($attempts >= $retryLimit) {
+        $attempts = 0;
+        $unlockTime = new DateTime('now', new DateTimeZone('UTC'));
+        $unlockTime->modify('+' . $lockoutMinutes . ' minutes');
+        $lockedUntil = $unlockTime->format('Y-m-d H:i:s');
+        $secondsUntilUnlock = max(60, $lockoutMinutes * 60);
+    }
+
+    store_login_attempt($db, $identifierHash, $ipHash, $attempts, $lockedUntil);
+
+    if ($lockedUntil !== null) {
+        record_system_audit(
+            $db,
+            'login_rate_limit',
+            'security',
+            0,
+            sprintf(
+                'Login identifier %s locked after repeated failures from %s',
+                mask_email_for_log($identifier),
+                mask_ip_for_log($ipAddress)
+            )
+        );
+    }
+
+    return [
+        'locked' => $lockedUntil !== null,
+        'seconds_until_unlock' => $secondsUntilUnlock,
+        'remaining_attempts' => $lockedUntil === null ? max(0, $retryLimit - $attempts) : 0,
+    ];
+}
+
+function login_rate_limit_register_success(PDO $db, string $identifier, string $ipAddress): void
+{
+    $stmt = $db->prepare('DELETE FROM login_attempts WHERE identifier_hash = :identifier_hash AND ip_hash = :ip_hash');
+    $stmt->execute([
+        ':identifier_hash' => normalize_login_identifier($identifier),
+        ':ip_hash' => normalize_login_ip($ipAddress),
+    ]);
+}
+
+function mask_email_for_log(string $email): string
+{
+    $email = strtolower(trim($email));
+    if ($email === '' || !str_contains($email, '@')) {
+        return 'unknown-email';
+    }
+
+    [$local, $domain] = explode('@', $email, 2);
+    $localLength = strlen($local);
+    if ($localLength <= 2) {
+        $localMasked = substr($local, 0, 1) . '*';
+    } else {
+        $localMasked = substr($local, 0, 1) . str_repeat('*', $localLength - 2) . substr($local, -1);
+    }
+
+    return $localMasked . '@' . $domain;
+}
+
+function mask_ip_for_log(string $ip): string
+{
+    $ip = trim($ip);
+    if ($ip === '') {
+        return '0.0.0.*';
+    }
+
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        $segments = explode(':', $ip);
+        $segments = array_pad($segments, 8, '0');
+        return sprintf('%s:%s:%s:%s::*', $segments[0], $segments[1], $segments[2], $segments[3]);
+    }
+
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return '0.0.0.*';
+    }
+
+    $parts = explode('.', $ip);
+    $parts[3] = '*';
+    return implode('.', $parts);
+}
+
+function is_password_hash_valid(?string $hash): bool
+{
+    if (!is_string($hash) || $hash === '') {
+        return false;
+    }
+
+    $info = password_get_info($hash);
+    return is_array($info) && ($info['algo'] ?? 0) !== 0;
+}
+
+function has_active_admin(PDO $db): bool
+{
+    $stmt = $db->prepare("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'admin' AND users.status = 'active'");
+    $stmt->execute();
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function count_admin_accounts_with_invalid_hash(PDO $db): int
+{
+    $stmt = $db->prepare("SELECT users.password_hash FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'admin' AND users.status = 'active'");
+    $stmt->execute();
+    $invalid = 0;
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $hash) {
+        if (!is_password_hash_valid((string) $hash)) {
+            $invalid++;
+        }
+    }
+
+    return $invalid;
+}
+
+function admin_recovery_secret(): string
+{
+    $candidates = [
+        $_ENV['ADMIN_RECOVERY_TOKEN'] ?? null,
+        $_SERVER['ADMIN_RECOVERY_TOKEN'] ?? null,
+        getenv('ADMIN_RECOVERY_TOKEN') ?: null,
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+
+        $candidate = trim($candidate);
+        if ($candidate !== '') {
+            return $candidate;
+        }
+    }
+
+    return '';
+}
+
+function admin_recovery_force_enabled(): bool
+{
+    $candidates = [
+        $_ENV['ADMIN_RECOVERY_FORCE'] ?? null,
+        $_SERVER['ADMIN_RECOVERY_FORCE'] ?? null,
+        getenv('ADMIN_RECOVERY_FORCE') ?: null,
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+
+        $normalized = strtolower(trim($candidate));
+        if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function admin_recovery_consumed(PDO $db): bool
+{
+    $consumed = get_setting('admin_recovery_consumed_at', $db);
+    if ($consumed === null) {
+        return false;
+    }
+
+    return trim($consumed) !== '';
+}
+
+function is_admin_recovery_available(PDO $db): bool
+{
+    $secret = admin_recovery_secret();
+    if ($secret === '') {
+        return false;
+    }
+
+    if (admin_recovery_consumed($db)) {
+        return false;
+    }
+
+    if (admin_recovery_force_enabled()) {
+        return true;
+    }
+
+    if (!has_active_admin($db)) {
+        return true;
+    }
+
+    return count_admin_accounts_with_invalid_hash($db) > 0;
+}
+
+function perform_admin_recovery(PDO $db, string $email, string $username, string $fullName, string $password, string $permissionsNote = 'Full access'): int
+{
+    $roleStmt = $db->prepare("SELECT id FROM roles WHERE name = 'admin' LIMIT 1");
+    $roleStmt->execute();
+    $roleId = $roleStmt->fetchColumn();
+    if ($roleId === false) {
+        throw new RuntimeException('Administrator role is missing.');
+    }
+
+    $roleId = (int) $roleId;
+    $hash = password_hash($password, PASSWORD_DEFAULT);
+
+    $lookup = $db->prepare('SELECT id FROM users WHERE (LOWER(email) = LOWER(:email) OR LOWER(username) = LOWER(:username)) LIMIT 1');
+    $lookup->execute([
+        ':email' => $email,
+        ':username' => $username,
+    ]);
+    $existing = $lookup->fetch(PDO::FETCH_ASSOC) ?: null;
+
+    if ($existing) {
+        $userId = (int) $existing['id'];
+        $stmt = $db->prepare("UPDATE users SET full_name = :full_name, email = :email, username = :username, password_hash = :password_hash, role_id = :role_id, status = 'active', permissions_note = :permissions_note, password_last_set_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
+        $stmt->execute([
+            ':full_name' => $fullName,
+            ':email' => $email,
+            ':username' => $username,
+            ':password_hash' => $hash,
+            ':role_id' => $roleId,
+            ':permissions_note' => $permissionsNote,
+            ':id' => $userId,
+        ]);
+    } else {
+        $stmt = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'), datetime('now'), datetime('now'))");
+        $stmt->execute([
+            ':full_name' => $fullName,
+            ':email' => $email,
+            ':username' => $username,
+            ':password_hash' => $hash,
+            ':role_id' => $roleId,
+            ':permissions_note' => $permissionsNote,
+        ]);
+        $userId = (int) $db->lastInsertId();
+    }
+
+    return $userId;
 }
 
 function ensure_blog_indexes(PDO $db): void
