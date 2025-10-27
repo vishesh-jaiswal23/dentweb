@@ -4,10 +4,19 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/bootstrap.php';
 
+if (!isset($bootstrapError) || !is_string($bootstrapError)) {
+    $bootstrapError = '';
+}
+
 $supportEmail = null;
-if (defined('ADMIN_EMAIL') && filter_var(ADMIN_EMAIL, FILTER_VALIDATE_EMAIL)) {
-    $supportEmail = ADMIN_EMAIL;
-} else {
+if (defined('ADMIN_EMAIL')) {
+    $configuredEmail = constant('ADMIN_EMAIL');
+    if (is_string($configuredEmail) && filter_var($configuredEmail, FILTER_VALIDATE_EMAIL)) {
+        $supportEmail = $configuredEmail;
+    }
+}
+
+if ($supportEmail === null) {
     $emailCandidates = [
         $_ENV['ADMIN_EMAIL'] ?? null,
         $_SERVER['ADMIN_EMAIL'] ?? null,
@@ -32,10 +41,10 @@ if (defined('ADMIN_EMAIL') && filter_var(ADMIN_EMAIL, FILTER_VALIDATE_EMAIL)) {
     if ($supportEmail === null) {
         $supportEmail = 'support@dakshayani.in';
     }
+}
 
-    if (!defined('ADMIN_EMAIL')) {
-        define('ADMIN_EMAIL', $supportEmail);
-    }
+if (!defined('ADMIN_EMAIL') && is_string($supportEmail) && $supportEmail !== '') {
+    define('ADMIN_EMAIL', $supportEmail);
 }
 
 $supportEmail = (string) $supportEmail;
