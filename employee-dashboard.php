@@ -7,9 +7,21 @@ require_once __DIR__ . '/includes/bootstrap.php';
 require_role('employee');
 $user = current_user();
 
-$employeeName = $user['full_name'] ?? 'Rohan Iyer';
-$employeeRole = $user['role_name'] === 'employee' ? ($user['job_title'] ?? 'Service Engineer') : ($user['role_name'] ?? 'Employee');
-$employeeAccess = 'Tickets, Tasks, Leads, Customers';
+$employeeName = trim((string) ($user['full_name'] ?? ''));
+if ($employeeName === '') {
+    $employeeName = 'Employee';
+}
+
+$rawRole = $user['role_name'] === 'employee'
+    ? trim((string) ($user['job_title'] ?? ''))
+    : trim((string) ($user['role_name'] ?? ''));
+$employeeRole = $rawRole !== '' ? $rawRole : 'Employee';
+
+$employeeAccess = trim((string) ($user['access_scope'] ?? ''));
+if ($employeeAccess === '') {
+    $employeeAccess = 'Modules assigned to your role';
+}
+
 $firstName = trim((string) $employeeName);
 if ($firstName === '') {
     $firstName = 'Employee';
@@ -31,68 +43,9 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$performanceMetrics = [
-    ['value' => '94%', 'label' => 'SLA compliance'],
-    ['value' => '1.2 hrs', 'label' => 'avg. response'],
-    ['value' => '5★', 'label' => 'customer rating (latest ticket)'],
-];
+$performanceMetrics = [];
 
-$tickets = [
-    [
-        'id' => 'T-205',
-        'title' => 'Ticket T-205 · Inverter fault',
-        'customer' => 'Meera Housing Society · Service',
-        'status' => 'in_progress',
-        'statusLabel' => 'In Progress',
-        'statusTone' => 'progress',
-        'assignedBy' => 'Admin (Service Desk)',
-        'sla' => 'Due in 8 hrs',
-        'contact' => 'Anita Sharma · +91 98765 44321',
-        'attachments' => ['inverter-panel.jpg', 'load-test-report.pdf'],
-        'timeline' => [
-            ['time' => '2024-05-21T09:24', 'label' => '09:24', 'message' => 'Ticket assigned to you by Admin.'],
-            ['time' => '2024-05-21T10:05', 'label' => '10:05', 'message' => 'Status updated to <strong>In Progress</strong>. Field visit scheduled for 3 PM.'],
-        ],
-        'noteLabel' => 'Add note',
-        'noteIcon' => 'fa-solid fa-note-sticky',
-    ],
-    [
-        'id' => 'T-238',
-        'title' => 'Ticket T-238 · Net metering query',
-        'customer' => 'Green Valley Apartments · Service',
-        'status' => 'awaiting_response',
-        'statusLabel' => 'Awaiting Response',
-        'statusTone' => 'waiting',
-        'assignedBy' => 'Admin (Customer Success)',
-        'sla' => 'Follow-up by 4 hrs',
-        'contact' => 'Facilities Office · +91 91234 55678',
-        'attachments' => ['discom-email.eml'],
-        'timeline' => [
-            ['time' => '2024-05-20T16:40', 'label' => '16:40', 'message' => 'Awaiting customer response on meter replacement quote.'],
-            ['time' => '2024-05-21T09:10', 'label' => '09:10', 'message' => 'Reminder sent to customer via email.'],
-        ],
-        'noteLabel' => 'Log follow-up',
-        'noteIcon' => 'fa-solid fa-phone',
-    ],
-    [
-        'id' => 'T-189',
-        'title' => 'Ticket T-189 · AMC inspection',
-        'customer' => 'Skyline Residency · Service',
-        'status' => 'resolved',
-        'statusLabel' => 'Resolved',
-        'statusTone' => 'resolved',
-        'assignedBy' => 'Admin (AMC)',
-        'sla' => 'Closed on time',
-        'contact' => 'Maintenance Desk · +91 99887 22110',
-        'attachments' => ['amc-inspection-report.pdf'],
-        'timeline' => [
-            ['time' => '2024-05-20T08:55', 'label' => '08:55', 'message' => 'Inspection completed. Uploading documentation.'],
-            ['time' => '2024-05-20T12:42', 'label' => '12:42', 'message' => 'Marked as resolved with checklist photos attached.'],
-        ],
-        'noteLabel' => 'Add final photos',
-        'noteIcon' => 'fa-solid fa-image',
-    ],
-];
+$tickets = [];
 
 $statusOptions = [
     'in_progress' => 'In Progress',
@@ -105,325 +58,48 @@ $taskColumns = [
     'todo' => [
         'label' => 'To Do',
         'meta' => 'Upcoming work queued by Admin.',
-        'items' => [
-            [
-                'id' => 'task-101',
-                'title' => 'Site visit – Doranda',
-                'priority' => 'high',
-                'priorityLabel' => 'High',
-                'deadline' => 'Due 22 May · 10:00 AM',
-                'link' => 'Linked to Ticket <strong>T-205</strong>',
-                'action' => ['attr' => 'data-task-complete', 'label' => 'Mark done'],
-            ],
-            [
-                'id' => 'task-102',
-                'title' => 'Call back – Skyline AMC',
-                'priority' => 'medium',
-                'priorityLabel' => 'Medium',
-                'deadline' => 'Due 21 May · 04:30 PM',
-                'link' => 'Linked to Ticket <strong>T-189</strong>',
-                'action' => ['attr' => 'data-task-complete', 'label' => 'Mark done'],
-            ],
-        ],
+        'items' => [],
     ],
     'in_progress' => [
         'label' => 'In Progress',
         'meta' => 'Work currently underway.',
-        'items' => [
-            [
-                'id' => 'task-201',
-                'title' => 'Update ticket attachments',
-                'priority' => 'medium',
-                'priorityLabel' => 'Medium',
-                'deadline' => 'Due Today · 05:30 PM',
-                'link' => 'Upload field photos for ticket <strong>T-205</strong>',
-                'action' => ['attr' => 'data-task-complete', 'label' => 'Mark done'],
-            ],
-            [
-                'id' => 'task-202',
-                'title' => 'Prep AMC visit brief',
-                'priority' => 'low',
-                'priorityLabel' => 'Low',
-                'deadline' => 'Due 24 May · 12:30 PM',
-                'link' => 'Linked to Ticket <strong>T-189</strong>',
-                'action' => ['attr' => 'data-task-complete', 'label' => 'Mark done'],
-            ],
-        ],
+        'items' => [],
     ],
     'done' => [
         'label' => 'Done',
         'meta' => 'Completed work synced back to Admin.',
-        'items' => [
-            [
-                'id' => 'task-301',
-                'title' => 'Submit AMC checklist',
-                'priority' => 'completed',
-                'priorityLabel' => 'Completed',
-                'deadline' => 'Completed 20 May · 05:10 PM',
-                'link' => 'Checklist shared with Admin records.',
-                'action' => ['attr' => 'data-task-undo', 'label' => 'Move back'],
-            ],
-        ],
+        'items' => [],
     ],
 ];
+$taskActivity = [];
 
-$taskActivity = [
-    ['time' => '2024-05-21T09:45', 'label' => '21 May · 09:45', 'message' => 'You moved <strong>Update ticket attachments</strong> to In Progress.'],
-    ['time' => '2024-05-20T17:10', 'label' => '20 May · 17:10', 'message' => 'Marked <strong>Submit AMC checklist</strong> as completed and shared with Admin.'],
-    ['time' => '2024-05-20T11:05', 'label' => '20 May · 11:05', 'message' => 'Added <strong>Call back – Skyline AMC</strong> with reminder set for 21 May.'],
-];
+$leadUpdates = [];
 
-$leadUpdates = [
-    ['time' => '2024-05-21T08:30', 'label' => '21 May · 08:30', 'message' => 'Contacted <strong>Rakesh Kumar</strong> – scheduled roof assessment for 23 May.'],
-    ['time' => '2024-05-20T18:15', 'label' => '20 May · 18:15', 'message' => 'Updated <strong>Shivani Constructions</strong> lead stage to Proposal Sent.'],
-    ['time' => '2024-05-20T14:20', 'label' => '20 May · 14:20', 'message' => 'Added customer documents for <strong>Anil Kumar</strong> – pending Admin review.'],
-];
+$pendingLeads = [];
 
-$pendingLeads = [
-    ['name' => 'Mahesh Colony Resident', 'contact' => '+91 90000 11223', 'source' => 'Field visit'],
-    ['name' => 'Sunrise Apartments Committee', 'contact' => '+91 98111 33221', 'source' => 'Community outreach'],
-];
+$leadRecords = [];
 
-$leadRecords = [
-    [
-        'id' => 'L-472',
-        'type' => 'lead',
-        'label' => 'Lead #L-472',
-        'description' => 'Housing Colony walk-in',
-        'contactName' => 'Mrs. Anita Sharma',
-        'contactDetail' => '+91 98765 44321',
-        'statusTone' => 'progress',
-        'statusLabel' => 'Follow-up scheduled',
-        'nextAction' => '22 May · Site proposal',
-        'owner' => $employeeName,
-    ],
-    [
-        'id' => 'L-458',
-        'type' => 'lead',
-        'label' => 'Lead #L-458',
-        'description' => 'Referral · Doranda',
-        'contactName' => 'Mr. Nikhil Rao',
-        'contactDetail' => '+91 99887 22110',
-        'statusTone' => 'progress',
-        'statusLabel' => 'Demo booked',
-        'nextAction' => '21 May · System sizing',
-        'owner' => 'Service Desk',
-    ],
-    [
-        'id' => 'L-430',
-        'type' => 'lead',
-        'label' => 'Lead #L-430',
-        'description' => 'Commercial enquiry',
-        'contactName' => 'Ms. Kavya Patel',
-        'contactDetail' => '+91 91234 11223',
-        'statusTone' => 'waiting',
-        'statusLabel' => 'Awaiting documents',
-        'nextAction' => '23 May · Send checklist',
-        'owner' => 'Service Desk',
-    ],
-    [
-        'id' => 'C-214',
-        'type' => 'customer',
-        'label' => 'Customer #C-214',
-        'description' => 'Green Valley Apartments',
-        'contactName' => 'Facilities Office',
-        'contactDetail' => 'support@greenvalley.in',
-        'statusTone' => 'progress',
-        'statusLabel' => 'AMC due',
-        'nextAction' => '24 May · AMC visit',
-        'owner' => $employeeName,
-    ],
-    [
-        'id' => 'C-198',
-        'type' => 'customer',
-        'label' => 'Customer #C-198',
-        'description' => 'Skyline Residency',
-        'contactName' => 'Maintenance Desk',
-        'contactDetail' => 'maintenance@skyline.in',
-        'statusTone' => 'resolved',
-        'statusLabel' => 'Resolved',
-        'nextAction' => 'Completed AMC review',
-        'owner' => 'Service Desk',
-    ],
-];
+$taskReminders = [];
 
-$taskReminders = [
-    ['icon' => 'fa-solid fa-bell', 'message' => 'Call DISCOM for Ticket T-238 by 14:00.'],
-    ['icon' => 'fa-solid fa-flag', 'message' => 'Verify AMC stock checklist before 24 May visit.'],
-    ['icon' => 'fa-solid fa-user-check', 'message' => 'Share Doranda site entry pass with installer team.'],
-];
+$siteVisits = [];
 
-$siteVisits = [
-    [
-        'id' => 'VIS-301',
-        'title' => '5 kW rooftop installation',
-        'customer' => 'Green Valley Apartments',
-        'address' => 'Tower 2, Ranchi · Pin 834001',
-        'scheduled' => '22 May 2024 · 09:30 AM',
-        'checklist' => [
-            'Verify structure alignment and torque settings',
-            'Mount 10 × 500 W panels and connect string DC wiring',
-            'Capture inverter serial number and meter reading',
-        ],
-        'requiredPhotos' => ['Array layout', 'Inverter close-up', 'Net meter panel'],
-        'status' => 'scheduled',
-        'statusLabel' => 'Scheduled',
-        'statusTone' => 'progress',
-        'notes' => 'Commissioning with DISCOM inspector at 13:00 hrs.',
-    ],
-    [
-        'id' => 'VIS-302',
-        'title' => 'Preventive maintenance check',
-        'customer' => 'Skyline Residency',
-        'address' => 'Block B Utility Room, Ranchi',
-        'scheduled' => '23 May 2024 · 11:15 AM',
-        'checklist' => [
-            'Clean modules and check string voltages',
-            'Record inverter voltage and current',
-            'Upload geo-tagged verification photo',
-        ],
-        'requiredPhotos' => ['String voltage screen', 'Array condition'],
-        'status' => 'scheduled',
-        'statusLabel' => 'Scheduled',
-        'statusTone' => 'progress',
-        'notes' => 'Customer contact: Maintenance Desk · +91 99887 22110',
-    ],
-    [
-        'id' => 'VIS-298',
-        'title' => 'On-site troubleshooting',
-        'customer' => 'Meera Housing Society',
-        'address' => 'Block C Terrace, Ranchi',
-        'scheduled' => '21 May 2024 · 03:00 PM',
-        'checklist' => [
-            'Inspect inverter alarms',
-            'Capture thermal image of combiner box',
-            'Update job checklist on completion',
-        ],
-        'requiredPhotos' => ['Combiner box interior'],
-        'status' => 'awaiting_photos',
-        'statusLabel' => 'Awaiting photos',
-        'statusTone' => 'warning',
-        'notes' => 'Awaiting panel photos to close ticket T-205.',
-    ],
-];
+$visitActivity = [];
 
-$visitActivity = [
-    ['time' => '2024-05-21T12:45', 'label' => '21 May · 12:45', 'message' => 'VIS-298: Uploaded inverter alarm screenshot for Admin review.'],
-    ['time' => '2024-05-20T18:20', 'label' => '20 May · 18:20', 'message' => 'VIS-301 scheduled · Checklist shared with installer team.'],
-];
+$documentVault = [];
 
-$documentVault = [
-    [
-        'id' => 'DOC-109',
-        'customer' => 'Green Valley Apartments',
-        'type' => 'Service Photo Set',
-        'filename' => 'green-valley-array-may21.zip',
-        'uploadedBy' => $employeeName,
-        'uploadedAt' => '2024-05-21T13:20',
-        'status' => 'pending',
-        'statusLabel' => 'Pending Admin review',
-        'tone' => 'warning',
-    ],
-    [
-        'id' => 'DOC-105',
-        'customer' => 'Skyline Residency',
-        'type' => 'Maintenance Invoice',
-        'filename' => 'skyline-amc-invoice.pdf',
-        'uploadedBy' => 'Admin (Finance)',
-        'uploadedAt' => '2024-05-18T16:05',
-        'status' => 'approved',
-        'statusLabel' => 'Approved by Admin',
-        'tone' => 'positive',
-    ],
-];
+$documentUploadCustomers = [];
 
-$documentUploadCustomers = [
-    'Green Valley Apartments',
-    'Skyline Residency',
-    'Meera Housing Society',
-];
+$subsidyCases = [];
 
-$subsidyCases = [
-    [
-        'id' => 'PM-78',
-        'customer' => 'Meera Housing Society',
-        'capacity' => '5 kW Rooftop',
-        'stages' => [
-            'applied' => ['label' => 'Applied', 'completed' => true, 'completedAt' => '2024-05-15'],
-            'inspected' => ['label' => 'Inspected', 'completed' => false],
-            'redeemed' => ['label' => 'Redeemed', 'completed' => false],
-        ],
-        'note' => 'Awaiting DISCOM inspection slot confirmation.',
-    ],
-    [
-        'id' => 'PM-82',
-        'customer' => 'Sunrise Apartments',
-        'capacity' => '12 kW Rooftop',
-        'stages' => [
-            'applied' => ['label' => 'Applied', 'completed' => true, 'completedAt' => '2024-05-12'],
-            'inspected' => ['label' => 'Inspected', 'completed' => true, 'completedAt' => '2024-05-19'],
-            'redeemed' => ['label' => 'Redeemed', 'completed' => false],
-        ],
-        'note' => 'Docs ready for Admin final submission.',
-    ],
-];
+$subsidyActivity = [];
 
-$subsidyActivity = [
-    ['time' => '2024-05-21T09:05', 'label' => '21 May · 09:05', 'message' => 'Collected inspection checklist for case PM-82 – awaiting Admin validation.'],
-    ['time' => '2024-05-20T15:42', 'label' => '20 May · 15:42', 'message' => 'Submitted rooftop photos for case PM-78 (Applied stage).'],
-];
+$warrantyAssets = [];
 
-$warrantyAssets = [
-    [
-        'id' => 'AMC-451',
-        'customer' => 'Skyline Residency',
-        'asset' => 'Sungrow Inverter SG5K-D',
-        'warranty' => 'Warranty till Sep 2026',
-        'nextVisit' => '24 May 2024',
-        'status' => 'due',
-        'statusLabel' => 'Due in 3 days',
-        'tone' => 'waiting',
-        'lastVisit' => '26 May 2023',
-    ],
-    [
-        'id' => 'AMC-458',
-        'customer' => 'Green Valley Apartments',
-        'asset' => 'Adani Solar 5 kW array',
-        'warranty' => 'Module warranty till Jan 2040',
-        'nextVisit' => '21 Jun 2024',
-        'status' => 'scheduled',
-        'statusLabel' => 'Scheduled',
-        'tone' => 'progress',
-        'lastVisit' => '22 Dec 2023',
-    ],
-    [
-        'id' => 'AMC-460',
-        'customer' => 'Meera Housing Society',
-        'asset' => 'Polycab Balance of System',
-        'warranty' => 'AMC valid till Dec 2024',
-        'nextVisit' => '15 May 2024',
-        'status' => 'overdue',
-        'statusLabel' => 'Overdue',
-        'tone' => 'escalated',
-        'lastVisit' => '14 May 2023',
-    ],
-];
+$warrantyActivity = [];
 
-$warrantyActivity = [
-    ['time' => '2024-05-21T10:25', 'label' => '21 May · 10:25', 'message' => 'Logged inverter voltage check for Skyline Residency AMC.'],
-    ['time' => '2024-05-20T12:10', 'label' => '20 May · 12:10', 'message' => 'Uploaded filter cleaning photos for Green Valley Apartments.'],
-];
+$communicationLogs = [];
 
-$communicationLogs = [
-    ['time' => '2024-05-21T10:10', 'label' => '21 May · 10:10', 'channel' => 'Call', 'summary' => 'Confirmed AMC visit with Skyline Residency for 24 May.'],
-    ['time' => '2024-05-20T17:55', 'label' => '20 May · 17:55', 'channel' => 'Email', 'summary' => 'Shared inverter troubleshooting steps with Meera Housing Society.'],
-    ['time' => '2024-05-20T09:30', 'label' => '20 May · 09:30', 'channel' => 'Visit', 'summary' => 'Completed site walk-through at Green Valley Apartments.'],
-];
-
-$notifications = [
-    ['tone' => 'info', 'icon' => 'fa-solid fa-circle-info', 'title' => 'New SOP uploaded', 'message' => "Admin shared the latest inverter safety SOP. Review before tomorrow's visit."],
-    ['tone' => 'warning', 'icon' => 'fa-solid fa-triangle-exclamation', 'title' => 'SLA approaching', 'message' => 'Ticket T-238 follow-up is due in 4 hours.'],
-];
+$notifications = [];
 
 $activeComplaintsCount = count(array_filter($tickets, static function (array $ticket): bool {
     return ($ticket['status'] ?? '') !== 'resolved';
@@ -671,9 +347,13 @@ $attachmentIcon = static function (string $filename): string {
                 <div>
                   <p class="dashboard-card-title">Performance metrics</p>
                   <ul class="dashboard-card-metrics">
+                    <?php if (empty($performanceMetrics)): ?>
+                    <li class="text-muted">Performance metrics will appear after your activity is tracked.</li>
+                    <?php else: ?>
                     <?php foreach ($performanceMetrics as $metric): ?>
                     <li><strong><?= htmlspecialchars($metric['value'], ENT_QUOTES) ?></strong> <?= htmlspecialchars($metric['label'], ENT_QUOTES) ?></li>
                     <?php endforeach; ?>
+                    <?php endif; ?>
                   </ul>
                 </div>
               </article>
@@ -687,6 +367,9 @@ $attachmentIcon = static function (string $filename): string {
               or escalate back to Admin for complex issues—every action updates the timeline automatically.
             </p>
             <div class="ticket-board">
+              <?php if (empty($tickets)): ?>
+              <p class="empty-state">No service tickets assigned yet. New tickets from Admin will appear here instantly.</p>
+              <?php else: ?>
               <?php foreach ($tickets as $ticket): ?>
               <article class="ticket-card" data-ticket-id="<?= htmlspecialchars($ticket['id'], ENT_QUOTES) ?>" data-status="<?= htmlspecialchars($ticket['status'], ENT_QUOTES) ?>">
                 <header class="ticket-card__header">
@@ -753,6 +436,7 @@ $attachmentIcon = static function (string $filename): string {
                 <?php endif; ?>
               </article>
               <?php endforeach; ?>
+              <?php endif; ?>
             </div>
           </section>
 
@@ -770,6 +454,9 @@ $attachmentIcon = static function (string $filename): string {
                   <p class="task-column-meta"><?= htmlspecialchars($column['meta'] ?? '', ENT_QUOTES) ?></p>
                 </header>
                 <div class="task-column-body">
+                  <?php if (empty($column['items'])): ?>
+                  <p class="empty-state">No tasks in this stage yet.</p>
+                  <?php else: ?>
                   <?php foreach ($column['items'] as $item): ?>
                   <article class="task-card" data-task-id="<?= htmlspecialchars($item['id'], ENT_QUOTES) ?>" draggable="true">
                     <div class="task-card-head">
@@ -783,6 +470,7 @@ $attachmentIcon = static function (string $filename): string {
                     <?php endif; ?>
                   </article>
                   <?php endforeach; ?>
+                  <?php endif; ?>
                 </div>
               </section>
               <?php endforeach; ?>
@@ -791,20 +479,28 @@ $attachmentIcon = static function (string $filename): string {
               <div class="task-activity-block">
                 <h3>Task activity</h3>
                 <ol class="task-activity" data-task-activity>
+                  <?php if (empty($taskActivity)): ?>
+                  <li class="text-muted">Task updates will appear here after you start logging work.</li>
+                  <?php else: ?>
                   <?php foreach ($taskActivity as $entry): ?>
                   <li>
                     <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
                     <p><?= $entry['message'] ?></p>
                   </li>
                   <?php endforeach; ?>
+                  <?php endif; ?>
                 </ol>
               </div>
               <div class="task-reminder-block">
                 <h3>Upcoming reminders</h3>
                 <ul class="task-reminders">
+                  <?php if (empty($taskReminders)): ?>
+                  <li class="text-muted">No reminders scheduled. Admin alerts will appear here when configured.</li>
+                  <?php else: ?>
                   <?php foreach ($taskReminders as $reminder): ?>
                   <li><i class="<?= htmlspecialchars($reminder['icon'], ENT_QUOTES) ?>" aria-hidden="true"></i> <?= htmlspecialchars($reminder['message'], ENT_QUOTES) ?></li>
                   <?php endforeach; ?>
+                  <?php endif; ?>
                 </ul>
               </div>
             </div>
@@ -829,6 +525,11 @@ $attachmentIcon = static function (string $filename): string {
                     </tr>
                   </thead>
                   <tbody>
+                    <?php if (empty($leadRecords)): ?>
+                    <tr>
+                      <td colspan="5" class="text-center text-muted">No leads or customers assigned yet. Admin-approved records will populate automatically.</td>
+                    </tr>
+                    <?php else: ?>
                     <?php foreach ($leadRecords as $record): ?>
                     <tr data-lead-row="<?= htmlspecialchars($record['id'], ENT_QUOTES) ?>">
                       <td>
@@ -848,6 +549,7 @@ $attachmentIcon = static function (string $filename): string {
                       <td><?= htmlspecialchars($record['owner'], ENT_QUOTES) ?></td>
                     </tr>
                     <?php endforeach; ?>
+                    <?php endif; ?>
                   </tbody>
                 </table>
               </div>
@@ -860,9 +562,13 @@ $attachmentIcon = static function (string $filename): string {
                       Lead or customer
                       <select name="lead" required>
                         <option value="" selected disabled>Select record</option>
+                        <?php if (empty($leadRecords)): ?>
+                        <option value="" disabled>No records available</option>
+                        <?php else: ?>
                         <?php foreach ($leadRecords as $record): ?>
                         <option value="<?= htmlspecialchars($record['id'], ENT_QUOTES) ?>"><?= htmlspecialchars($record['label'] . ' · ' . $record['description'], ENT_QUOTES) ?></option>
                         <?php endforeach; ?>
+                        <?php endif; ?>
                       </select>
                     </label>
                     <label>
@@ -874,12 +580,16 @@ $attachmentIcon = static function (string $filename): string {
                   <div class="lead-activity">
                     <h3>Recent updates</h3>
                     <ul data-lead-activity>
+                      <?php if (empty($leadUpdates)): ?>
+                      <li class="text-muted">Log a follow-up to start building the timeline.</li>
+                      <?php else: ?>
                       <?php foreach ($leadUpdates as $update): ?>
                       <li>
                         <time datetime="<?= htmlspecialchars($update['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($update['label'], ENT_QUOTES) ?></time>
                         <p><?= $update['message'] ?></p>
                       </li>
                       <?php endforeach; ?>
+                      <?php endif; ?>
                     </ul>
                   </div>
                 </article>
@@ -903,12 +613,16 @@ $attachmentIcon = static function (string $filename): string {
                   </form>
                   <p class="text-xs text-muted mb-0">New entries remain pending until Admin verifies the details.</p>
                   <ul class="pending-leads" data-pending-leads>
+                    <?php if (empty($pendingLeads)): ?>
+                    <li class="text-muted">Leads submitted for Admin approval will appear here once queued.</li>
+                    <?php else: ?>
                     <?php foreach ($pendingLeads as $prospect): ?>
                     <li>
                       <strong><?= htmlspecialchars($prospect['name'], ENT_QUOTES) ?></strong>
                       <span>Pending Admin approval · <?= htmlspecialchars($prospect['source'], ENT_QUOTES) ?></span>
                     </li>
                     <?php endforeach; ?>
+                    <?php endif; ?>
                   </ul>
                 </article>
               </aside>
@@ -923,6 +637,9 @@ $attachmentIcon = static function (string $filename): string {
             </p>
             <div class="visit-layout">
               <div class="visit-grid">
+                <?php if (empty($siteVisits)): ?>
+                <p class="empty-state">No field visits scheduled. Admin-assigned visits will display here immediately.</p>
+                <?php else: ?>
                 <?php foreach ($siteVisits as $visit): ?>
                 <article
                   class="visit-card dashboard-panel"
@@ -981,16 +698,21 @@ $attachmentIcon = static function (string $filename): string {
                   </footer>
                 </article>
                 <?php endforeach; ?>
+                <?php endif; ?>
               </div>
               <aside class="visit-activity-panel dashboard-panel">
                 <h3>Visit updates</h3>
                 <ol class="visit-activity" data-visit-activity>
+                  <?php if (empty($visitActivity)): ?>
+                  <li class="text-muted">Updates from field visits will appear here once logged.</li>
+                  <?php else: ?>
                   <?php foreach ($visitActivity as $entry): ?>
                   <li>
                     <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
                     <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
                   </li>
                   <?php endforeach; ?>
+                  <?php endif; ?>
                 </ol>
               </aside>
             </div>
@@ -1014,6 +736,11 @@ $attachmentIcon = static function (string $filename): string {
                     </tr>
                   </thead>
                   <tbody data-document-list>
+                    <?php if (empty($documentVault)): ?>
+                    <tr>
+                      <td colspan="4" class="text-center text-muted">No documents uploaded yet. Use the form to submit your first file.</td>
+                    </tr>
+                    <?php else: ?>
                     <?php foreach ($documentVault as $doc): ?>
                     <?php $docTime = strtotime($doc['uploadedAt'] ?? '') ?: null; ?>
                     <tr>
@@ -1037,6 +764,7 @@ $attachmentIcon = static function (string $filename): string {
                       </td>
                     </tr>
                     <?php endforeach; ?>
+                    <?php endif; ?>
                   </tbody>
                 </table>
               </div>
@@ -1047,9 +775,13 @@ $attachmentIcon = static function (string $filename): string {
                     Customer
                     <select name="customer" required>
                       <option value="" disabled selected>Select customer</option>
+                      <?php if (empty($documentUploadCustomers)): ?>
+                      <option value="" disabled>No customers available</option>
+                      <?php else: ?>
                       <?php foreach ($documentUploadCustomers as $customer): ?>
                       <option value="<?= htmlspecialchars($customer, ENT_QUOTES) ?>"><?= htmlspecialchars($customer, ENT_QUOTES) ?></option>
                       <?php endforeach; ?>
+                      <?php endif; ?>
                     </select>
                   </label>
                   <label>
@@ -1078,6 +810,9 @@ $attachmentIcon = static function (string $filename): string {
               advances cases to Redeemed after validating every upload.
             </p>
             <div class="subsidy-layout" data-subsidy-board>
+              <?php if (empty($subsidyCases)): ?>
+              <p class="empty-state">No subsidy cases are in progress. Submit a case to begin tracking the workflow.</p>
+              <?php else: ?>
               <?php foreach ($subsidyCases as $case): ?>
               <article class="subsidy-card dashboard-panel" data-subsidy-case="<?= htmlspecialchars($case['id'], ENT_QUOTES) ?>">
                 <header>
@@ -1120,16 +855,21 @@ $attachmentIcon = static function (string $filename): string {
                 <?php endif; ?>
               </article>
               <?php endforeach; ?>
+              <?php endif; ?>
             </div>
             <aside class="dashboard-panel subsidy-activity">
               <h3>Workflow updates</h3>
               <ol data-subsidy-activity>
+                <?php if (empty($subsidyActivity)): ?>
+                <li class="text-muted">Workflow history will build here once you log subsidy updates.</li>
+                <?php else: ?>
                 <?php foreach ($subsidyActivity as $entry): ?>
                 <li>
                   <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
                   <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
                 </li>
                 <?php endforeach; ?>
+                <?php endif; ?>
               </ol>
             </aside>
           </section>
@@ -1153,6 +893,11 @@ $attachmentIcon = static function (string $filename): string {
                     </tr>
                   </thead>
                   <tbody>
+                    <?php if (empty($warrantyAssets)): ?>
+                    <tr>
+                      <td colspan="5" class="text-center text-muted">No warranty or AMC assets assigned yet. Admin-approved assets will appear here.</td>
+                    </tr>
+                    <?php else: ?>
                     <?php foreach ($warrantyAssets as $asset): ?>
                     <tr
                       data-warranty-row
@@ -1163,7 +908,13 @@ $attachmentIcon = static function (string $filename): string {
                     >
                       <td>
                         <strong><?= htmlspecialchars($asset['customer'], ENT_QUOTES) ?></strong>
-                        <span class="text-xs text-muted d-block">Last visit <?= htmlspecialchars(date('d M Y', strtotime($asset['lastVisit'])), ENT_QUOTES) ?></span>
+                        <span class="text-xs text-muted d-block">
+                          <?php if (!empty($asset['lastVisit'])): ?>
+                          Last visit <?= htmlspecialchars(date('d M Y', strtotime($asset['lastVisit'])), ENT_QUOTES) ?>
+                          <?php else: ?>
+                          Last visit not recorded
+                          <?php endif; ?>
+                        </span>
                       </td>
                       <td>
                         <strong><?= htmlspecialchars($asset['asset'], ENT_QUOTES) ?></strong>
@@ -1183,18 +934,23 @@ $attachmentIcon = static function (string $filename): string {
                       </td>
                     </tr>
                     <?php endforeach; ?>
+                    <?php endif; ?>
                   </tbody>
                 </table>
               </div>
               <aside class="dashboard-panel warranty-activity">
                 <h3>Service visit history</h3>
                 <ol data-warranty-activity>
+                  <?php if (empty($warrantyActivity)): ?>
+                  <li class="text-muted">Service history will log here when you add updates.</li>
+                  <?php else: ?>
                   <?php foreach ($warrantyActivity as $entry): ?>
                   <li>
                     <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
                     <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
                   </li>
                   <?php endforeach; ?>
+                  <?php endif; ?>
                 </ol>
               </aside>
             </div>
@@ -1214,9 +970,13 @@ $attachmentIcon = static function (string $filename): string {
                     Customer / ticket
                     <select name="customer" required>
                       <option value="" disabled selected>Select customer</option>
+                      <?php if (empty($documentUploadCustomers)): ?>
+                      <option value="" disabled>No customers available</option>
+                      <?php else: ?>
                       <?php foreach ($documentUploadCustomers as $customer): ?>
                       <option value="<?= htmlspecialchars($customer, ENT_QUOTES) ?>"><?= htmlspecialchars($customer, ENT_QUOTES) ?></option>
                       <?php endforeach; ?>
+                      <?php endif; ?>
                     </select>
                   </label>
                   <label>
@@ -1243,6 +1003,9 @@ $attachmentIcon = static function (string $filename): string {
               <article class="dashboard-panel communication-history">
                 <h3>Recent communication</h3>
                 <ul class="communication-log" data-communication-log>
+                  <?php if (empty($communicationLogs)): ?>
+                  <li class="text-muted">Add a call, email, or visit log to see it listed here.</li>
+                  <?php else: ?>
                   <?php foreach ($communicationLogs as $log): ?>
                   <li>
                     <div class="communication-log-meta">
@@ -1254,6 +1017,7 @@ $attachmentIcon = static function (string $filename): string {
                     <p><?= htmlspecialchars($log['summary'], ENT_QUOTES) ?></p>
                   </li>
                   <?php endforeach; ?>
+                  <?php endif; ?>
                 </ul>
               </article>
             </div>
@@ -1305,6 +1069,9 @@ $attachmentIcon = static function (string $filename): string {
           <article class="dashboard-panel">
             <h2>Notifications</h2>
             <ul class="dashboard-notifications">
+              <?php if (empty($notifications)): ?>
+              <li class="text-muted">Notifications from Admin will appear here.</li>
+              <?php else: ?>
               <?php foreach ($notifications as $notice): ?>
               <li class="dashboard-notification dashboard-notification--<?= htmlspecialchars($notice['tone'], ENT_QUOTES) ?>">
                 <i class="<?= htmlspecialchars($notice['icon'], ENT_QUOTES) ?>" aria-hidden="true"></i>
@@ -1314,6 +1081,7 @@ $attachmentIcon = static function (string $filename): string {
                 </div>
               </li>
               <?php endforeach; ?>
+              <?php endif; ?>
             </ul>
           </article>
           <article class="dashboard-panel dashboard-panel--muted">
