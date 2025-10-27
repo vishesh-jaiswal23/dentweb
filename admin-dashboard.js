@@ -44,6 +44,19 @@
   const documentForm = document.querySelector('[data-document-form]');
   const documentTableBody = document.querySelector('[data-document-table]');
   const documentFilter = document.querySelector('[data-document-filter]');
+  const slaReminderList = document.querySelector('[data-placeholder="sla-reminders"]');
+  const complaintAssignForm = document.querySelector('[data-complaint-assign-form]');
+  const complaintNoteForm = document.querySelector('[data-complaint-note-form]');
+  const complaintSelect = document.querySelector('[data-complaint-select]');
+  const complaintAssigneeSelect = document.querySelector('[data-complaint-assignee]');
+  const complaintSlaInput = document.querySelector('[data-complaint-sla]');
+  const complaintDetail = document.querySelector('[data-complaint-detail]');
+  const complaintMeta = complaintDetail?.querySelector('[data-complaint-meta]') || null;
+  const complaintMetaReference = complaintDetail?.querySelector('[data-complaint-meta-reference]') || null;
+  const complaintMetaOwner = complaintDetail?.querySelector('[data-complaint-meta-owner]') || null;
+  const complaintMetaSla = complaintDetail?.querySelector('[data-complaint-meta-sla]') || null;
+  const complaintNotesList = complaintDetail?.querySelector('[data-complaint-notes]') || null;
+  const complaintAttachmentsList = complaintDetail?.querySelector('[data-complaint-attachments]') || null;
   const validationList = document.querySelector('[data-validation-list]');
   const duplicateList = document.querySelector('[data-duplicate-list]');
   const approvalList = document.querySelector('[data-approval-list]');
@@ -145,6 +158,7 @@
     invitations: [],
     complaints: [],
     audit: [],
+    selectedComplaint: '',
     metrics: config.metrics || { counts: {}, system: {} },
     loginPolicy: null,
     gemini: config.gemini || {},
@@ -3029,11 +3043,109 @@
     }
   });
 
+  function populateComplaintAssignees() {
+    if (!complaintAssigneeSelect) return;
+    const previous = complaintAssigneeSelect.value || '';
+    complaintAssigneeSelect.innerHTML = '';
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Unassigned';
+    complaintAssigneeSelect.appendChild(defaultOption);
+    const team = Array.isArray(state.tasks.team) ? state.tasks.team : [];
+    team
+      .filter((member) => (member.role || '').toLowerCase() === 'employee')
+      .forEach((member) => {
+        const option = document.createElement('option');
+        option.value = String(member.id);
+        const labelParts = [member.name || `#${member.id}`];
+        if (member.email) labelParts.push(member.email);
+        option.textContent = labelParts.join(' · ');
+        complaintAssigneeSelect.appendChild(option);
+      });
+    if (previous && Array.from(complaintAssigneeSelect.options).some((opt) => opt.value === previous)) {
+      complaintAssigneeSelect.value = previous;
+    }
+  }
+
+  function renderSlaReminders() {
+    if (!slaReminderList) return;
+    slaReminderList.innerHTML = '';
+    const now = new Date();
+    const reminders = state.complaints
+      .map((complaint) => ({
+        raw: complaint,
+        sla: complaint.slaDue || complaint.sla_due_at || complaint.sla_due || '',
+      }))
+      .filter((entry) => entry.sla && entry.raw.status !== 'closed')
+      .map((entry) => {
+        const dueDate = new Date(entry.sla);
+        const diffMs = dueDate.getTime() - now.getTime();
+        const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        return {
+          reference: entry.raw.reference,
+          title: entry.raw.title,
+          dueDate,
+          days,
+        };
+      })
+      .filter((entry) => !Number.isNaN(entry.dueDate.getTime()))
+      .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+      .slice(0, 4);
+
+    if (!reminders.length) {
+      const li = document.createElement('li');
+      li.innerHTML = '<p>No SLA reminders due.</p><span>Upcoming deadlines will appear once tickets have due dates.</span>';
+      slaReminderList.appendChild(li);
+      return;
+    }
+
+    reminders.forEach((reminder) => {
+      const li = document.createElement('li');
+      const dueLabel = reminder.dueDate.toLocaleDateString();
+      const urgency = reminder.days < 0 ? 'Overdue' : reminder.days === 0 ? 'Due today' : `Due in ${reminder.days} day${reminder.days === 1 ? '' : 's'}`;
+      li.innerHTML = `
+        <p>${escapeHtml(reminder.reference)} · ${escapeHtml(reminder.title)}</p>
+        <span>${escapeHtml(urgency)} · ${escapeHtml(dueLabel)}</span>
+      `;
+      slaReminderList.appendChild(li);
+    });
+  }
+
+  function updateComplaintSelectOptions() {
+    if (!complaintSelect) return;
+    const previous = state.selectedComplaint || complaintSelect.value || '';
+    complaintSelect.innerHTML = '';
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.disabled = true;
+    defaultOption.textContent = 'Select ticket';
+    complaintSelect.appendChild(defaultOption);
+    const sorted = [...state.complaints].sort((a, b) => {
+      return String(b.updated_at || b.updatedAt || '').localeCompare(String(a.updated_at || a.updatedAt || ''));
+    });
+    sorted.forEach((complaint) => {
+      const option = document.createElement('option');
+      option.value = complaint.reference;
+      option.textContent = `${complaint.reference} · ${complaint.title}`;
+      complaintSelect.appendChild(option);
+    });
+    if (previous && sorted.some((complaint) => complaint.reference === previous)) {
+      complaintSelect.value = previous;
+    } else if (sorted.length) {
+      complaintSelect.value = sorted[0].reference;
+    } else {
+      complaintSelect.value = '';
+    }
+    state.selectedComplaint = complaintSelect.value || '';
+  }
+
   function renderComplaints() {
     complaintPlaceholders.forEach((placeholder) => {
       placeholder.textContent = 'No complaints loaded.';
     });
     if (!state.complaints.length) {
+      renderSlaReminders();
+      updateComplaintSelectOptions();
       return;
     }
 
@@ -3055,16 +3167,162 @@
       list.className = 'dashboard-inline-list';
       complaints.slice(0, 3).forEach((complaint) => {
         const item = document.createElement('li');
+        const noteCount = Array.isArray(complaint.notes) ? complaint.notes.length : 0;
+        const attachmentCount = Array.isArray(complaint.attachments) ? complaint.attachments.length : 0;
+        const owner = complaint.assigneeName || 'Unassigned';
+        const slaLabel = complaint.slaDue ? formatDateOnly(complaint.slaDue) : 'Not set';
         item.innerHTML = `
           <strong>${escapeHtml(complaint.reference)}</strong>
           <span>${escapeHtml(complaint.title)}</span>
-          <small>Assigned to ${escapeHtml(complaint.assigned_to_name || 'Unassigned')} · SLA ${complaint.sla_due_at ? escapeHtml(formatDate(complaint.sla_due_at)) : 'Not set'}</small>
+          <small>Assigned to ${escapeHtml(owner)} · SLA ${escapeHtml(slaLabel)}</small>
+          <small>${noteCount} notes · ${attachmentCount} attachments</small>
         `;
         list.appendChild(item);
       });
       placeholder.innerHTML = '';
       placeholder.appendChild(list);
     });
+
+    renderSlaReminders();
+    updateComplaintSelectOptions();
+  }
+
+  function renderComplaintDetail(reference) {
+    if (!complaintDetail) return;
+    const emptyMessage = complaintDetail.querySelector('[data-complaint-empty]');
+    const complaint = reference ? state.complaints.find((item) => item.reference === reference) : null;
+    state.selectedComplaint = complaint ? complaint.reference : '';
+    if (!complaint) {
+      if (complaintMeta) complaintMeta.hidden = true;
+      if (complaintNotesList) {
+        complaintNotesList.innerHTML = '<li class="text-muted">No notes recorded yet.</li>';
+      }
+      if (complaintAttachmentsList) {
+        complaintAttachmentsList.innerHTML = '<li class="text-muted">No attachments synced.</li>';
+      }
+      if (complaintAssigneeSelect) {
+        complaintAssigneeSelect.value = '';
+      }
+      if (complaintSlaInput) {
+        complaintSlaInput.value = '';
+      }
+      if (emptyMessage) {
+        emptyMessage.hidden = false;
+      }
+      return;
+    }
+
+    if (complaintSelect && complaintSelect.value !== complaint.reference) {
+      complaintSelect.value = complaint.reference;
+    }
+    if (emptyMessage) {
+      emptyMessage.hidden = true;
+    }
+    if (complaintMeta) {
+      complaintMeta.hidden = false;
+    }
+    if (complaintMetaReference) {
+      complaintMetaReference.textContent = `${complaint.reference} · ${complaint.title}`;
+    }
+    if (complaintMetaOwner) {
+      complaintMetaOwner.textContent = `Owner: ${complaint.assigneeName || 'Unassigned'}`;
+    }
+    if (complaintMetaSla) {
+      complaintMetaSla.textContent = `SLA: ${complaint.slaDue ? formatDateOnly(complaint.slaDue) : 'Not set'}`;
+    }
+    if (complaintAssigneeSelect) {
+      const value = complaint.assignedTo !== null ? String(complaint.assignedTo) : '';
+      if (Array.from(complaintAssigneeSelect.options).some((opt) => opt.value === value)) {
+        complaintAssigneeSelect.value = value;
+      } else {
+        complaintAssigneeSelect.value = '';
+      }
+    }
+    if (complaintSlaInput) {
+      complaintSlaInput.value = complaint.slaDue ? complaint.slaDue.slice(0, 10) : '';
+    }
+
+    if (complaintNotesList) {
+      complaintNotesList.innerHTML = '';
+      const notes = Array.isArray(complaint.notes) ? complaint.notes : [];
+      if (!notes.length) {
+        complaintNotesList.innerHTML = '<li class="text-muted">No notes recorded yet.</li>';
+      } else {
+        notes
+          .slice()
+          .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+          .forEach((note) => {
+            const li = document.createElement('li');
+            const author = escapeHtml(note.authorName || 'Team');
+            const time = formatDate(note.createdAt || '');
+            const body = escapeHtml(note.body || '');
+            li.innerHTML = `<strong>${author}</strong> <span class="text-xs text-muted">${escapeHtml(time)}</span><p>${body}</p>`;
+            complaintNotesList.appendChild(li);
+          });
+      }
+    }
+
+    if (complaintAttachmentsList) {
+      complaintAttachmentsList.innerHTML = '';
+      const attachments = Array.isArray(complaint.attachments) ? complaint.attachments : [];
+      if (!attachments.length) {
+        complaintAttachmentsList.innerHTML = '<li class="text-muted">No attachments synced.</li>';
+      } else {
+        attachments
+          .slice()
+          .sort((a, b) => String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')))
+          .forEach((attachment) => {
+            const li = document.createElement('li');
+            const label = escapeHtml(attachment.label || attachment.filename || 'Attachment');
+            const fileName = attachment.filename && attachment.filename !== attachment.label ? escapeHtml(attachment.filename) : '';
+            const uploader = escapeHtml(attachment.uploadedBy || 'Team');
+            const when = formatDate(attachment.uploadedAt || '');
+            const token = attachment.downloadToken || '';
+            if (token) {
+              const link = document.createElement('a');
+              link.href = `download.php?complaint=${encodeURIComponent(complaint.reference)}&token=${encodeURIComponent(token)}`;
+              link.textContent = label;
+              link.target = '_blank';
+              link.rel = 'noopener';
+              li.appendChild(link);
+            } else {
+              li.textContent = label;
+            }
+            if (fileName) {
+              const span = document.createElement('span');
+              span.className = 'text-xs text-muted d-block';
+              span.textContent = fileName;
+              li.appendChild(span);
+            }
+            const meta = document.createElement('span');
+            meta.className = 'text-xs text-muted d-block';
+            meta.textContent = `${uploader} · ${when}`;
+            li.appendChild(meta);
+            complaintAttachmentsList.appendChild(li);
+          });
+      }
+    }
+  }
+
+  function refreshComplaints() {
+    api('fetch-complaints')
+      .then((data) => {
+        const previousSelection = state.selectedComplaint;
+        state.complaints = data.complaints;
+        if (data.metrics) {
+          state.metrics = data.metrics;
+          updateMetricCards(state.metrics.counts);
+          updateSystemHealth(state.metrics.system);
+        }
+        if (previousSelection && !state.complaints.some((complaint) => complaint.reference === previousSelection)) {
+          state.selectedComplaint = '';
+        }
+        renderComplaints();
+        renderComplaintDetail(state.selectedComplaint || previousSelection || '');
+      })
+      .catch((error) => {
+        console.warn('Unable to refresh complaints', error);
+      });
   }
 
   function renderAudit() {
@@ -3782,12 +4040,90 @@
     }
   });
 
+  complaintSelect?.addEventListener('change', () => {
+    state.selectedComplaint = complaintSelect.value || '';
+    renderComplaintDetail(state.selectedComplaint);
+  });
+
+  complaintAssignForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!complaintSelect) {
+      showToast('Assignment failed', 'Select a ticket to assign.', 'warning');
+      return;
+    }
+    const reference = complaintSelect.value || '';
+    if (!reference) {
+      showToast('Assignment failed', 'Select a ticket to assign.', 'warning');
+      return;
+    }
+    const payload = {
+      reference,
+      assigneeId: complaintAssigneeSelect?.value ?? '',
+      slaDue: complaintSlaInput?.value ?? '',
+    };
+    api('assign-complaint', { method: 'POST', body: payload })
+      .then((data) => {
+        state.complaints = data.complaints;
+        if (data.metrics) {
+          state.metrics = data.metrics;
+          updateMetricCards(state.metrics.counts);
+          updateSystemHealth(state.metrics.system);
+        }
+        if (data.complaint?.reference) {
+          state.selectedComplaint = data.complaint.reference;
+        }
+        renderComplaints();
+        renderComplaintDetail(state.selectedComplaint || reference);
+        showToast('Assignment updated', 'Complaint ownership saved successfully.', 'success');
+      })
+      .catch((error) => showToast('Assignment failed', error.message, 'error'));
+  });
+
+  complaintNoteForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const reference = state.selectedComplaint || complaintSelect?.value || '';
+    if (!reference) {
+      showToast('Note not logged', 'Select a ticket before adding a note.', 'warning');
+      return;
+    }
+    const formData = new FormData(complaintNoteForm);
+    const note = String(formData.get('note') || '').trim();
+    if (!note) {
+      showToast('Note not logged', 'Enter note details before submitting.', 'warning');
+      return;
+    }
+    api('add-complaint-note', { method: 'POST', body: { reference, note } })
+      .then((data) => {
+        complaintNoteForm.reset();
+        state.complaints = data.complaints;
+        if (data.metrics) {
+          state.metrics = data.metrics;
+          updateMetricCards(state.metrics.counts);
+        }
+        state.selectedComplaint = reference;
+        renderComplaints();
+        renderComplaintDetail(reference);
+        showToast('Note added', 'Your guidance is now visible to assigned employees.', 'success');
+      })
+      .catch((error) => showToast('Unable to add note', error.message, 'error'));
+  });
+
+  window.addEventListener('focus', () => {
+    refreshComplaints();
+  });
+
   function hydrateFromConfig() {
+    state.complaints = Array.isArray(config.complaints) ? config.complaints : [];
+    state.audit = Array.isArray(config.audit) ? config.audit : [];
     updateMetricCards(state.metrics.counts);
     updateSystemHealth(state.metrics.system);
     hydrateRetention();
     populateGemini();
     populateTaskAssignees();
+    populateComplaintAssignees();
+    renderComplaints();
+    renderComplaintDetail(state.selectedComplaint);
+    renderAudit();
     renderTasks();
     renderInstallations();
     renderWarranties();
@@ -3815,6 +4151,7 @@
   function loadBootstrap() {
     api('bootstrap')
       .then((data) => {
+        const previousSelection = state.selectedComplaint;
         state.users = data.users;
         state.invitations = data.invitations.filter((invite) => invite.status === 'pending');
         state.complaints = data.complaints;
@@ -3822,6 +4159,9 @@
         state.metrics = data.metrics;
         state.loginPolicy = data.loginPolicy;
         state.gemini = data.gemini;
+        if (previousSelection && !state.complaints.some((complaint) => complaint.reference === previousSelection)) {
+          state.selectedComplaint = '';
+        }
         if (data.tasks) state.tasks = data.tasks;
         if (data.documents) state.documents = data.documents;
         if (data.dataQuality) state.dataQuality = data.dataQuality;
@@ -3847,9 +4187,11 @@
         populateLoginPolicy();
         populateGemini();
         populateTaskAssignees();
+        populateComplaintAssignees();
         renderUsers();
         renderInvitations();
         renderComplaints();
+        renderComplaintDetail(state.selectedComplaint);
         renderAudit();
         renderTasks();
         renderInstallations();

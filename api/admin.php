@@ -93,7 +93,50 @@ try {
             break;
         case 'fetch-complaints':
             require_method('GET');
-            respond_success(['complaints' => list_complaints($db)]);
+            respond_success([
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'assign-complaint':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $assigneeId = isset($payload['assigneeId']) && $payload['assigneeId'] !== '' ? (int) $payload['assigneeId'] : null;
+            $slaDue = (string) ($payload['slaDue'] ?? '');
+            $complaint = portal_assign_complaint($db, $reference, $assigneeId, $slaDue !== '' ? $slaDue : null, $actorId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'add-complaint-note':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $note = (string) ($payload['note'] ?? '');
+            $complaint = portal_add_complaint_note($db, $reference, $note, $actorId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'add-complaint-attachment':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $attachment = $payload['attachment'] ?? [];
+            if (!is_array($attachment)) {
+                throw new RuntimeException('Invalid attachment payload.');
+            }
+            $complaint = portal_add_complaint_attachment($db, $reference, $attachment, $actorId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
             break;
         case 'fetch-metrics':
             require_method('GET');
@@ -447,7 +490,7 @@ function bootstrap_payload(PDO $db): array
     return [
         'users' => list_users($db),
         'invitations' => list_invitations($db),
-        'complaints' => list_complaints($db),
+        'complaints' => portal_all_complaints($db),
         'audit' => recent_audit_logs($db),
         'metrics' => current_metrics($db),
         'loginPolicy' => fetch_login_policy($db),
@@ -482,15 +525,12 @@ function list_invitations(PDO $db): array
 
 function list_complaints(PDO $db): array
 {
-    $stmt = $db->query('SELECT complaints.*, users.full_name AS assigned_to_name FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id ORDER BY complaints.created_at DESC');
-    return $stmt->fetchAll();
+    return portal_all_complaints($db);
 }
 
 function recent_audit_logs(PDO $db): array
 {
-    $stmt = $db->prepare('SELECT audit_logs.id, audit_logs.action, audit_logs.entity_type, audit_logs.entity_id, audit_logs.description, audit_logs.created_at, users.full_name AS actor_name FROM audit_logs LEFT JOIN users ON audit_logs.actor_id = users.id ORDER BY audit_logs.created_at DESC LIMIT 25');
-    $stmt->execute();
-    return $stmt->fetchAll();
+    return portal_recent_audit_logs($db);
 }
 
 function current_metrics(PDO $db): array

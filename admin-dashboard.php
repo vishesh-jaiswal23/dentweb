@@ -49,10 +49,14 @@ $apiBase = $pathFor('api/admin.php');
 $taskTeam = [];
 $taskItems = [];
 $documents = [];
+$complaints = [];
+$auditFeed = [];
 
 $taskTeam = portal_list_team($db);
 $taskItems = portal_list_tasks($db);
 $documents = portal_list_documents($db, 'admin');
+$complaints = portal_all_complaints($db);
+$auditFeed = portal_recent_audit_logs($db);
 
 $blogPosts = blog_admin_list($db);
 
@@ -1761,6 +1765,57 @@ $subsidyApplications = [];
                   </li>
                 </ul>
               </article>
+
+              <article class="dashboard-form">
+                <h3>Assignment &amp; collaboration</h3>
+                <form class="dashboard-stacked-form" data-complaint-assign-form>
+                  <label>
+                    Ticket
+                    <select name="reference" required data-complaint-select>
+                      <option value="" selected disabled>Select ticket</option>
+                    </select>
+                  </label>
+                  <label>
+                    Assign to
+                    <select name="assigneeId" data-complaint-assignee>
+                      <option value="">Unassigned</option>
+                    </select>
+                  </label>
+                  <label>
+                    SLA due date
+                    <input type="date" name="slaDue" data-complaint-sla />
+                  </label>
+                  <button type="submit" class="btn btn-secondary btn-sm">Update assignment</button>
+                  <p class="text-xs text-muted mb-0">Assignments sync instantly with the employee dashboard.</p>
+                </form>
+                <form class="dashboard-stacked-form" data-complaint-note-form>
+                  <label>
+                    Add note
+                    <textarea name="note" rows="3" placeholder="Share resolution guidance or escalation notes." required></textarea>
+                  </label>
+                  <button type="submit" class="btn btn-ghost btn-sm">Log note</button>
+                </form>
+                <div class="complaint-detail" data-complaint-detail>
+                  <p class="primary" data-complaint-empty>Select a ticket to view notes, attachments, and SLA timers.</p>
+                  <div class="complaint-detail__meta" data-complaint-meta hidden>
+                    <p class="text-sm"><strong data-complaint-meta-reference></strong></p>
+                    <p class="text-sm" data-complaint-meta-owner></p>
+                    <p class="text-sm" data-complaint-meta-sla></p>
+                  </div>
+                  <div class="complaint-detail__notes">
+                    <h4>Notes</h4>
+                    <ul data-complaint-notes>
+                      <li class="text-muted">No notes recorded yet.</li>
+                    </ul>
+                  </div>
+                  <div class="complaint-detail__attachments">
+                    <h4>Attachments</h4>
+                    <ul data-complaint-attachments>
+                      <li class="text-muted">No attachments synced.</li>
+                    </ul>
+                  </div>
+                </div>
+              </article>
             </div>
           </section>
 
@@ -1931,6 +1986,8 @@ $subsidyApplications = [];
     ]) ?>,
     tasks: <?= json_encode(['items' => $taskItems, 'team' => $taskTeam]) ?>,
     documents: <?= json_encode($documents) ?>,
+    complaints: <?= json_encode($complaints) ?>,
+    audit: <?= json_encode($auditFeed) ?>,
     dataQuality: <?= json_encode($dataQuality) ?>,
     crm: <?= json_encode($crmData) ?>,
     referrers: <?= json_encode($referrers) ?>,

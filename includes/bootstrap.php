@@ -100,12 +100,22 @@ CREATE TABLE IF NOT EXISTS complaints (
     status TEXT NOT NULL DEFAULT 'intake' CHECK(status IN ('intake','triage','work','resolution','closed')),
     assigned_to INTEGER,
     sla_due_at TEXT,
+    notes TEXT DEFAULT '[]',
+    attachments TEXT DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY(assigned_to) REFERENCES users(id)
 )
 SQL
     );
+
+    $complaintColumns = $db->query("PRAGMA table_info('complaints')")->fetchAll(PDO::FETCH_COLUMN, 1);
+    if (!in_array('notes', $complaintColumns, true)) {
+        $db->exec("ALTER TABLE complaints ADD COLUMN notes TEXT DEFAULT '[]'");
+    }
+    if (!in_array('attachments', $complaintColumns, true)) {
+        $db->exec("ALTER TABLE complaints ADD COLUMN attachments TEXT DEFAULT '[]'");
+    }
 
     $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -1038,6 +1048,50 @@ function portal_all_complaints(PDO $db): array
 
 function portal_normalize_complaint_row(array $row): array
 {
+    $notes = [];
+    if (!empty($row['notes'])) {
+        $decoded = json_decode((string) $row['notes'], true);
+        if (is_array($decoded)) {
+            foreach ($decoded as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $notes[] = [
+                    'id' => (string) ($item['id'] ?? ''),
+                    'body' => (string) ($item['body'] ?? ''),
+                    'visibility' => (string) ($item['visibility'] ?? 'internal'),
+                    'authorId' => $item['authorId'] ?? null,
+                    'authorName' => (string) ($item['authorName'] ?? ''),
+                    'createdAt' => (string) ($item['createdAt'] ?? ''),
+                ];
+            }
+        }
+    }
+
+    $attachments = [];
+    if (!empty($row['attachments'])) {
+        $decoded = json_decode((string) $row['attachments'], true);
+        if (is_array($decoded)) {
+            foreach ($decoded as $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                $attachments[] = [
+                    'id' => (string) ($item['id'] ?? ''),
+                    'filename' => (string) ($item['filename'] ?? ''),
+                    'label' => (string) ($item['label'] ?? ''),
+                    'note' => (string) ($item['note'] ?? ''),
+                    'sizeMb' => isset($item['sizeMb']) ? (float) $item['sizeMb'] : null,
+                    'visibility' => (string) ($item['visibility'] ?? 'both'),
+                    'uploadedBy' => (string) ($item['uploadedBy'] ?? ''),
+                    'uploadedById' => $item['uploadedById'] ?? null,
+                    'uploadedAt' => (string) ($item['uploadedAt'] ?? ''),
+                    'downloadToken' => (string) ($item['downloadToken'] ?? ''),
+                ];
+            }
+        }
+    }
+
     return [
         'id' => (int) $row['id'],
         'reference' => $row['reference'],
@@ -1051,6 +1105,8 @@ function portal_normalize_complaint_row(array $row): array
         'slaDue' => $row['sla_due_at'] ?? '',
         'createdAt' => $row['created_at'] ?? '',
         'updatedAt' => $row['updated_at'] ?? '',
+        'notes' => $notes,
+        'attachments' => $attachments,
     ];
 }
 
@@ -1061,12 +1117,7 @@ function portal_update_complaint_status(PDO $db, string $reference, string $stat
         throw new RuntimeException('Complaint reference is required.');
     }
 
-    $stmt = $db->prepare('SELECT * FROM complaints WHERE reference = :reference LIMIT 1');
-    $stmt->execute([':reference' => $reference]);
-    $row = $stmt->fetch();
-    if (!$row) {
-        throw new RuntimeException('Complaint not found.');
-    }
+    $row = portal_fetch_complaint_row($db, $reference);
 
     $statusMap = [
         'in_progress' => 'work',
@@ -1089,12 +1140,215 @@ function portal_update_complaint_status(PDO $db, string $reference, string $stat
 
     portal_log_action($db, $actorId, 'status_change', 'complaint', (int) $row['id'], 'Complaint updated to ' . $newStatus);
 
+    return portal_normalize_complaint_row(portal_fetch_complaint_row($db, $reference));
+}
+
+function portal_fetch_complaint_row(PDO $db, string $reference): array
+{
     $stmt = $db->prepare('SELECT complaints.*, users.full_name AS assigned_to_name, roles.name AS assigned_role FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id LEFT JOIN roles ON users.role_id = roles.id WHERE complaints.reference = :reference LIMIT 1');
     $stmt->execute([':reference' => $reference]);
-    $updated = $stmt->fetch();
-    if (!$updated) {
-        throw new RuntimeException('Unable to load complaint after update.');
+    $row = $stmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Complaint not found.');
     }
 
-    return portal_normalize_complaint_row($updated);
+    return $row;
+}
+
+function portal_assign_complaint(PDO $db, string $reference, ?int $assigneeId, ?string $slaDue, int $actorId): array
+{
+    $reference = trim($reference);
+    if ($reference === '') {
+        throw new RuntimeException('Complaint reference is required.');
+    }
+
+    $row = portal_fetch_complaint_row($db, $reference);
+
+    if ($assigneeId !== null) {
+        $assignee = portal_find_user($db, $assigneeId);
+        if (!$assignee || ($assignee['role_name'] ?? '') !== 'employee') {
+            throw new RuntimeException('Select a valid employee assignee.');
+        }
+    }
+
+    $dueDate = null;
+    if ($slaDue !== null && $slaDue !== '') {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $slaDue)) {
+            throw new RuntimeException('SLA due date must be in YYYY-MM-DD format.');
+        }
+        $dueDate = $slaDue;
+    }
+
+    $stmt = $db->prepare('UPDATE complaints SET assigned_to = :assignee_id, sla_due_at = :sla_due_at, updated_at = :updated_at WHERE reference = :reference');
+    $stmt->execute([
+        ':assignee_id' => $assigneeId,
+        ':sla_due_at' => $dueDate,
+        ':updated_at' => now_ist(),
+        ':reference' => $reference,
+    ]);
+
+    portal_log_action($db, $actorId, 'assign', 'complaint', (int) $row['id'], sprintf('Complaint assigned to %s', $assigneeId ? ('user #' . $assigneeId) : 'unassigned'));
+
+    return portal_normalize_complaint_row(portal_fetch_complaint_row($db, $reference));
+}
+
+function portal_add_complaint_note(PDO $db, string $reference, string $noteBody, int $actorId, string $visibility = 'internal'): array
+{
+    $reference = trim($reference);
+    if ($reference === '') {
+        throw new RuntimeException('Complaint reference is required.');
+    }
+
+    $noteBody = trim($noteBody);
+    if ($noteBody === '') {
+        throw new RuntimeException('Note cannot be empty.');
+    }
+
+    $row = portal_fetch_complaint_row($db, $reference);
+
+    $notes = [];
+    if (!empty($row['notes'])) {
+        $decoded = json_decode((string) $row['notes'], true);
+        if (is_array($decoded)) {
+            $notes = $decoded;
+        }
+    }
+
+    $author = $actorId > 0 ? portal_find_user($db, $actorId) : null;
+    $record = [
+        'id' => bin2hex(random_bytes(6)),
+        'body' => $noteBody,
+        'visibility' => $visibility,
+        'authorId' => $actorId ?: null,
+        'authorName' => $author['full_name'] ?? 'System',
+        'createdAt' => now_ist(),
+    ];
+    $notes[] = $record;
+
+    $stmt = $db->prepare('UPDATE complaints SET notes = :notes, updated_at = :updated_at WHERE reference = :reference');
+    $stmt->execute([
+        ':notes' => json_encode($notes, JSON_THROW_ON_ERROR),
+        ':updated_at' => $record['createdAt'],
+        ':reference' => $reference,
+    ]);
+
+    portal_log_action($db, $actorId, 'note_added', 'complaint', (int) $row['id'], 'Complaint note recorded');
+
+    return portal_normalize_complaint_row(portal_fetch_complaint_row($db, $reference));
+}
+
+function portal_add_complaint_attachment(PDO $db, string $reference, array $attachment, int $actorId): array
+{
+    $reference = trim($reference);
+    if ($reference === '') {
+        throw new RuntimeException('Complaint reference is required.');
+    }
+
+    $row = portal_fetch_complaint_row($db, $reference);
+
+    $filename = trim((string) ($attachment['filename'] ?? ''));
+    $label = trim((string) ($attachment['label'] ?? 'Attachment'));
+    if ($filename === '') {
+        throw new RuntimeException('Attachment filename is required.');
+    }
+
+    $sizeMb = isset($attachment['sizeMb']) ? (float) $attachment['sizeMb'] : null;
+    $note = trim((string) ($attachment['note'] ?? ''));
+    $visibility = (string) ($attachment['visibility'] ?? 'both');
+    if (!in_array($visibility, ['employee', 'admin', 'both'], true)) {
+        $visibility = 'both';
+    }
+
+    $attachments = [];
+    if (!empty($row['attachments'])) {
+        $decoded = json_decode((string) $row['attachments'], true);
+        if (is_array($decoded)) {
+            $attachments = $decoded;
+        }
+    }
+
+    $author = $actorId > 0 ? portal_find_user($db, $actorId) : null;
+    $record = [
+        'id' => bin2hex(random_bytes(6)),
+        'filename' => $filename,
+        'label' => $label,
+        'note' => $note,
+        'sizeMb' => $sizeMb,
+        'visibility' => $visibility,
+        'uploadedBy' => $author['full_name'] ?? 'System',
+        'uploadedById' => $actorId ?: null,
+        'uploadedAt' => now_ist(),
+        'downloadToken' => bin2hex(random_bytes(16)),
+    ];
+
+    if (isset($attachment['documentId'])) {
+        $record['documentId'] = (int) $attachment['documentId'];
+    }
+
+    $attachments[] = $record;
+
+    $stmt = $db->prepare('UPDATE complaints SET attachments = :attachments, updated_at = :updated_at WHERE reference = :reference');
+    $stmt->execute([
+        ':attachments' => json_encode($attachments, JSON_THROW_ON_ERROR),
+        ':updated_at' => $record['uploadedAt'],
+        ':reference' => $reference,
+    ]);
+
+    portal_log_action($db, $actorId, 'attachment_added', 'complaint', (int) $row['id'], 'Complaint attachment logged');
+
+    return portal_normalize_complaint_row(portal_fetch_complaint_row($db, $reference));
+}
+
+function portal_recent_audit_logs(PDO $db, int $limit = 25): array
+{
+    $stmt = $db->prepare('SELECT audit_logs.id, audit_logs.action, audit_logs.entity_type, audit_logs.entity_id, audit_logs.description, audit_logs.created_at, users.full_name AS actor_name FROM audit_logs LEFT JOIN users ON audit_logs.actor_id = users.id ORDER BY audit_logs.created_at DESC LIMIT :limit');
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
+function portal_get_complaint(PDO $db, string $reference): array
+{
+    return portal_normalize_complaint_row(portal_fetch_complaint_row($db, $reference));
+}
+
+function portal_employee_submit_document(PDO $db, int $userId, string $reference, array $payload): array
+{
+    enforce_complaint_access($db, $reference, $userId);
+
+    $type = trim((string) ($payload['type'] ?? ''));
+    $filename = trim((string) ($payload['filename'] ?? ''));
+    if ($type === '' || $filename === '') {
+        throw new RuntimeException('Document type and file name are required.');
+    }
+
+    $note = trim((string) ($payload['note'] ?? ''));
+    $sizeValue = trim((string) ($payload['file_size'] ?? ''));
+    $sizeMb = $sizeValue !== '' ? (float) $sizeValue : null;
+
+    $documentData = [
+        'name' => $type,
+        'linkedTo' => 'complaint:' . $reference,
+        'reference' => $filename,
+        'tags' => [$reference],
+        'url' => '#',
+        'visibility' => 'both',
+        'notes' => $note,
+    ];
+
+    $document = portal_save_document($db, $documentData, $userId);
+
+    $complaint = portal_add_complaint_attachment($db, $reference, [
+        'filename' => $filename,
+        'label' => $type,
+        'note' => $note,
+        'sizeMb' => $sizeMb,
+        'visibility' => 'both',
+        'documentId' => $document['id'] ?? null,
+    ], $userId);
+
+    return [
+        'document' => $document,
+        'complaint' => $complaint,
+    ];
 }

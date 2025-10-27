@@ -62,6 +62,30 @@ try {
                 'complaints' => portal_employee_complaints($db, $userId),
             ]);
             break;
+        case 'add-complaint-note':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $note = (string) ($payload['note'] ?? '');
+            enforce_complaint_access($db, $reference, $userId);
+            $complaint = portal_add_complaint_note($db, $reference, $note, $userId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_employee_complaints($db, $userId),
+            ]);
+            break;
+        case 'upload-document':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            if ($reference === '') {
+                throw new RuntimeException('Complaint reference is required for uploads.');
+            }
+            $result = portal_employee_submit_document($db, $userId, $reference, $payload);
+            respond_success($result + [
+                'complaints' => portal_employee_complaints($db, $userId),
+            ]);
+            break;
         case 'mark-notification':
             require_method('POST');
             $payload = read_json();
