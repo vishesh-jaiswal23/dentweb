@@ -47,7 +47,7 @@ $db = null;
 try {
     $db = get_db();
 } catch (Throwable $exception) {
-    $bootstrapError = 'The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
+    $bootstrapError = 'Error: The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
     if ($supportEmail !== '') {
         $bootstrapError .= ' Reach out to ' . $supportEmail . ' for assistance.';
     }
