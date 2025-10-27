@@ -43,6 +43,7 @@ $resolveSupportEmail = static function (): string {
     if ($supportEmail === '') {
         $supportEmail = 'support@dakshayani.in';
     }
+}
 
     if (!defined('ADMIN_EMAIL')) {
         define('ADMIN_EMAIL', $supportEmail);
