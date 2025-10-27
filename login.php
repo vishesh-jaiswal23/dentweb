@@ -91,17 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'id' => $user['id'],
                         'full_name' => $user['full_name'],
                         'email' => $user['email'],
+                        'username' => $user['username'] ?? $user['email'],
                         'role_name' => $user['role_name'],
                     ];
-                    session_regenerate_id(true);
-                    try {
-                        $timeoutMinutes = get_session_timeout_minutes($db ?? get_db());
-                    } catch (Throwable $exception) {
-                        $timeoutMinutes = 45;
-                    }
-                    $_SESSION['session_policy_timeout'] = $timeoutMinutes;
-                    $_SESSION['session_last_activity'] = time();
-                    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
                     $success = 'Login successful. Redirecting…';
                     header('Location: ' . $roleRoutes[$selectedRole]);
                     exit;

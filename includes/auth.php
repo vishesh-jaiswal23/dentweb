@@ -98,18 +98,19 @@ function ensure_api_access(string $requiredRole = 'admin'): void
     }
 }
 
-function authenticate_user(string $email, string $password, string $roleName): ?array
+function authenticate_user(string $identifier, string $password, string $roleName): ?array
 {
     try {
         $db = get_db();
     } catch (Throwable $dbError) {
-        return authenticate_user_fallback($email, $password, $roleName, $dbError);
+        return authenticate_user_fallback($identifier, $password, $roleName, $dbError);
     }
 
+    $loginIdentifier = trim($identifier);
     try {
-        $stmt = $db->prepare("SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE LOWER(users.email) = LOWER(:email) AND roles.name = :role LIMIT 1");
+        $stmt = $db->prepare("SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = :role AND (LOWER(users.email) = LOWER(:identifier) OR LOWER(users.username) = LOWER(:identifier)) LIMIT 1");
         $stmt->execute([
-            ':email' => $email,
+            ':identifier' => $loginIdentifier,
             ':role' => $roleName,
         ]);
 
@@ -140,18 +141,23 @@ function authenticate_user(string $email, string $password, string $roleName): ?
 
         return $user;
     } catch (Throwable $queryError) {
-        return authenticate_user_fallback($email, $password, $roleName, $queryError);
+        return authenticate_user_fallback($identifier, $password, $roleName, $queryError);
     }
 }
 
-function authenticate_user_fallback(string $email, string $password, string $roleName, Throwable $reason): ?array
+function authenticate_user_fallback(string $identifier, string $password, string $roleName, Throwable $reason): ?array
 {
     $account = resolve_offline_account($reason);
     if ($account === null) {
         return null;
     }
 
-    if (strcasecmp($account['email'], $email) !== 0) {
+    $normalized = trim($identifier);
+    $emailMatches = strcasecmp($account['email'], $normalized) === 0;
+    $username = $account['username'] ?? null;
+    $usernameMatches = is_string($username) && strcasecmp($username, $normalized) === 0;
+
+    if (!$emailMatches && !$usernameMatches) {
         return null;
     }
 
@@ -167,7 +173,7 @@ function authenticate_user_fallback(string $email, string $password, string $rol
         'id' => $account['id'],
         'full_name' => $account['name'],
         'email' => $account['email'],
-        'username' => $account['email'],
+        'username' => $account['username'] ?? $account['email'],
         'role_name' => $account['role'],
         'status' => 'active',
         'permissions_note' => 'Offline administrator access granted while the database is unavailable.',
@@ -197,7 +203,8 @@ function resolve_offline_account(Throwable $reason): ?array
     $default = [
         'id' => 0,
         'name' => 'Primary Administrator',
-        'email' => 'd.entranchi@gmail.com',
+        'email' => 'admin@dakshayani.in',
+        'username' => 'admin',
         'role' => 'admin',
         'password_hash' => '$2y$12$TvquhYdWBtKSPQ56kB4S1OTeNntaEv8QE9Woq2SPKkuuFVr4dMy/q',
         'password_plain' => null,
@@ -218,6 +225,11 @@ function resolve_offline_account(Throwable $reason): ?array
             $_ENV['FALLBACK_ADMIN_ROLE'] ?? null,
             $_SERVER['FALLBACK_ADMIN_ROLE'] ?? null,
             getenv('FALLBACK_ADMIN_ROLE') ?: null,
+        ]),
+        'username' => collect_first_non_empty([
+            $_ENV['FALLBACK_ADMIN_USERNAME'] ?? null,
+            $_SERVER['FALLBACK_ADMIN_USERNAME'] ?? null,
+            getenv('FALLBACK_ADMIN_USERNAME') ?: null,
         ]),
         'password_hash' => collect_first_non_empty([
             $_ENV['FALLBACK_ADMIN_PASSWORD_HASH'] ?? null,
@@ -246,6 +258,10 @@ function resolve_offline_account(Throwable $reason): ?array
 
     if (is_string($overrides['role']) && trim($overrides['role']) !== '') {
         $default['role'] = trim($overrides['role']);
+    }
+
+    if (is_string($overrides['username']) && trim($overrides['username']) !== '') {
+        $default['username'] = trim($overrides['username']);
     }
 
     if (is_string($overrides['password_hash']) && trim($overrides['password_hash']) !== '') {
