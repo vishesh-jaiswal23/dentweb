@@ -270,9 +270,6 @@ function seed_defaults(PDO $db): void
     $roles = [
         'admin' => 'System administrators with full permissions.',
         'employee' => 'Internal staff managing operations and service.',
-        'installer' => 'Installation partners and crews.',
-        'referrer' => 'Channel partners and referrers.',
-        'customer' => 'Customers using subsidy and service portals.',
     ];
 
     $insertRole = $db->prepare('INSERT OR IGNORE INTO roles(name, description) VALUES(:name, :description)');
@@ -282,6 +279,8 @@ function seed_defaults(PDO $db): void
             ':description' => $description,
         ]);
     }
+
+    unify_employee_roles($db);
 
     // Seed default admin if none exists
     $adminRoleId = (int) $db->query('SELECT id FROM roles WHERE name = "admin"')->fetchColumn();
@@ -353,6 +352,71 @@ function seed_defaults(PDO $db): void
     blog_backfill_cover_images($db);
 
     seed_portal_defaults($db);
+}
+
+function record_system_audit(PDO $db, string $action, string $entityType, int $entityId, string $description): void
+{
+    $stmt = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(NULL, :action, :entity_type, :entity_id, :description)');
+    $stmt->execute([
+        ':action' => $action,
+        ':entity_type' => $entityType,
+        ':entity_id' => $entityId,
+        ':description' => $description,
+    ]);
+}
+
+function unify_employee_roles(PDO $db): void
+{
+    $employeeRoleId = (int) $db->query("SELECT id FROM roles WHERE name = 'employee'")->fetchColumn();
+    if ($employeeRoleId <= 0) {
+        return;
+    }
+
+    $legacyStmt = $db->query("SELECT id, name FROM roles WHERE name NOT IN ('admin','employee')");
+    $legacyRoles = $legacyStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$legacyRoles) {
+        return;
+    }
+
+    foreach ($legacyRoles as $legacyRole) {
+        $roleId = (int) $legacyRole['id'];
+        $roleName = (string) $legacyRole['name'];
+
+        $usersStmt = $db->prepare('SELECT id, email, permissions_note FROM users WHERE role_id = :role_id');
+        $usersStmt->execute([':role_id' => $roleId]);
+        foreach ($usersStmt->fetchAll(PDO::FETCH_ASSOC) as $userRow) {
+            $noteParts = [];
+            $existingNote = trim((string) ($userRow['permissions_note'] ?? ''));
+            if ($existingNote !== '') {
+                $noteParts[] = $existingNote;
+            }
+            $noteParts[] = sprintf('Role auto-converted from %s on %s', ucfirst($roleName), now_ist());
+            $note = implode("\n", $noteParts);
+
+            $updateUser = $db->prepare('UPDATE users SET role_id = :employee_role, permissions_note = :note, updated_at = datetime(\'now\') WHERE id = :id');
+            $updateUser->execute([
+                ':employee_role' => $employeeRoleId,
+                ':note' => $note,
+                ':id' => (int) $userRow['id'],
+            ]);
+
+            record_system_audit($db, 'role_unified', 'user', (int) $userRow['id'], sprintf('User %s merged into Employee role (previously %s)', $userRow['email'], $roleName));
+        }
+
+        $inviteStmt = $db->prepare('SELECT id, invitee_email FROM invitations WHERE role_id = :role_id');
+        $inviteStmt->execute([':role_id' => $roleId]);
+        foreach ($inviteStmt->fetchAll(PDO::FETCH_ASSOC) as $inviteRow) {
+            $db->prepare('UPDATE invitations SET role_id = :employee_role WHERE id = :id')->execute([
+                ':employee_role' => $employeeRoleId,
+                ':id' => (int) $inviteRow['id'],
+            ]);
+
+            record_system_audit($db, 'role_unified', 'invitation', (int) $inviteRow['id'], sprintf('Invitation for %s reassigned to Employee role (previously %s)', $inviteRow['invitee_email'], $roleName));
+        }
+
+        $db->prepare('DELETE FROM roles WHERE id = :role_id')->execute([':role_id' => $roleId]);
+        record_system_audit($db, 'role_removed', 'role', $roleId, sprintf('Legacy role %s removed during Employee role unification', $roleName));
+    }
 }
 
 function get_setting(string $key, ?PDO $db = null): ?string
@@ -462,6 +526,20 @@ function ensure_login_policy_row(PDO $db): void
     if ($count === 0) {
         $db->exec("INSERT INTO login_policies(id, retry_limit, lockout_minutes, twofactor_mode, session_timeout) VALUES (1, 5, 30, 'admin', 45)");
     }
+}
+
+function get_session_timeout_minutes(PDO $db): int
+{
+    ensure_login_policy_row($db);
+    $timeout = (int) $db->query('SELECT session_timeout FROM login_policies WHERE id = 1')->fetchColumn();
+    if ($timeout < 15) {
+        return 15;
+    }
+    if ($timeout > 720) {
+        return 720;
+    }
+
+    return $timeout;
 }
 
 function ensure_blog_indexes(PDO $db): void

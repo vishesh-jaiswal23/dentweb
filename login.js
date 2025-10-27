@@ -12,17 +12,8 @@
       case 'admin':
         hintEl.textContent = 'Administrators must use the credentials issued by Dakshayani Enterprises.';
         break;
-      case 'customer':
-        hintEl.textContent = 'Customers can sign in with their registered email ID and password.';
-        break;
       case 'employee':
-        hintEl.textContent = 'Employees use their corporate email ID and secure password.';
-        break;
-      case 'installer':
-        hintEl.textContent = 'Installers should enter the credentials assigned after activation.';
-        break;
-      case 'referrer':
-        hintEl.textContent = 'Referrers can log in with their verified partner credentials.';
+        hintEl.textContent = 'Employees can sign in only after Admin approves their account.';
         break;
       default:
         hintEl.textContent = 'Use your assigned credentials to access the selected portal.';

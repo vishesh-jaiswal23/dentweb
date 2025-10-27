@@ -317,8 +317,9 @@
     document.querySelectorAll('[data-metric]').forEach((node) => {
       const key = node.dataset.metric;
       switch (key) {
+        case 'employees':
         case 'customers':
-          node.textContent = counts.customers ?? '0';
+          node.textContent = counts.employees ?? counts.customers ?? '0';
           break;
         case 'approvals':
           node.textContent = counts.pendingInvitations ?? '0';
