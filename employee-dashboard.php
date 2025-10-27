@@ -224,7 +224,7 @@ $attachmentIcon = static function (string $filename): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Employee Workspace | Dakshayani Enterprises</title>
+  <title><?= htmlspecialchars($pageTitle, ENT_QUOTES) ?></title>
   <meta
     name="description"
     content="Role-based employee workspace for Dakshayani Enterprises with ticket updates, task management, and customer follow-ups."
@@ -244,7 +244,7 @@ $attachmentIcon = static function (string $filename): string {
     referrerpolicy="no-referrer"
   />
 </head>
-<body data-dashboard-theme="light">
+<body data-dashboard-theme="light" data-current-view="<?= htmlspecialchars($currentView, ENT_QUOTES) ?>">
   <main class="dashboard">
     <div class="container dashboard-shell">
       <div class="dashboard-auth-bar" role="banner">
@@ -293,52 +293,22 @@ $attachmentIcon = static function (string $filename): string {
             <span>Notifications</span>
             <span class="employee-header-count" data-notification-count><?= (int) $unreadNotificationCount ?></span>
           </button>
-          <a class="employee-header-button" href="#tasks" data-scroll-my-work>
+          <a class="employee-header-button" href="<?= htmlspecialchars($viewUrlFor('tasks'), ENT_QUOTES) ?>">
             <i class="fa-solid fa-list-check" aria-hidden="true"></i>
             <span>My Work</span>
           </a>
         </div>
         <nav class="dashboard-quick-nav" aria-label="Employee navigation">
-          <a href="#overview" class="dashboard-quick-nav__link is-active" data-quick-link>
-            <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
-            <span>Overview</span>
+          <?php foreach ($dashboardViews as $viewKey => $viewConfig): ?>
+          <a
+            href="<?= htmlspecialchars($viewConfig['href'], ENT_QUOTES) ?>"
+            class="dashboard-quick-nav__link<?= $currentView === $viewKey ? ' is-active' : '' ?>"
+            data-quick-link="<?= htmlspecialchars($viewKey, ENT_QUOTES) ?>"
+          >
+            <i class="<?= htmlspecialchars($viewConfig['icon'], ENT_QUOTES) ?>" aria-hidden="true"></i>
+            <span><?= htmlspecialchars($viewConfig['label'], ENT_QUOTES) ?></span>
           </a>
-          <a href="#complaints" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-ticket" aria-hidden="true"></i>
-            <span>Complaints</span>
-          </a>
-          <a href="#tasks" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-clipboard-list" aria-hidden="true"></i>
-            <span>My Work</span>
-          </a>
-          <a href="#leads" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-users" aria-hidden="true"></i>
-            <span>Leads &amp; Follow-ups</span>
-          </a>
-          <a href="#field-work" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i>
-            <span>Field Work</span>
-          </a>
-          <a href="#documents" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
-            <span>Documents</span>
-          </a>
-          <a href="#subsidy" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-indian-rupee-sign" aria-hidden="true"></i>
-            <span>Subsidy</span>
-          </a>
-          <a href="#warranty" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-shield-heart" aria-hidden="true"></i>
-            <span>Warranty &amp; AMC</span>
-          </a>
-          <a href="#communication" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-phone-volume" aria-hidden="true"></i>
-            <span>Communication</span>
-          </a>
-          <a href="#ai-assist" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-robot" aria-hidden="true"></i>
-            <span>AI Assistance</span>
-          </a>
+          <?php endforeach; ?>
         </nav>
       </header>
 
@@ -366,7 +336,7 @@ $attachmentIcon = static function (string $filename): string {
             $isRead = !empty($notice['isRead']);
             ?>
             <li
-              class="notification-item<?= $isRead ? ' is-read' : '' ?>"
+              class="notification-item<?= $isRead ? ' is-read' : ' is-unread' ?>"
               data-notification-item
               data-notification-id="<?= htmlspecialchars($notice['id'], ENT_QUOTES) ?>"
               data-notification-read="<?= $isRead ? 'true' : 'false' ?>"
@@ -480,6 +450,7 @@ $attachmentIcon = static function (string $filename): string {
 
       <div class="dashboard-body">
         <div class="dashboard-main">
+          <?php if ($currentView === 'overview'): ?>
           <section id="overview" class="dashboard-section" data-section>
             <h2>Employee overview</h2>
             <p class="dashboard-section-sub">
@@ -579,6 +550,7 @@ $attachmentIcon = static function (string $filename): string {
               </div>
             </section>
 
+          <?php if ($currentView === 'complaints'): ?>
           <section id="complaints" class="dashboard-section" data-section>
             <h2>Complaints &amp; service workflow</h2>
             <p class="dashboard-section-sub">
@@ -658,7 +630,9 @@ $attachmentIcon = static function (string $filename): string {
               <?php endif; ?>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'tasks'): ?>
           <section id="tasks" class="dashboard-section" data-section>
             <h2>Tasks &amp; My Work</h2>
             <p class="dashboard-section-sub">
@@ -724,7 +698,9 @@ $attachmentIcon = static function (string $filename): string {
               </div>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'leads'): ?>
           <section id="leads" class="dashboard-section" data-section>
             <h2>Leads &amp; customer follow-ups</h2>
             <p class="dashboard-section-sub">
@@ -858,7 +834,9 @@ $attachmentIcon = static function (string $filename): string {
               </aside>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'field-work'): ?>
           <section id="field-work" class="dashboard-section" data-section>
             <h2>Installation &amp; field work</h2>
             <p class="dashboard-section-sub">
@@ -947,7 +925,9 @@ $attachmentIcon = static function (string $filename): string {
               </aside>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'documents'): ?>
           <section id="documents" class="dashboard-section" data-section>
             <h2>Document vault access</h2>
             <p class="dashboard-section-sub">
@@ -1038,7 +1018,9 @@ $attachmentIcon = static function (string $filename): string {
               </aside>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'subsidy'): ?>
           <section id="subsidy" class="dashboard-section" data-section>
             <h2>PM Surya Ghar subsidy workflow</h2>
             <p class="dashboard-section-sub">
@@ -1109,7 +1091,9 @@ $attachmentIcon = static function (string $filename): string {
               </ol>
             </aside>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'warranty'): ?>
           <section id="warranty" class="dashboard-section" data-section>
             <h2>Warranty &amp; AMC tracker</h2>
             <p class="dashboard-section-sub">
@@ -1191,7 +1175,9 @@ $attachmentIcon = static function (string $filename): string {
               </aside>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'communication'): ?>
           <section id="communication" class="dashboard-section" data-section>
             <h2>Communication log &amp; follow-ups</h2>
             <p class="dashboard-section-sub">
@@ -1258,7 +1244,9 @@ $attachmentIcon = static function (string $filename): string {
               </article>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'ai-assist'): ?>
           <section id="ai-assist" class="dashboard-section" data-section>
             <h2>AI assistance (Gemini)</h2>
             <p class="dashboard-section-sub">
@@ -1291,6 +1279,7 @@ $attachmentIcon = static function (string $filename): string {
               </article>
             </div>
           </section>
+          <?php endif; ?>
         </div>
 
         <aside class="dashboard-aside">
