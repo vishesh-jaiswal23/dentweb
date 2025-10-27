@@ -151,6 +151,24 @@ SQL
     );
 
     $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS referrers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    company TEXT,
+    email TEXT,
+    phone TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive','prospect')),
+    notes TEXT,
+    last_lead_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes'))
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_referrers_status ON referrers(status)');
+
+    $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS complaints (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     reference TEXT NOT NULL UNIQUE,
@@ -182,19 +200,22 @@ CREATE TABLE IF NOT EXISTS crm_leads (
     status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','visited','quotation','converted','lost')),
     assigned_to INTEGER,
     created_by INTEGER,
+    referrer_id INTEGER,
     site_location TEXT,
     site_details TEXT,
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
     FOREIGN KEY(assigned_to) REFERENCES users(id),
-    FOREIGN KEY(created_by) REFERENCES users(id)
+    FOREIGN KEY(created_by) REFERENCES users(id),
+    FOREIGN KEY(referrer_id) REFERENCES referrers(id) ON DELETE SET NULL
 )
 SQL
     );
 
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_status ON crm_leads(status)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_updated_at ON crm_leads(updated_at DESC)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_referrer ON crm_leads(referrer_id)');
 
     $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS lead_visits (
@@ -1551,7 +1572,11 @@ function ensure_lead_tables(PDO $db): void
         return;
     }
 
-    $requiresRebuild = str_contains($schema, "'contacted'") || str_contains($schema, "'qualified'") || !str_contains($schema, 'site_location') || !str_contains($schema, 'created_by');
+    $requiresRebuild = str_contains($schema, "'contacted'")
+        || str_contains($schema, "'qualified'")
+        || !str_contains($schema, 'site_location')
+        || !str_contains($schema, 'created_by')
+        || !str_contains($schema, 'referrer_id');
 
     if ($requiresRebuild) {
         $db->beginTransaction();
@@ -1567,18 +1592,20 @@ CREATE TABLE crm_leads (
     status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','visited','quotation','converted','lost')),
     assigned_to INTEGER,
     created_by INTEGER,
+    referrer_id INTEGER,
     site_location TEXT,
     site_details TEXT,
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
     FOREIGN KEY(assigned_to) REFERENCES users(id),
-    FOREIGN KEY(created_by) REFERENCES users(id)
+    FOREIGN KEY(created_by) REFERENCES users(id),
+    FOREIGN KEY(referrer_id) REFERENCES referrers(id) ON DELETE SET NULL
 )
 SQL
             );
             $db->exec(<<<'SQL'
-INSERT INTO crm_leads (id, name, phone, email, source, status, assigned_to, created_by, site_location, site_details, notes, created_at, updated_at)
+INSERT INTO crm_leads (id, name, phone, email, source, status, assigned_to, created_by, referrer_id, site_location, site_details, notes, created_at, updated_at)
 SELECT id, name, phone, email, source,
        CASE
            WHEN status IN ('new','visited','quotation','converted','lost') THEN status
@@ -1588,11 +1615,12 @@ SELECT id, name, phone, email, source,
        END AS status,
        assigned_to,
        NULL AS created_by,
+       NULL AS referrer_id,
        NULL AS site_location,
        NULL AS site_details,
        notes,
-       created_at,
-       updated_at
+        created_at,
+        updated_at
 FROM crm_leads_backup
 SQL
             );
@@ -1614,8 +1642,12 @@ SQL
     if (!in_array('site_details', $columns, true)) {
         $db->exec('ALTER TABLE crm_leads ADD COLUMN site_details TEXT');
     }
+    if (!in_array('referrer_id', $columns, true)) {
+        $db->exec('ALTER TABLE crm_leads ADD COLUMN referrer_id INTEGER');
+    }
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_status ON crm_leads(status)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_updated_at ON crm_leads(updated_at DESC)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_referrer ON crm_leads(referrer_id)');
 
     $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS lead_visits (
@@ -3048,6 +3080,7 @@ function admin_overview_counts(PDO $db): array
     $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
     $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active') AND deleted_at IS NULL")->fetchColumn();
+    $activeReferrers = (int) $db->query("SELECT COUNT(*) FROM referrers WHERE status = 'active'")->fetchColumn();
 
     $pendingStmt = $db->query(<<<'SQL'
 WITH ranked AS (
@@ -3072,6 +3105,7 @@ SQL
         'complaints' => $openComplaints,
         'subsidy' => $pendingSubsidy,
         'reminders' => $activeReminders,
+        'referrers' => $activeReferrers,
     ];
 }
 
@@ -3745,7 +3779,7 @@ function lead_next_stage(string $status): ?string
 
 function lead_fetch(PDO $db, int $leadId): array
 {
-    $stmt = $db->prepare('SELECT * FROM crm_leads WHERE id = :id LIMIT 1');
+    $stmt = $db->prepare('SELECT l.*, r.name AS referrer_name FROM crm_leads l LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.id = :id LIMIT 1');
     $stmt->execute([':id' => $leadId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) {
@@ -4006,6 +4040,8 @@ function lead_hydrate_rows(PDO $db, array $rows): array
             'assignedName' => (string) ($row['assigned_name'] ?? ''),
             'createdById' => isset($row['created_by']) && $row['created_by'] !== null ? (int) $row['created_by'] : null,
             'createdName' => (string) ($row['created_name'] ?? ''),
+            'referrerId' => isset($row['referrer_id']) && $row['referrer_id'] !== null ? (int) $row['referrer_id'] : null,
+            'referrerName' => (string) ($row['referrer_name'] ?? ''),
             'siteLocation' => trim((string) ($row['site_location'] ?? '')),
             'siteDetails' => trim((string) ($row['site_details'] ?? '')),
             'notes' => (string) ($row['notes'] ?? ''),
@@ -4021,6 +4057,302 @@ function lead_hydrate_rows(PDO $db, array $rows): array
     }
 
     return $hydrated;
+}
+
+function referrer_status_label(string $status): string
+{
+    $map = [
+        'active' => 'Active',
+        'inactive' => 'Inactive',
+        'prospect' => 'Prospect',
+    ];
+
+    $normalized = strtolower(trim($status));
+
+    return $map[$normalized] ?? 'Unknown';
+}
+
+function admin_referrer_status_options(): array
+{
+    return [
+        'active' => 'Active',
+        'prospect' => 'Prospect',
+        'inactive' => 'Inactive',
+    ];
+}
+
+function referrer_normalize_payload(array $input): array
+{
+    $name = trim((string) ($input['name'] ?? ''));
+    if ($name === '') {
+        throw new RuntimeException('Referrer name is required.');
+    }
+
+    $company = trim((string) ($input['company'] ?? ''));
+    $email = trim((string) ($input['email'] ?? ''));
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('Enter a valid email address for the referrer.');
+    }
+
+    $phone = trim((string) ($input['phone'] ?? ''));
+    $status = strtolower(trim((string) ($input['status'] ?? 'active')));
+    if (!array_key_exists($status, admin_referrer_status_options())) {
+        $status = 'active';
+    }
+    $notes = trim((string) ($input['notes'] ?? ''));
+
+    return [
+        'name' => $name,
+        'company' => $company !== '' ? $company : null,
+        'email' => $email !== '' ? $email : null,
+        'phone' => $phone !== '' ? $phone : null,
+        'status' => $status,
+        'notes' => $notes !== '' ? $notes : null,
+    ];
+}
+
+function admin_create_referrer(PDO $db, array $input): array
+{
+    $payload = referrer_normalize_payload($input);
+    $now = now_ist();
+    $stmt = $db->prepare('INSERT INTO referrers(name, company, email, phone, status, notes, last_lead_at, created_at, updated_at) VALUES(:name, :company, :email, :phone, :status, :notes, NULL, :created_at, :updated_at)');
+    $stmt->execute([
+        ':name' => $payload['name'],
+        ':company' => $payload['company'],
+        ':email' => $payload['email'],
+        ':phone' => $payload['phone'],
+        ':status' => $payload['status'],
+        ':notes' => $payload['notes'],
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+
+    $id = (int) $db->lastInsertId();
+
+    return referrer_with_metrics($db, $id);
+}
+
+function admin_update_referrer(PDO $db, int $id, array $input): array
+{
+    referrer_with_metrics($db, $id); // Ensure the record exists before update.
+    $payload = referrer_normalize_payload($input);
+    $stmt = $db->prepare('UPDATE referrers SET name = :name, company = :company, email = :email, phone = :phone, status = :status, notes = :notes, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':name' => $payload['name'],
+        ':company' => $payload['company'],
+        ':email' => $payload['email'],
+        ':phone' => $payload['phone'],
+        ':status' => $payload['status'],
+        ':notes' => $payload['notes'],
+        ':updated_at' => now_ist(),
+        ':id' => $id,
+    ]);
+
+    return referrer_with_metrics($db, $id);
+}
+
+function referrer_touch_lead(PDO $db, int $id): void
+{
+    $timestamp = now_ist();
+    $stmt = $db->prepare('UPDATE referrers SET last_lead_at = :last_lead_at, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':last_lead_at' => $timestamp,
+        ':updated_at' => $timestamp,
+        ':id' => $id,
+    ]);
+}
+
+function referrer_with_metrics(PDO $db, int $id): array
+{
+    $stmt = $db->prepare('SELECT * FROM referrers WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('Referrer not found.');
+    }
+
+    $metricsStmt = $db->prepare(<<<'SQL'
+SELECT
+    COUNT(*) AS total_leads,
+    SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) AS converted_leads,
+    SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) AS lost_leads,
+    SUM(CASE WHEN status IN ('new','visited','quotation') THEN 1 ELSE 0 END) AS pipeline_leads,
+    MAX(updated_at) AS latest_lead_update
+FROM crm_leads
+WHERE referrer_id = :id
+SQL
+    );
+    $metricsStmt->execute([':id' => $id]);
+    $metrics = $metricsStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $total = (int) ($metrics['total_leads'] ?? 0);
+    $converted = (int) ($metrics['converted_leads'] ?? 0);
+    $pipeline = (int) ($metrics['pipeline_leads'] ?? 0);
+    $lost = (int) ($metrics['lost_leads'] ?? 0);
+
+    $conversionRate = $total > 0 ? round(($converted / $total) * 100, 1) : null;
+
+    return [
+        'id' => (int) $row['id'],
+        'name' => (string) $row['name'],
+        'company' => (string) ($row['company'] ?? ''),
+        'email' => (string) ($row['email'] ?? ''),
+        'phone' => (string) ($row['phone'] ?? ''),
+        'status' => (string) ($row['status'] ?? 'active'),
+        'statusLabel' => referrer_status_label((string) ($row['status'] ?? 'active')),
+        'notes' => (string) ($row['notes'] ?? ''),
+        'lastLeadAt' => (string) ($row['last_lead_at'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+        'metrics' => [
+            'total' => $total,
+            'converted' => $converted,
+            'pipeline' => $pipeline,
+            'lost' => $lost,
+            'conversionRate' => $conversionRate,
+            'latestLeadUpdate' => (string) ($metrics['latest_lead_update'] ?? ''),
+        ],
+    ];
+}
+
+function admin_list_referrers(PDO $db, string $status = 'all'): array
+{
+    $status = strtolower(trim($status));
+    $valid = array_merge(['all'], array_keys(admin_referrer_status_options()));
+    if (!in_array($status, $valid, true)) {
+        $status = 'all';
+    }
+
+    $sql = <<<SQL
+SELECT
+    r.id,
+    r.name,
+    r.company,
+    r.email,
+    r.phone,
+    r.status,
+    r.notes,
+    r.last_lead_at,
+    r.created_at,
+    r.updated_at,
+    COUNT(l.id) AS total_leads,
+    SUM(CASE WHEN l.status = 'converted' THEN 1 ELSE 0 END) AS converted_leads,
+    SUM(CASE WHEN l.status = 'lost' THEN 1 ELSE 0 END) AS lost_leads,
+    SUM(CASE WHEN l.status IN ('new','visited','quotation') THEN 1 ELSE 0 END) AS pipeline_leads,
+    MAX(l.updated_at) AS latest_lead_update
+FROM referrers r
+LEFT JOIN crm_leads l ON l.referrer_id = r.id
+%s
+GROUP BY r.id
+ORDER BY r.status = 'active' DESC, r.updated_at DESC, r.name COLLATE NOCASE
+SQL;
+
+    $where = '';
+    $params = [];
+    if ($status !== 'all') {
+        $where = 'WHERE r.status = :status';
+        $params[':status'] = $status;
+    }
+
+    $stmt = $db->prepare(sprintf($sql, $where));
+    $stmt->execute($params);
+
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $list = [];
+    foreach ($rows as $row) {
+        $total = (int) ($row['total_leads'] ?? 0);
+        $converted = (int) ($row['converted_leads'] ?? 0);
+        $lost = (int) ($row['lost_leads'] ?? 0);
+        $pipeline = (int) ($row['pipeline_leads'] ?? 0);
+        $conversionRate = $total > 0 ? round(($converted / $total) * 100, 1) : null;
+        $list[] = [
+            'id' => (int) $row['id'],
+            'name' => (string) ($row['name'] ?? ''),
+            'company' => (string) ($row['company'] ?? ''),
+            'email' => (string) ($row['email'] ?? ''),
+            'phone' => (string) ($row['phone'] ?? ''),
+            'status' => (string) ($row['status'] ?? 'active'),
+            'statusLabel' => referrer_status_label((string) ($row['status'] ?? 'active')),
+            'notes' => (string) ($row['notes'] ?? ''),
+            'lastLeadAt' => (string) ($row['last_lead_at'] ?? ''),
+            'createdAt' => (string) ($row['created_at'] ?? ''),
+            'updatedAt' => (string) ($row['updated_at'] ?? ''),
+            'metrics' => [
+                'total' => $total,
+                'converted' => $converted,
+                'lost' => $lost,
+                'pipeline' => $pipeline,
+                'conversionRate' => $conversionRate,
+                'latestLeadUpdate' => (string) ($row['latest_lead_update'] ?? ''),
+            ],
+        ];
+    }
+
+    return $list;
+}
+
+function admin_referrer_leads(PDO $db, int $referrerId): array
+{
+    $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
+    $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.referrer_id = :referrer_id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $stmt->execute([':referrer_id' => $referrerId]);
+
+    return lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function admin_unassigned_leads(PDO $db): array
+{
+    $stmt = $db->query("SELECT id, name FROM crm_leads WHERE referrer_id IS NULL ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 100");
+    $results = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $results[] = [
+            'id' => (int) $row['id'],
+            'name' => (string) ($row['name'] ?? ''),
+        ];
+    }
+
+    return $results;
+}
+
+function admin_assign_referrer(PDO $db, int $leadId, ?int $referrerId, int $actorId): array
+{
+    lead_fetch($db, $leadId);
+
+    if ($referrerId !== null && $referrerId > 0) {
+        $referrer = referrer_with_metrics($db, $referrerId);
+        if (!$referrer) {
+            throw new RuntimeException('Select a valid referrer.');
+        }
+    }
+
+    $stmt = $db->prepare('UPDATE crm_leads SET referrer_id = :referrer_id, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':referrer_id' => $referrerId ?: null,
+        ':updated_at' => now_ist(),
+        ':id' => $leadId,
+    ]);
+
+    if ($referrerId) {
+        referrer_touch_lead($db, $referrerId);
+    }
+
+    portal_log_action($db, $actorId, 'assign', 'lead', $leadId, $referrerId ? 'Lead linked to referrer #' . $referrerId : 'Lead referrer cleared');
+
+    return lead_fetch($db, $leadId);
+}
+
+function admin_active_referrers(PDO $db): array
+{
+    $stmt = $db->query("SELECT id, name FROM referrers WHERE status = 'active' ORDER BY name COLLATE NOCASE");
+    $results = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $results[] = [
+            'id' => (int) $row['id'],
+            'name' => (string) ($row['name'] ?? ''),
+        ];
+    }
+
+    return $results;
 }
 
 function admin_active_employees(PDO $db): array
@@ -4065,7 +4397,14 @@ function admin_create_lead(PDO $db, array $input, int $actorId): array
         $assignedTo = null;
     }
 
-    $stmt = $db->prepare('INSERT INTO crm_leads(name, phone, email, source, status, assigned_to, created_by, site_location, site_details, notes, created_at, updated_at) VALUES(:name, :phone, :email, :source, :status, :assigned_to, :created_by, :site_location, :site_details, :notes, :created_at, :updated_at)');
+    $referrerId = isset($input['referrer_id']) && $input['referrer_id'] !== '' ? (int) $input['referrer_id'] : null;
+    if ($referrerId !== null && $referrerId > 0) {
+        referrer_with_metrics($db, $referrerId);
+    } else {
+        $referrerId = null;
+    }
+
+    $stmt = $db->prepare('INSERT INTO crm_leads(name, phone, email, source, status, assigned_to, created_by, referrer_id, site_location, site_details, notes, created_at, updated_at) VALUES(:name, :phone, :email, :source, :status, :assigned_to, :created_by, :referrer_id, :site_location, :site_details, :notes, :created_at, :updated_at)');
     $now = now_ist();
     $stmt->execute([
         ':name' => $name,
@@ -4075,6 +4414,7 @@ function admin_create_lead(PDO $db, array $input, int $actorId): array
         ':status' => 'new',
         ':assigned_to' => $assignedTo,
         ':created_by' => $actorId ?: null,
+        ':referrer_id' => $referrerId,
         ':site_location' => $siteLocation !== '' ? $siteLocation : null,
         ':site_details' => $siteDetails !== '' ? $siteDetails : null,
         ':notes' => $notes !== '' ? $notes : null,
@@ -4082,6 +4422,10 @@ function admin_create_lead(PDO $db, array $input, int $actorId): array
         ':updated_at' => $now,
     ]);
     $leadId = (int) $db->lastInsertId();
+
+    if ($referrerId) {
+        referrer_touch_lead($db, $referrerId);
+    }
 
     return lead_fetch($db, $leadId);
 }
@@ -4114,7 +4458,7 @@ function admin_update_lead_stage(PDO $db, int $leadId, string $stage, int $actor
 function admin_fetch_lead_overview(PDO $db): array
 {
     $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
-    $stmt = $db->query("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $stmt = $db->query("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id LEFT JOIN referrers r ON l.referrer_id = r.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
 
     return lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
 }
@@ -4122,7 +4466,7 @@ function admin_fetch_lead_overview(PDO $db): array
 function employee_list_leads(PDO $db, int $employeeId): array
 {
     $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
-    $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id WHERE l.assigned_to = :employee_id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.assigned_to = :employee_id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
     $stmt->execute([':employee_id' => $employeeId]);
 
     $leads = lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -5470,11 +5814,11 @@ function admin_list_leads(PDO $db, string $status = 'new'): array
     $status = strtolower(trim($status));
     $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
     if ($status === 'all') {
-        $stmt = $db->query("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+        $stmt = $db->query("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at, l.referrer_id, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
         return $stmt->fetchAll();
     }
 
-    $stmt = $db->prepare("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id WHERE l.status = :status ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $stmt = $db->prepare("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at, l.referrer_id, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.status = :status ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
     $stmt->execute([':status' => $status]);
 
     return $stmt->fetchAll();
