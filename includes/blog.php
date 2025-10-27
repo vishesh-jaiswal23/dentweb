@@ -8,7 +8,19 @@ function blog_slugify(string $text): string
         return bin2hex(random_bytes(6));
     }
 
-    $text = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text) ?: $text;
+    // Prefer intl's transliterator when available to normalise Unicode
+    // characters without requiring the iconv extension.
+    if (function_exists('transliterator_transliterate')) {
+        $transliterated = transliterator_transliterate('Any-Latin; Latin-ASCII', $text);
+        if (is_string($transliterated) && $transliterated !== '') {
+            $text = $transliterated;
+        }
+    } elseif (function_exists('iconv')) {
+        $converted = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+        if (is_string($converted) && $converted !== '') {
+            $text = $converted;
+        }
+    }
     $text = strtolower($text);
     $text = preg_replace('/[^a-z0-9]+/i', '-', $text) ?? '';
     $text = trim($text, '-');
