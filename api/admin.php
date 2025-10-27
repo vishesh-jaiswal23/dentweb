@@ -416,8 +416,16 @@ function build_research_excerpt(string $articleHtml, string $headline): string
         return $headline;
     }
 
-    $excerpt = mb_substr($text, 0, 280);
-    if (mb_strlen($text) > 280) {
+    if (function_exists('mb_substr') && function_exists('mb_strlen')) {
+        $excerpt = mb_substr($text, 0, 280);
+        if (mb_strlen($text) > 280) {
+            $excerpt = rtrim($excerpt) . '…';
+        }
+        return $excerpt;
+    }
+
+    $excerpt = substr($text, 0, 280);
+    if (strlen($text) > 280) {
         $excerpt = rtrim($excerpt) . '…';
     }
 
