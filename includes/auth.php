@@ -5,12 +5,39 @@ require_once __DIR__ . '/bootstrap.php';
 
 function start_session(): void
 {
+    $secure = !empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off';
+
     if (session_status() !== PHP_SESSION_ACTIVE) {
         session_start([
             'cookie_httponly' => true,
             'cookie_samesite' => 'Strict',
+            'cookie_secure' => $secure,
         ]);
     }
+
+    $now = time();
+    $timeoutMinutes = (int) ($_SESSION['session_policy_timeout'] ?? 45);
+    if ($timeoutMinutes < 15 || $timeoutMinutes > 720) {
+        $timeoutMinutes = 45;
+    }
+
+    $timeoutSeconds = $timeoutMinutes * 60;
+    $lastActivity = isset($_SESSION['session_last_activity']) ? (int) $_SESSION['session_last_activity'] : $now;
+
+    if (!empty($_SESSION['user']) && $timeoutSeconds > 0 && ($now - $lastActivity) >= $timeoutSeconds) {
+        $_SESSION = [];
+        session_unset();
+        session_destroy();
+        session_start([
+            'cookie_httponly' => true,
+            'cookie_samesite' => 'Strict',
+            'cookie_secure' => $secure,
+        ]);
+        $lastActivity = $now;
+    }
+
+    $_SESSION['session_policy_timeout'] = $timeoutMinutes;
+    $_SESSION['session_last_activity'] = $now;
 
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -316,4 +343,13 @@ function logout_user(): void
         setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], $params['secure'], $params['httponly']);
     }
     session_destroy();
+    session_start([
+        'cookie_httponly' => true,
+        'cookie_samesite' => 'Strict',
+        'cookie_secure' => !empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off',
+    ]);
+    session_regenerate_id(true);
+    $_SESSION['session_policy_timeout'] = 45;
+    $_SESSION['session_last_activity'] = time();
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }

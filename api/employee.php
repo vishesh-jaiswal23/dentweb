@@ -26,11 +26,23 @@ $action = $_GET['action'] ?? '';
 $actor = current_user();
 $userId = (int) ($actor['id'] ?? 0);
 
+if (($actor['status'] ?? 'active') !== 'active') {
+    respond_error('Account inactive. Contact Admin to regain access.');
+    exit;
+}
+
 try {
     switch ($action) {
         case 'bootstrap':
             require_method('GET');
             respond_success(employee_bootstrap_payload($db, $userId));
+            break;
+        case 'upload-document':
+            require_method('POST');
+            respond_success([
+                'document' => portal_employee_submit_document($db, read_json(), $userId),
+                'documents' => portal_list_documents($db, 'employee', $userId),
+            ]);
             break;
         case 'update-task-status':
             require_method('POST');
@@ -59,6 +71,30 @@ try {
             $complaint = portal_update_complaint_status($db, $reference, $status, $userId);
             respond_success([
                 'complaint' => $complaint,
+                'complaints' => portal_employee_complaints($db, $userId),
+            ]);
+            break;
+        case 'add-complaint-note':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $note = (string) ($payload['note'] ?? '');
+            enforce_complaint_access($db, $reference, $userId);
+            $complaint = portal_add_complaint_note($db, $reference, $note, $userId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_employee_complaints($db, $userId),
+            ]);
+            break;
+        case 'upload-document':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            if ($reference === '') {
+                throw new RuntimeException('Complaint reference is required for uploads.');
+            }
+            $result = portal_employee_submit_document($db, $userId, $reference, $payload);
+            respond_success($result + [
                 'complaints' => portal_employee_complaints($db, $userId),
             ]);
             break;
@@ -126,7 +162,7 @@ function employee_bootstrap_payload(PDO $db, int $userId): array
     return [
         'tasks' => portal_list_tasks($db, $userId),
         'complaints' => portal_employee_complaints($db, $userId),
-        'documents' => portal_list_documents($db, 'employee'),
+        'documents' => portal_list_documents($db, 'employee', $userId),
         'notifications' => portal_list_notifications($db, $userId, 'employee'),
         'sync' => portal_latest_sync($db, $userId),
     ];

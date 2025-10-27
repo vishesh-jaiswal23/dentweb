@@ -13,11 +13,25 @@ if (!empty($user['id'])) {
     $employeeRecord = portal_find_user($db, (int) $user['id']);
 }
 $employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
+$tasks = portal_list_tasks($db, $employeeId);
+$complaints = portal_employee_complaints($db, $employeeId);
+$documentsRaw = portal_list_documents($db, 'employee', $employeeId);
+$notificationsRaw = portal_list_notifications($db, $employeeId, 'employee');
 
 $employeeName = trim((string) ($employeeRecord['full_name'] ?? $user['full_name'] ?? ''));
 if ($employeeName === '') {
     $employeeName = 'Employee';
 }
+
+$employeeStatus = strtolower((string) ($employeeRecord['status'] ?? $user['status'] ?? 'active'));
+if (!in_array($employeeStatus, ['active', 'inactive', 'pending'], true)) {
+    $employeeStatus = 'active';
+}
+$employeeStatusLabel = match ($employeeStatus) {
+    'inactive' => 'Inactive',
+    'pending' => 'Pending approval',
+    default => 'Active',
+};
 
 $employeeRole = 'Employee';
 $employeeAccess = trim((string) ($employeeRecord['permissions_note'] ?? ''));
@@ -45,6 +59,13 @@ $pathFor = static function (string $path) use ($prefix): string {
 };
 
 $logoutUrl = $pathFor('logout.php');
+
+$bootstrapData = employee_bootstrap_payload($db, $employeeId);
+$tasks = $bootstrapData['tasks'] ?? [];
+$complaints = $bootstrapData['complaints'] ?? [];
+$documentsRaw = $bootstrapData['documents'] ?? [];
+$notificationsRaw = $bootstrapData['notifications'] ?? [];
+$syncSnapshot = $bootstrapData['sync'] ?? null;
 
 $viewDefinitions = [
     'overview' => [
@@ -285,19 +306,73 @@ foreach ($complaints as $complaint) {
     $map = $complaintStatusMap[$complaint['status']] ?? $complaintStatusMap['intake'];
     $timeline = [];
     if (!empty($complaint['createdAt'])) {
+        $createdAt = new DateTime($complaint['createdAt']);
         $timeline[] = [
-            'time' => (new DateTime($complaint['createdAt']))->format(DATE_ATOM),
+            'time' => $createdAt->format(DATE_ATOM),
             'label' => 'Created',
             'message' => 'Ticket opened from Admin portal.',
         ];
     }
     if (!empty($complaint['updatedAt']) && $complaint['updatedAt'] !== $complaint['createdAt']) {
+        $updatedAt = new DateTime($complaint['updatedAt']);
         $timeline[] = [
-            'time' => (new DateTime($complaint['updatedAt']))->format(DATE_ATOM),
+            'time' => $updatedAt->format(DATE_ATOM),
             'label' => 'Last update',
             'message' => sprintf('Status updated to %s.', strtolower($map['label'])),
         ];
     }
+    foreach ($complaint['notes'] ?? [] as $note) {
+        if (!is_array($note)) {
+            continue;
+        }
+        $noteTime = !empty($note['createdAt']) ? new DateTime($note['createdAt']) : null;
+        if ($noteTime instanceof DateTime) {
+            $timeline[] = [
+                'time' => $noteTime->format(DATE_ATOM),
+                'label' => 'Note added',
+                'message' => sprintf(
+                    '<strong>%s:</strong> %s',
+                    htmlspecialchars($note['authorName'] ?? 'Team', ENT_QUOTES),
+                    nl2br(htmlspecialchars($note['body'] ?? '', ENT_QUOTES))
+                ),
+            ];
+        }
+    }
+    $attachments = [];
+    foreach ($complaint['attachments'] ?? [] as $attachment) {
+        if (!is_array($attachment)) {
+            continue;
+        }
+        $visibility = $attachment['visibility'] ?? 'both';
+        if ($visibility === 'admin') {
+            continue;
+        }
+        $uploadedAt = !empty($attachment['uploadedAt']) ? new DateTime($attachment['uploadedAt']) : null;
+        if ($uploadedAt instanceof DateTime) {
+            $timeline[] = [
+                'time' => $uploadedAt->format(DATE_ATOM),
+                'label' => 'Attachment uploaded',
+                'message' => sprintf(
+                    '%s uploaded <strong>%s</strong>.',
+                    htmlspecialchars($attachment['uploadedBy'] ?? 'Team', ENT_QUOTES),
+                    htmlspecialchars($attachment['label'] ?? ($attachment['filename'] ?? 'Attachment'), ENT_QUOTES)
+                ),
+            ];
+        }
+        $token = $attachment['downloadToken'] ?? '';
+        $downloadUrl = $token !== ''
+            ? $pathFor('download.php') . '?complaint=' . rawurlencode($complaint['reference']) . '&token=' . rawurlencode($token)
+            : '';
+        $attachments[] = [
+            'label' => $attachment['label'] ?? ($attachment['filename'] ?? 'Attachment'),
+            'filename' => $attachment['filename'] ?? '',
+            'url' => $downloadUrl,
+        ];
+    }
+    usort($timeline, static function (array $a, array $b): int {
+        return strcmp($b['time'], $a['time']);
+    });
+
     $tickets[] = [
         'id' => $complaint['reference'],
         'title' => $complaint['title'],
@@ -307,10 +382,13 @@ foreach ($complaints as $complaint) {
         'statusTone' => $map['tone'],
         'assignedBy' => 'Admin Control Center',
         'sla' => $complaint['slaDue'] !== '' ? date('d M Y', strtotime($complaint['slaDue'])) : 'Not set',
+        'slaBadgeLabel' => $slaBadgeLabel,
+        'slaBadgeTone' => $slaTone,
+        'age' => $ageLabel,
         'contact' => 'Shared via Admin',
         'noteIcon' => 'fa-solid fa-pen-to-square',
         'noteLabel' => 'Add note',
-        'attachments' => [],
+        'attachments' => $attachments,
         'timeline' => $timeline,
     ];
 
@@ -628,7 +706,7 @@ $employeeProfile = [
     'lastUpdated' => $nowIst->format(DATE_ATOM),
 ];
 
-$lastSyncRaw = portal_latest_sync($db, $employeeId);
+$lastSyncRaw = is_string($syncSnapshot) ? $syncSnapshot : portal_latest_sync($db, $employeeId);
 if ($lastSyncRaw) {
     $lastSyncTime = (new DateTime($lastSyncRaw, new DateTimeZone('Asia/Kolkata')))->format(DATE_ATOM);
 } else {
@@ -638,6 +716,23 @@ $syncStatus = [
     'label' => 'Realtime sync with Admin portal',
     'lastSync' => $lastSyncTime,
     'latency' => '0.3s',
+];
+
+$geminiProfile = portal_gemini_profile($db);
+$permissionMatrix = [
+    'tasks' => ['view' => true, 'create' => false, 'update' => true, 'delete' => false, 'export' => false, 'approve' => false],
+    'complaints' => ['view' => true, 'create' => false, 'update' => true, 'delete' => false, 'export' => false, 'approve' => false],
+    'documents' => ['view' => true, 'upload' => false, 'delete' => false],
+    'notifications' => ['view' => true, 'update' => true],
+    'ai' => ['use' => $geminiProfile['enabled']],
+    'search' => ['use' => true],
+    'communication' => ['log' => true],
+    'profile' => ['update' => true],
+    'feedback' => ['create' => true],
+    'leads' => ['create' => true, 'update' => true],
+    'visits' => ['update' => true],
+    'warranty' => ['update' => true],
+    'subsidy' => ['update' => true],
 ];
 
 $unreadNotificationCount = count(array_filter($notifications, static fn (array $notice): bool => empty($notice['isRead'])));
@@ -766,9 +861,32 @@ $attachmentIcon = static function (string $filename): string {
     referrerpolicy="no-referrer"
   />
 </head>
-<body data-dashboard-theme="light" data-current-view="<?= htmlspecialchars($currentView, ENT_QUOTES) ?>">
+<body data-dashboard-theme="light" data-current-view="<?= htmlspecialchars($currentView, ENT_QUOTES) ?>" data-user-status="<?= htmlspecialchars($employeeStatus, ENT_QUOTES) ?>">
   <main class="dashboard">
     <div class="container dashboard-shell">
+      <div class="dashboard-search-overlay" data-search-overlay hidden>
+        <div class="dashboard-search-backdrop" data-close-search aria-hidden="true"></div>
+        <div class="dashboard-search-panel" role="dialog" aria-modal="true" aria-labelledby="employee-search-title">
+          <div class="dashboard-search-panel__inner">
+            <h2 id="employee-search-title" class="sr-only">Universal search</h2>
+            <form class="dashboard-search-field" data-search-form role="search">
+              <label for="employee-search-input" class="sr-only">Search assignments</label>
+              <input
+                id="employee-search-input"
+                type="search"
+                placeholder="Search customers, leads, tickets, documents…"
+                autocomplete="off"
+                data-search-input
+              />
+              <span class="dashboard-search-hint">Press Esc to close · Ctrl + K</span>
+            </form>
+            <div class="dashboard-search-results" data-search-results hidden>
+              <p class="dashboard-search-empty">Start typing to surface customers, leads, tickets, and documents assigned to you.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="dashboard-auth-bar" role="banner">
         <div class="dashboard-auth-user">
           <i class="fa-solid fa-user-tie" aria-hidden="true"></i>
@@ -776,6 +894,10 @@ $attachmentIcon = static function (string $filename): string {
             <small>Signed in as</small>
             <strong><?= htmlspecialchars($employeeName, ENT_QUOTES) ?> · <?= htmlspecialchars($employeeRole, ENT_QUOTES) ?></strong>
             <p class="text-xs text-muted mb-0">Access: <?= htmlspecialchars($employeeAccess, ENT_QUOTES) ?></p>
+            <span class="badge badge-soft">Status: <?= htmlspecialchars($employeeStatusLabel, ENT_QUOTES) ?></span>
+            <?php if ($employeeStatus !== 'active'): ?>
+            <p class="text-xs text-warning mb-0">Workspace actions are read-only until Admin reactivates your account.</p>
+            <?php endif; ?>
           </div>
         </div>
         <div class="dashboard-auth-actions">
@@ -806,6 +928,10 @@ $attachmentIcon = static function (string $filename): string {
           Track open complaints, priority tasks, and follow-ups without exposing admin settings or other users' data.
         </p>
         <div class="employee-header-actions" role="toolbar" aria-label="Employee quick actions">
+          <button type="button" class="employee-header-button" data-open-search>
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            <span>Search</span>
+          </button>
           <button type="button" class="employee-header-button" data-open-profile>
             <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
             <span>Profile</span>
@@ -961,31 +1087,45 @@ $attachmentIcon = static function (string $filename): string {
                 <dl class="ticket-details">
                   <div>
                     <dt>Assigned by</dt>
-                    <dd><?= htmlspecialchars($ticket['assignedBy'], ENT_QUOTES) ?></dd>
+                    <dd data-ticket-assigned-by><?= htmlspecialchars($ticket['assignedBy'], ENT_QUOTES) ?></dd>
                   </div>
                   <div>
                     <dt>SLA target</dt>
-                    <dd><?= htmlspecialchars($ticket['sla'], ENT_QUOTES) ?></dd>
+                    <dd data-ticket-sla><?= htmlspecialchars($ticket['sla'], ENT_QUOTES) ?></dd>
+                  </div>
+                  <div>
+                    <dt>SLA health</dt>
+                    <dd>
+                      <?php if ($ticket['slaBadgeTone'] === 'muted'): ?>
+                      <span><?= htmlspecialchars($ticket['slaBadgeLabel'], ENT_QUOTES) ?></span>
+                      <?php else: ?>
+                      <span class="dashboard-status dashboard-status--<?= htmlspecialchars($ticket['slaBadgeTone'], ENT_QUOTES) ?>"><?= htmlspecialchars($ticket['slaBadgeLabel'], ENT_QUOTES) ?></span>
+                      <?php endif; ?>
+                    </dd>
                   </div>
                   <div>
                     <dt>Contact</dt>
-                    <dd><?= htmlspecialchars($ticket['contact'], ENT_QUOTES) ?></dd>
+                    <dd data-ticket-contact><?= htmlspecialchars($ticket['contact'], ENT_QUOTES) ?></dd>
+                  </div>
+                  <div>
+                    <dt>Age</dt>
+                    <dd><?= htmlspecialchars($ticket['age'], ENT_QUOTES) ?></dd>
                   </div>
                 </dl>
                 <div class="ticket-actions">
                   <label class="ticket-actions__field">
                     <span>Status</span>
-                    <select data-ticket-status>
+                    <select data-ticket-status <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
                       <?php foreach ($statusOptions as $value => $label): ?>
                       <option value="<?= htmlspecialchars($value, ENT_QUOTES) ?>"<?= $ticket['status'] === $value ? ' selected' : '' ?>><?= htmlspecialchars($label, ENT_QUOTES) ?></option>
                       <?php endforeach; ?>
                     </select>
                   </label>
-                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note>
+                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
                     <i class="<?= htmlspecialchars($ticket['noteIcon'], ENT_QUOTES) ?>" aria-hidden="true"></i>
                     <?= htmlspecialchars($ticket['noteLabel'], ENT_QUOTES) ?>
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate>
+                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
                     <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
                     Return to Admin
                   </button>
@@ -995,7 +1135,20 @@ $attachmentIcon = static function (string $filename): string {
                   <h4>Attachments</h4>
                   <ul>
                     <?php foreach ($ticket['attachments'] as $attachment): ?>
-                    <li><i class="<?= htmlspecialchars($attachmentIcon($attachment), ENT_QUOTES) ?>" aria-hidden="true"></i> <?= htmlspecialchars($attachment, ENT_QUOTES) ?></li>
+                    <?php $iconClass = $attachmentIcon($attachment['filename'] ?? ''); ?>
+                    <li>
+                      <i class="<?= htmlspecialchars($iconClass, ENT_QUOTES) ?>" aria-hidden="true"></i>
+                      <?php if (!empty($attachment['url'])): ?>
+                      <a href="<?= htmlspecialchars($attachment['url'], ENT_QUOTES) ?>" class="ticket-attachment-link" target="_blank" rel="noopener">
+                        <?= htmlspecialchars($attachment['label'], ENT_QUOTES) ?>
+                      </a>
+                      <?php else: ?>
+                      <span><?= htmlspecialchars($attachment['label'], ENT_QUOTES) ?></span>
+                      <?php endif; ?>
+                      <?php if (!empty($attachment['filename']) && $attachment['filename'] !== $attachment['label']): ?>
+                      <span class="text-xs text-muted d-block"><?= htmlspecialchars($attachment['filename'], ENT_QUOTES) ?></span>
+                      <?php endif; ?>
+                    </li>
                     <?php endforeach; ?>
                   </ul>
                 </div>
@@ -1047,7 +1200,7 @@ $attachmentIcon = static function (string $filename): string {
                     <p class="task-card-meta"><i class="fa-solid fa-clock" aria-hidden="true"></i> <?= htmlspecialchars($item['deadline'], ENT_QUOTES) ?></p>
                     <p class="task-card-link"><?= $item['link'] ?></p>
                     <?php if (!empty($item['action'])): ?>
-                    <button type="button" class="task-card-action" <?= $item['action']['attr'] ?>><?= htmlspecialchars($item['action']['label'], ENT_QUOTES) ?></button>
+                    <button type="button" class="task-card-action" <?= $item['action']['attr'] ?> <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>><?= htmlspecialchars($item['action']['label'], ENT_QUOTES) ?></button>
                     <?php endif; ?>
                   </article>
                   <?php endforeach; ?>
@@ -1644,7 +1797,16 @@ $attachmentIcon = static function (string $filename): string {
             <div class="ai-layout">
               <article class="dashboard-panel">
                 <h3>Request suggestion</h3>
-                <form class="ai-form" data-ai-form>
+                <?php if (!$geminiProfile['enabled']): ?>
+                <div class="dashboard-inline-status dashboard-inline-status--warning" data-ai-disabled-banner>
+                  <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                  <div>
+                    <strong>Gemini assistant is offline</strong>
+                    <p>Admin has disabled Gemini usage. You can still prepare prompts, but generation is unavailable.</p>
+                  </div>
+                </div>
+                <?php endif; ?>
+                <form class="ai-form" data-ai-form data-ai-enabled="<?= $geminiProfile['enabled'] ? 'true' : 'false' ?>">
                   <label>
                     Choose tool
                     <select name="purpose" required>
@@ -1657,13 +1819,25 @@ $attachmentIcon = static function (string $filename): string {
                     Context / highlights
                     <textarea name="context" rows="3" placeholder="Describe the service outcome or request from Admin."></textarea>
                   </label>
-                  <button type="submit" class="btn btn-primary btn-sm">Generate with Gemini</button>
-                  <p class="text-xs text-muted mb-0">All prompts route through Admin-configured Gemini models (Text · Image · TTS).</p>
+                  <div class="ai-actions">
+                    <button type="submit" class="btn btn-primary btn-sm" data-ai-generate="text">Generate text</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-ai-generate-image>Cover image</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-ai-generate-audio>Audio note</button>
+                  </div>
+                  <p class="text-xs text-muted mb-0">All prompts route through Admin-configured Gemini models. Activity is logged for compliance.</p>
                 </form>
               </article>
               <article class="dashboard-panel ai-output-panel">
                 <h3>AI output</h3>
                 <div class="ai-output" data-ai-output aria-live="polite">Select a tool and provide optional context to begin.</div>
+                <figure class="ai-output-media" data-ai-image-wrapper hidden>
+                  <img src="" alt="" data-ai-image />
+                  <figcaption data-ai-image-caption></figcaption>
+                </figure>
+                <div class="ai-output-media" data-ai-audio-wrapper hidden>
+                  <audio controls data-ai-audio></audio>
+                  <p class="text-xs text-muted" data-ai-audio-caption></p>
+                </div>
               </article>
             </div>
           </section>
@@ -1808,12 +1982,31 @@ $attachmentIcon = static function (string $filename): string {
     </div>
   </main>
 
+  <template id="employee-search-group-template">
+    <div class="dashboard-search-group">
+      <h3></h3>
+      <ul></ul>
+    </div>
+  </template>
+
+  <template id="employee-search-item-template">
+    <li>
+      <button type="button">
+        <span></span>
+        <small></small>
+      </button>
+    </li>
+  </template>
+
   <script>
     window.DakshayaniEmployee = Object.freeze({
       csrfToken: <?= json_encode($_SESSION['csrf_token'] ?? '') ?>,
       apiBase: <?= json_encode($pathFor('api/employee.php')) ?>,
-      currentUser: <?= json_encode(['id' => $employeeId, 'name' => $employeeName]) ?>,
+      currentUser: <?= json_encode(['id' => $employeeId, 'name' => $employeeName, 'status' => $employeeStatus]) ?>,
       sync: <?= json_encode(['lastSync' => $syncStatus['lastSync'] ?? null]) ?>,
+      gemini: <?= json_encode($geminiProfile) ?>,
+      permissions: <?= json_encode($permissionMatrix) ?>,
+      views: <?= json_encode($dashboardViews) ?>,
     });
   </script>
   <script src="employee-dashboard.js" defer></script>

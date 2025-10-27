@@ -87,13 +87,72 @@ try {
             require_method('POST');
             respond_success(['document' => portal_save_document($db, read_json(), $actorId), 'documents' => portal_list_documents($db, 'admin')]);
             break;
+        case 'save-complaint':
+            require_method('POST');
+            respond_success(['complaint' => portal_save_complaint($db, read_json(), $actorId), 'complaints' => portal_all_complaints($db)]);
+            break;
+        case 'assign-complaint':
+            require_method('POST');
+            respond_success(['complaint' => portal_assign_complaint($db, read_json(), $actorId), 'complaints' => portal_all_complaints($db)]);
+            break;
+        case 'add-complaint-note':
+            require_method('POST');
+            respond_success(['complaint' => portal_add_complaint_note($db, read_json(), $actorId)]);
+            break;
+        case 'complaint-timeline':
+            require_method('GET');
+            respond_success(['timeline' => fetch_complaint_timeline($db, $_GET)]);
+            break;
         case 'fetch-audit':
             require_method('GET');
             respond_success(['audit' => recent_audit_logs($db)]);
             break;
         case 'fetch-complaints':
             require_method('GET');
-            respond_success(['complaints' => list_complaints($db)]);
+            respond_success([
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'assign-complaint':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $assigneeId = isset($payload['assigneeId']) && $payload['assigneeId'] !== '' ? (int) $payload['assigneeId'] : null;
+            $slaDue = (string) ($payload['slaDue'] ?? '');
+            $complaint = portal_assign_complaint($db, $reference, $assigneeId, $slaDue !== '' ? $slaDue : null, $actorId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'add-complaint-note':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $note = (string) ($payload['note'] ?? '');
+            $complaint = portal_add_complaint_note($db, $reference, $note, $actorId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'add-complaint-attachment':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $attachment = $payload['attachment'] ?? [];
+            if (!is_array($attachment)) {
+                throw new RuntimeException('Invalid attachment payload.');
+            }
+            $complaint = portal_add_complaint_attachment($db, $reference, $attachment, $actorId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
             break;
         case 'fetch-metrics':
             require_method('GET');
@@ -447,7 +506,7 @@ function bootstrap_payload(PDO $db): array
     return [
         'users' => list_users($db),
         'invitations' => list_invitations($db),
-        'complaints' => list_complaints($db),
+        'complaints' => portal_all_complaints($db),
         'audit' => recent_audit_logs($db),
         'metrics' => current_metrics($db),
         'loginPolicy' => fetch_login_policy($db),
@@ -480,29 +539,27 @@ function list_invitations(PDO $db): array
     return $stmt->fetchAll();
 }
 
-function list_complaints(PDO $db): array
+function fetch_complaint_timeline(PDO $db, array $query): array
 {
-    $stmt = $db->query('SELECT complaints.*, users.full_name AS assigned_to_name FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id ORDER BY complaints.created_at DESC');
-    return $stmt->fetchAll();
+    return portal_all_complaints($db);
 }
 
 function recent_audit_logs(PDO $db): array
 {
-    $stmt = $db->prepare('SELECT audit_logs.id, audit_logs.action, audit_logs.entity_type, audit_logs.entity_id, audit_logs.description, audit_logs.created_at, users.full_name AS actor_name FROM audit_logs LEFT JOIN users ON audit_logs.actor_id = users.id ORDER BY audit_logs.created_at DESC LIMIT 25');
-    $stmt->execute();
-    return $stmt->fetchAll();
+    return portal_recent_audit_logs($db);
 }
 
 function current_metrics(PDO $db): array
 {
-    $customerCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'customer'")->fetchColumn();
+    $employeeCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee'")->fetchColumn();
     $pendingInvites = (int) $db->query("SELECT COUNT(*) FROM invitations WHERE status = 'pending'")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status IN ('intake','triage','work')")->fetchColumn();
     $metrics = $db->query('SELECT name, value FROM system_metrics')->fetchAll(PDO::FETCH_KEY_PAIR);
 
     return [
         'counts' => [
-            'customers' => $customerCount,
+            'employees' => $employeeCount,
+            'customers' => $employeeCount,
             'pendingInvitations' => $pendingInvites,
             'openComplaints' => $openComplaints,
             'subsidyPipeline' => $metrics['subsidy_pipeline'] ?? '0',
@@ -566,12 +623,14 @@ function create_user(PDO $db, array $input): array
     $email = strtolower(trim((string)($input['email'] ?? '')));
     $username = trim((string)($input['username'] ?? ''));
     $password = (string)($input['password'] ?? '');
-    $roleName = strtolower(trim((string)($input['role'] ?? '')));
+    $requestedRole = strtolower(trim((string)($input['role'] ?? '')));
     $permissions = trim((string)($input['permissions'] ?? ''));
 
-    if ($fullName === '' || $email === '' || $username === '' || $password === '' || $roleName === '') {
+    if ($fullName === '' || $email === '' || $username === '' || $password === '' || $requestedRole === '') {
         throw new RuntimeException('All required fields must be supplied.');
     }
+
+    $roleName = normalize_role_name($requestedRole);
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new RuntimeException('Enter a valid email address.');
@@ -610,15 +669,41 @@ function create_user(PDO $db, array $input): array
     }
 
     $userId = (int)$db->lastInsertId();
-    audit('create_user', 'user', $userId, sprintf('User %s (%s) created with role %s', $fullName, $email, $roleName));
+    $auditMessage = sprintf('User %s (%s) created with role %s', $fullName, $email, $roleName);
+    if ($roleName !== $requestedRole) {
+        $auditMessage .= sprintf(' (requested %s)', $requestedRole);
+    }
+    audit('create_user', 'user', $userId, $auditMessage);
 
     return ['user' => fetch_user($db, $userId), 'metrics' => current_metrics($db)];
 }
 
+function normalize_role_name(string $roleName): string
+{
+    $key = strtolower(trim($roleName));
+    $map = [
+        'admin' => 'admin',
+        'administrator' => 'admin',
+        'employee' => 'employee',
+        'staff' => 'employee',
+        'team' => 'employee',
+        'installer' => 'employee',
+        'referrer' => 'employee',
+        'customer' => 'employee',
+    ];
+
+    if (!array_key_exists($key, $map)) {
+        throw new RuntimeException('Unknown role specified.');
+    }
+
+    return $map[$key];
+}
+
 function resolve_role_id(PDO $db, string $roleName): int
 {
+    $normalized = normalize_role_name($roleName);
     $stmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
-    $stmt->execute([':name' => $roleName]);
+    $stmt->execute([':name' => $normalized]);
     $roleId = $stmt->fetchColumn();
     if ($roleId === false) {
         throw new RuntimeException('Unknown role specified.');
@@ -658,16 +743,17 @@ function create_invitation(PDO $db, array $input): array
 {
     $name = trim((string)($input['name'] ?? ''));
     $email = strtolower(trim((string)($input['email'] ?? '')));
-    $roleName = strtolower(trim((string)($input['role'] ?? '')));
+    $requestedRole = strtolower(trim((string)($input['role'] ?? '')));
     $submittedBy = trim((string)($input['submittedBy'] ?? ''));
 
-    if ($name === '' || $email === '' || $roleName === '' || $submittedBy === '') {
+    if ($name === '' || $email === '' || $requestedRole === '' || $submittedBy === '') {
         throw new RuntimeException('Complete all invitation fields.');
     }
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new RuntimeException('Enter a valid email address.');
     }
 
+    $roleName = normalize_role_name($requestedRole);
     $roleId = resolve_role_id($db, $roleName);
     $token = bin2hex(random_bytes(16));
     $currentUser = current_user();
@@ -682,7 +768,11 @@ function create_invitation(PDO $db, array $input): array
     ]);
 
     $inviteId = (int)$db->lastInsertId();
-    audit('create_invitation', 'invitation', $inviteId, sprintf('Invitation recorded for %s (%s)', $name, $email));
+    $inviteAudit = sprintf('Invitation recorded for %s (%s) with role %s', $name, $email, $roleName);
+    if ($roleName !== $requestedRole) {
+        $inviteAudit .= sprintf(' (requested %s)', $requestedRole);
+    }
+    audit('create_invitation', 'invitation', $inviteId, $inviteAudit);
     return ['invitation' => fetch_invitation($db, $inviteId), 'metrics' => current_metrics($db)];
 }
 

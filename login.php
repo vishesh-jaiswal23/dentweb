@@ -55,30 +55,21 @@ $routeFor = static function (string $path) use ($prefix): string {
 
 $roleRoutes = [
     'admin' => $routeFor('admin-dashboard.php'),
-    'customer' => $routeFor('customer-dashboard.html'),
     'employee' => $routeFor('employee-dashboard.php'),
-    'installer' => $routeFor('installer-dashboard.html'),
-    'referrer' => $routeFor('referrer-dashboard.html'),
 ];
 
-$error = '';
+$error = $bootstrapError;
 $success = '';
 $selectedRole = $_POST['role'] ?? 'admin';
 $emailValue = $_POST['email'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $csrfToken = $_POST['csrf_token'] ?? '';
-    if (!verify_csrf_token($csrfToken)) {
-        $error = 'Your session expired. Please refresh and try again.';
+    if ($bootstrapError !== '') {
+        $error = $bootstrapError;
     } else {
-        $selectedRole = $_POST['role'] ?? 'admin';
-        $email = trim($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
-
-        if (!isset($roleRoutes[$selectedRole])) {
-            $error = 'Select a valid portal to continue.';
-        } elseif ($email === '' || $password === '') {
-            $error = 'Enter both your email ID and password.';
+        $csrfToken = $_POST['csrf_token'] ?? '';
+        if (!verify_csrf_token($csrfToken)) {
+            $error = 'Your session expired. Please refresh and try again.';
         } else {
             $user = null;
             try {
@@ -120,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <title>Login Portal | Dakshayani Enterprises</title>
   <meta
     name="description"
-    content="Securely access the Dakshayani Enterprises portals for administrators, customers, employees, installers, and referrers."
+    content="Securely access the Dakshayani Enterprises portals for administrators and employees with unified security controls."
   />
   <link rel="icon" href="images/favicon.ico" />
   <link rel="stylesheet" href="style.css" />
@@ -147,8 +138,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <span class="hero-eyebrow"><i class="fa-solid fa-lock"></i> Secure access</span>
           <h1>Login to your Dakshayani workspace</h1>
           <p class="lead" style="color: rgba(255, 255, 255, 0.85); max-width: 32rem;">
-            Choose your portal to manage subsidies, monitor projects, or stay updated with your assignments.
-            Dedicated workspaces for administrators, customers, employees, installers, and referrers are ready for you.
+            Choose your portal to manage approvals, monitor service tickets, or stay updated with assignments.
+            Dedicated workspaces for administrators and employees are ready for you.
           </p>
         </div>
         <div class="hero-art">
@@ -162,8 +153,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-panel" aria-labelledby="portal-login-title">
           <h2 id="portal-login-title">Access your portal</h2>
           <p class="text-sm">
-            Select the portal you need to access and enter your credentials. Only verified administrators can log in with the
-            credentials provided to you by Dakshayani Enterprises.
+            Select the portal you need to access and enter your credentials. Administrators approve every employee account
+            before it becomes active, and only authorised users may sign in.
           </p>
 
           <form
@@ -184,20 +175,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   <small>
                     <?php switch ($role) {
                         case 'admin':
-                            echo 'Manage operations, policies, and approvals.';
-                            break;
-                        case 'customer':
-                            echo 'Track subsidy status, invoices, and dashboards.';
+                            echo 'Manage operations, policies, approvals, and user permissions.';
                             break;
                         case 'employee':
-                            echo 'Access field updates, schedules, and documentation.';
+                            echo 'Access assignments, documents, and service updates authorised by Admin.';
                             break;
-                        case 'installer':
-                            echo 'Review installation checklists and assignments.';
-                            break;
-                        case 'referrer':
-                            echo 'Refer leads and track incentive eligibility.';
-                            break;
+                        default:
+                            echo 'Use the credentials assigned to you to sign in securely.';
                     } ?>
                   </small>
                 </span>

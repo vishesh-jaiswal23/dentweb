@@ -30,6 +30,17 @@
   const exportLogsButton = document.querySelector('[data-action="export-logs"]');
   const viewMonitoringButton = document.querySelector('[data-action="view-monitoring"]');
   const complaintPlaceholders = document.querySelectorAll('[data-placeholder^="complaint-"]');
+  const complaintForm = document.querySelector('[data-complaint-form]');
+  const complaintFormStatus = complaintForm?.querySelector('[data-complaint-form-status]');
+  const complaintAssigneeSelect = complaintForm?.querySelector('[data-complaint-assignee]');
+  const complaintTableBody = document.querySelector('[data-complaint-table]');
+  const complaintTimelineWrapper = document.querySelector('[data-complaint-timeline-wrapper]');
+  const complaintTimelineList = document.querySelector('[data-complaint-timeline]');
+  const complaintTimelineNote = document.querySelector('[data-complaint-timeline-note]');
+  const complaintNoteForm = document.querySelector('[data-complaint-note-form]');
+  const complaintNoteStatus = complaintNoteForm?.querySelector('[data-complaint-note-status]');
+  const complaintNoteInput = complaintNoteForm?.querySelector('textarea[name="note"]');
+  const complaintSlaList = document.querySelector('[data-placeholder="sla-reminders"]');
   const auditPlaceholder = document.querySelector('[data-placeholder="activity-feed"]');
   const systemInputs = document.querySelectorAll('[data-system-metric]');
   const passwordForm = document.querySelector('[data-password-form]');
@@ -44,6 +55,19 @@
   const documentForm = document.querySelector('[data-document-form]');
   const documentTableBody = document.querySelector('[data-document-table]');
   const documentFilter = document.querySelector('[data-document-filter]');
+  const slaReminderList = document.querySelector('[data-placeholder="sla-reminders"]');
+  const complaintAssignForm = document.querySelector('[data-complaint-assign-form]');
+  const complaintNoteForm = document.querySelector('[data-complaint-note-form]');
+  const complaintSelect = document.querySelector('[data-complaint-select]');
+  const complaintAssigneeSelect = document.querySelector('[data-complaint-assignee]');
+  const complaintSlaInput = document.querySelector('[data-complaint-sla]');
+  const complaintDetail = document.querySelector('[data-complaint-detail]');
+  const complaintMeta = complaintDetail?.querySelector('[data-complaint-meta]') || null;
+  const complaintMetaReference = complaintDetail?.querySelector('[data-complaint-meta-reference]') || null;
+  const complaintMetaOwner = complaintDetail?.querySelector('[data-complaint-meta-owner]') || null;
+  const complaintMetaSla = complaintDetail?.querySelector('[data-complaint-meta-sla]') || null;
+  const complaintNotesList = complaintDetail?.querySelector('[data-complaint-notes]') || null;
+  const complaintAttachmentsList = complaintDetail?.querySelector('[data-complaint-attachments]') || null;
   const validationList = document.querySelector('[data-validation-list]');
   const duplicateList = document.querySelector('[data-duplicate-list]');
   const approvalList = document.querySelector('[data-approval-list]');
@@ -145,6 +169,7 @@
     invitations: [],
     complaints: [],
     audit: [],
+    selectedComplaint: '',
     metrics: config.metrics || { counts: {}, system: {} },
     loginPolicy: null,
     gemini: config.gemini || {},
@@ -168,6 +193,7 @@
     editingStatus: 'draft',
   };
 
+  let activeComplaintRef = null;
   let autoblogTimer = null;
   let localPostCounter = 0;
 
@@ -179,21 +205,44 @@
 
   const TASK_STATUS_SEQUENCE = ['todo', 'in_progress', 'done'];
   const SUBSIDY_STAGE_SEQUENCE = ['applied', 'sanctioned', 'inspected', 'redeemed', 'closed'];
+  const COMPLAINT_STATUS_TONES = {
+    intake: 'waiting',
+    triage: 'progress',
+    work: 'progress',
+    resolution: 'resolved',
+    closed: 'resolved',
+  };
+  const SLA_STATUS_TONES = {
+    overdue: 'escalated',
+    due_soon: 'waiting',
+    on_track: 'progress',
+    unset: 'waiting',
+  };
 
-  function api(action, { method = 'GET', body } = {}) {
+  function api(action, { method = 'GET', body, params } = {}) {
+    const query = new URLSearchParams();
+    query.set('action', action);
+    if (params && typeof params === 'object') {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        query.append(key, String(value));
+      });
+    }
+    const url = `${API_BASE}?${query.toString()}`;
+    const upperMethod = String(method || 'GET').toUpperCase();
     const options = {
-      method,
+      method: upperMethod,
       headers: {
-        'Accept': 'application/json',
+        Accept: 'application/json',
         'X-CSRF-Token': config.csrfToken || '',
       },
       credentials: 'same-origin',
     };
-    if (body) {
+    if (body !== undefined && body !== null && upperMethod !== 'GET') {
       options.headers['Content-Type'] = 'application/json';
       options.body = JSON.stringify(body);
     }
-    return fetch(`${API_BASE}?action=${encodeURIComponent(action)}`, options)
+    return fetch(url, options)
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || payload.success === false) {
@@ -317,8 +366,9 @@
     document.querySelectorAll('[data-metric]').forEach((node) => {
       const key = node.dataset.metric;
       switch (key) {
+        case 'employees':
         case 'customers':
-          node.textContent = counts.customers ?? '0';
+          node.textContent = counts.employees ?? counts.customers ?? '0';
           break;
         case 'approvals':
           node.textContent = counts.pendingInvitations ?? '0';
@@ -379,6 +429,7 @@
       taskAssigneeSelect.appendChild(option);
     });
     populateInstallationAssignees();
+    populateComplaintAssignees();
   }
 
   function populateInstallationAssignees() {
@@ -1725,7 +1776,7 @@
           coverImage: payload.coverImage,
           coverImageAlt: payload.coverImageAlt,
           tags: payload.tags,
-          status: 'published',
+          status: 'pending',
         });
         handleAutoblogSuccess(localPost, {
           descriptor,
@@ -3029,11 +3080,109 @@
     }
   });
 
+  function populateComplaintAssignees() {
+    if (!complaintAssigneeSelect) return;
+    const previous = complaintAssigneeSelect.value || '';
+    complaintAssigneeSelect.innerHTML = '';
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Unassigned';
+    complaintAssigneeSelect.appendChild(defaultOption);
+    const team = Array.isArray(state.tasks.team) ? state.tasks.team : [];
+    team
+      .filter((member) => (member.role || '').toLowerCase() === 'employee')
+      .forEach((member) => {
+        const option = document.createElement('option');
+        option.value = String(member.id);
+        const labelParts = [member.name || `#${member.id}`];
+        if (member.email) labelParts.push(member.email);
+        option.textContent = labelParts.join(' · ');
+        complaintAssigneeSelect.appendChild(option);
+      });
+    if (previous && Array.from(complaintAssigneeSelect.options).some((opt) => opt.value === previous)) {
+      complaintAssigneeSelect.value = previous;
+    }
+  }
+
+  function renderSlaReminders() {
+    if (!slaReminderList) return;
+    slaReminderList.innerHTML = '';
+    const now = new Date();
+    const reminders = state.complaints
+      .map((complaint) => ({
+        raw: complaint,
+        sla: complaint.slaDue || complaint.sla_due_at || complaint.sla_due || '',
+      }))
+      .filter((entry) => entry.sla && entry.raw.status !== 'closed')
+      .map((entry) => {
+        const dueDate = new Date(entry.sla);
+        const diffMs = dueDate.getTime() - now.getTime();
+        const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        return {
+          reference: entry.raw.reference,
+          title: entry.raw.title,
+          dueDate,
+          days,
+        };
+      })
+      .filter((entry) => !Number.isNaN(entry.dueDate.getTime()))
+      .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
+      .slice(0, 4);
+
+    if (!reminders.length) {
+      const li = document.createElement('li');
+      li.innerHTML = '<p>No SLA reminders due.</p><span>Upcoming deadlines will appear once tickets have due dates.</span>';
+      slaReminderList.appendChild(li);
+      return;
+    }
+
+    reminders.forEach((reminder) => {
+      const li = document.createElement('li');
+      const dueLabel = reminder.dueDate.toLocaleDateString();
+      const urgency = reminder.days < 0 ? 'Overdue' : reminder.days === 0 ? 'Due today' : `Due in ${reminder.days} day${reminder.days === 1 ? '' : 's'}`;
+      li.innerHTML = `
+        <p>${escapeHtml(reminder.reference)} · ${escapeHtml(reminder.title)}</p>
+        <span>${escapeHtml(urgency)} · ${escapeHtml(dueLabel)}</span>
+      `;
+      slaReminderList.appendChild(li);
+    });
+  }
+
+  function updateComplaintSelectOptions() {
+    if (!complaintSelect) return;
+    const previous = state.selectedComplaint || complaintSelect.value || '';
+    complaintSelect.innerHTML = '';
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.disabled = true;
+    defaultOption.textContent = 'Select ticket';
+    complaintSelect.appendChild(defaultOption);
+    const sorted = [...state.complaints].sort((a, b) => {
+      return String(b.updated_at || b.updatedAt || '').localeCompare(String(a.updated_at || a.updatedAt || ''));
+    });
+    sorted.forEach((complaint) => {
+      const option = document.createElement('option');
+      option.value = complaint.reference;
+      option.textContent = `${complaint.reference} · ${complaint.title}`;
+      complaintSelect.appendChild(option);
+    });
+    if (previous && sorted.some((complaint) => complaint.reference === previous)) {
+      complaintSelect.value = previous;
+    } else if (sorted.length) {
+      complaintSelect.value = sorted[0].reference;
+    } else {
+      complaintSelect.value = '';
+    }
+    state.selectedComplaint = complaintSelect.value || '';
+  }
+
   function renderComplaints() {
     complaintPlaceholders.forEach((placeholder) => {
       placeholder.textContent = 'No complaints loaded.';
     });
     if (!state.complaints.length) {
+      renderSlaReminders();
+      updateComplaintSelectOptions();
       return;
     }
 
@@ -3055,17 +3204,659 @@
       list.className = 'dashboard-inline-list';
       complaints.slice(0, 3).forEach((complaint) => {
         const item = document.createElement('li');
+        const noteCount = Array.isArray(complaint.notes) ? complaint.notes.length : 0;
+        const attachmentCount = Array.isArray(complaint.attachments) ? complaint.attachments.length : 0;
+        const owner = complaint.assigneeName || 'Unassigned';
+        const slaLabel = complaint.slaDue ? formatDateOnly(complaint.slaDue) : 'Not set';
         item.innerHTML = `
           <strong>${escapeHtml(complaint.reference)}</strong>
           <span>${escapeHtml(complaint.title)}</span>
-          <small>Assigned to ${escapeHtml(complaint.assigned_to_name || 'Unassigned')} · SLA ${complaint.sla_due_at ? escapeHtml(formatDate(complaint.sla_due_at)) : 'Not set'}</small>
+          <small>Assigned to ${escapeHtml(owner)} · SLA ${escapeHtml(slaLabel)}</small>
+          <small>${noteCount} notes · ${attachmentCount} attachments</small>
         `;
         list.appendChild(item);
       });
       placeholder.innerHTML = '';
       placeholder.appendChild(list);
     });
+
+    renderSlaReminders();
+    updateComplaintSelectOptions();
   }
+
+  function renderComplaintDetail(reference) {
+    if (!complaintDetail) return;
+    const emptyMessage = complaintDetail.querySelector('[data-complaint-empty]');
+    const complaint = reference ? state.complaints.find((item) => item.reference === reference) : null;
+    state.selectedComplaint = complaint ? complaint.reference : '';
+    if (!complaint) {
+      if (complaintMeta) complaintMeta.hidden = true;
+      if (complaintNotesList) {
+        complaintNotesList.innerHTML = '<li class="text-muted">No notes recorded yet.</li>';
+      }
+      if (complaintAttachmentsList) {
+        complaintAttachmentsList.innerHTML = '<li class="text-muted">No attachments synced.</li>';
+      }
+      if (complaintAssigneeSelect) {
+        complaintAssigneeSelect.value = '';
+      }
+      if (complaintSlaInput) {
+        complaintSlaInput.value = '';
+      }
+      if (emptyMessage) {
+        emptyMessage.hidden = false;
+      }
+      return;
+    }
+
+    if (complaintSelect && complaintSelect.value !== complaint.reference) {
+      complaintSelect.value = complaint.reference;
+    }
+    if (emptyMessage) {
+      emptyMessage.hidden = true;
+    }
+    if (complaintMeta) {
+      complaintMeta.hidden = false;
+    }
+    if (complaintMetaReference) {
+      complaintMetaReference.textContent = `${complaint.reference} · ${complaint.title}`;
+    }
+    if (complaintMetaOwner) {
+      complaintMetaOwner.textContent = `Owner: ${complaint.assigneeName || 'Unassigned'}`;
+    }
+    if (complaintMetaSla) {
+      complaintMetaSla.textContent = `SLA: ${complaint.slaDue ? formatDateOnly(complaint.slaDue) : 'Not set'}`;
+    }
+    if (complaintAssigneeSelect) {
+      const value = complaint.assignedTo !== null ? String(complaint.assignedTo) : '';
+      if (Array.from(complaintAssigneeSelect.options).some((opt) => opt.value === value)) {
+        complaintAssigneeSelect.value = value;
+      } else {
+        complaintAssigneeSelect.value = '';
+      }
+    }
+    if (complaintSlaInput) {
+      complaintSlaInput.value = complaint.slaDue ? complaint.slaDue.slice(0, 10) : '';
+    }
+
+    if (complaintNotesList) {
+      complaintNotesList.innerHTML = '';
+      const notes = Array.isArray(complaint.notes) ? complaint.notes : [];
+      if (!notes.length) {
+        complaintNotesList.innerHTML = '<li class="text-muted">No notes recorded yet.</li>';
+      } else {
+        notes
+          .slice()
+          .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+          .forEach((note) => {
+            const li = document.createElement('li');
+            const author = escapeHtml(note.authorName || 'Team');
+            const time = formatDate(note.createdAt || '');
+            const body = escapeHtml(note.body || '');
+            li.innerHTML = `<strong>${author}</strong> <span class="text-xs text-muted">${escapeHtml(time)}</span><p>${body}</p>`;
+            complaintNotesList.appendChild(li);
+          });
+      }
+    }
+
+    if (complaintAttachmentsList) {
+      complaintAttachmentsList.innerHTML = '';
+      const attachments = Array.isArray(complaint.attachments) ? complaint.attachments : [];
+      if (!attachments.length) {
+        complaintAttachmentsList.innerHTML = '<li class="text-muted">No attachments synced.</li>';
+      } else {
+        attachments
+          .slice()
+          .sort((a, b) => String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')))
+          .forEach((attachment) => {
+            const li = document.createElement('li');
+            const label = escapeHtml(attachment.label || attachment.filename || 'Attachment');
+            const fileName = attachment.filename && attachment.filename !== attachment.label ? escapeHtml(attachment.filename) : '';
+            const uploader = escapeHtml(attachment.uploadedBy || 'Team');
+            const when = formatDate(attachment.uploadedAt || '');
+            const token = attachment.downloadToken || '';
+            if (token) {
+              const link = document.createElement('a');
+              link.href = `download.php?complaint=${encodeURIComponent(complaint.reference)}&token=${encodeURIComponent(token)}`;
+              link.textContent = label;
+              link.target = '_blank';
+              link.rel = 'noopener';
+              li.appendChild(link);
+            } else {
+              li.textContent = label;
+            }
+            if (fileName) {
+              const span = document.createElement('span');
+              span.className = 'text-xs text-muted d-block';
+              span.textContent = fileName;
+              li.appendChild(span);
+            }
+            const meta = document.createElement('span');
+            meta.className = 'text-xs text-muted d-block';
+            meta.textContent = `${uploader} · ${when}`;
+            li.appendChild(meta);
+            complaintAttachmentsList.appendChild(li);
+          });
+      }
+    }
+  }
+
+  function refreshComplaints() {
+    api('fetch-complaints')
+      .then((data) => {
+        const previousSelection = state.selectedComplaint;
+        state.complaints = data.complaints;
+        if (data.metrics) {
+          state.metrics = data.metrics;
+          updateMetricCards(state.metrics.counts);
+          updateSystemHealth(state.metrics.system);
+        }
+        if (previousSelection && !state.complaints.some((complaint) => complaint.reference === previousSelection)) {
+          state.selectedComplaint = '';
+        }
+        renderComplaints();
+        renderComplaintDetail(state.selectedComplaint || previousSelection || '');
+      })
+      .catch((error) => {
+        console.warn('Unable to refresh complaints', error);
+      });
+  }
+
+  function renderComplaintTable() {
+    if (!complaintTableBody) return;
+    complaintTableBody.innerHTML = '';
+    if (!state.complaints.length) {
+      const row = document.createElement('tr');
+      row.className = 'dashboard-empty-row';
+      row.innerHTML = '<td colspan="6">No complaints logged yet.</td>';
+      complaintTableBody.appendChild(row);
+      return;
+    }
+
+    const sorted = state.complaints
+      .slice()
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+
+    sorted.forEach((complaint) => {
+      const row = document.createElement('tr');
+      row.dataset.complaintReference = complaint.reference;
+
+      const referenceCell = document.createElement('td');
+      referenceCell.innerHTML = `
+        <strong>${escapeHtml(complaint.reference)}</strong>
+        <span class="text-xs text-muted d-block">${escapeHtml(capitalize(complaint.priority || 'medium'))} priority</span>
+      `;
+      row.appendChild(referenceCell);
+
+      const summaryCell = document.createElement('td');
+      const title = document.createElement('p');
+      title.textContent = complaint.title || 'Complaint';
+      summaryCell.appendChild(title);
+      if (complaint.description) {
+        const description = document.createElement('span');
+        description.className = 'text-xs text-muted d-block';
+        description.textContent = complaint.description;
+        summaryCell.appendChild(description);
+      }
+      if (Number.isFinite(complaint.ageDays)) {
+        const age = document.createElement('span');
+        age.className = 'text-xs text-muted d-block';
+        const days = Number(complaint.ageDays);
+        age.textContent = `Age: ${days} day${days === 1 ? '' : 's'}`;
+        summaryCell.appendChild(age);
+      }
+      row.appendChild(summaryCell);
+
+      const statusCell = document.createElement('td');
+      const statusBadge = document.createElement('span');
+      const statusTone = COMPLAINT_STATUS_TONES[complaint.status] || 'waiting';
+      statusBadge.className = `dashboard-status dashboard-status--${statusTone}`;
+      statusBadge.textContent = capitalize(complaint.status || 'Intake');
+      statusCell.appendChild(statusBadge);
+      row.appendChild(statusCell);
+
+      const slaCell = document.createElement('td');
+      const slaTone = SLA_STATUS_TONES[complaint.slaStatus] || 'waiting';
+      const slaBadge = document.createElement('span');
+      slaBadge.className = `dashboard-status dashboard-status--${slaTone}`;
+      slaBadge.textContent = complaint.slaLabel || 'SLA not set';
+      slaCell.appendChild(slaBadge);
+      if (complaint.slaDue) {
+        const due = document.createElement('span');
+        due.className = 'text-xs text-muted d-block';
+        due.textContent = formatDateOnly(complaint.slaDue);
+        slaCell.appendChild(due);
+      }
+      row.appendChild(slaCell);
+
+      const assigneeCell = document.createElement('td');
+      const assigneeSelect = document.createElement('select');
+      assigneeSelect.dataset.complaintAssign = complaint.reference;
+      assigneeSelect.className = 'dashboard-select';
+      const unassignedOption = document.createElement('option');
+      unassignedOption.value = '';
+      unassignedOption.textContent = 'Unassigned';
+      if (!complaint.assignedTo) {
+        unassignedOption.selected = true;
+      }
+      assigneeSelect.appendChild(unassignedOption);
+      let hasSelected = !complaint.assignedTo;
+      getEmployeeTeam().forEach((member) => {
+        const option = document.createElement('option');
+        option.value = String(member.id);
+        option.textContent = member.name;
+        if (complaint.assignedTo && String(member.id) === String(complaint.assignedTo)) {
+          option.selected = true;
+          hasSelected = true;
+        }
+        assigneeSelect.appendChild(option);
+      });
+      if (complaint.assignedTo && !hasSelected) {
+        const fallback = document.createElement('option');
+        fallback.value = String(complaint.assignedTo);
+        fallback.textContent = complaint.assigneeName || `Employee #${complaint.assignedTo}`;
+        fallback.selected = true;
+        assigneeSelect.appendChild(fallback);
+      }
+      assigneeCell.appendChild(assigneeSelect);
+      if (complaint.assigneeRole) {
+        const roleNote = document.createElement('span');
+        roleNote.className = 'text-xs text-muted d-block';
+        roleNote.textContent = complaint.assigneeRole;
+        assigneeCell.appendChild(roleNote);
+      }
+      row.appendChild(assigneeCell);
+
+      const actionsCell = document.createElement('td');
+      const editButton = document.createElement('button');
+      editButton.type = 'button';
+      editButton.className = 'btn btn-ghost btn-sm';
+      editButton.dataset.action = 'edit-complaint';
+      editButton.dataset.reference = complaint.reference;
+      editButton.textContent = 'Edit';
+      actionsCell.appendChild(editButton);
+
+      const timelineButton = document.createElement('button');
+      timelineButton.type = 'button';
+      timelineButton.className = 'btn btn-secondary btn-sm';
+      timelineButton.dataset.action = 'view-timeline';
+      timelineButton.dataset.reference = complaint.reference;
+      timelineButton.textContent = 'Timeline';
+      actionsCell.appendChild(timelineButton);
+
+      row.appendChild(actionsCell);
+      complaintTableBody.appendChild(row);
+    });
+  }
+
+  function upsertComplaint(complaint) {
+    if (!complaint || !complaint.reference) return;
+    const index = state.complaints.findIndex((item) => item.reference === complaint.reference);
+    if (index >= 0) {
+      state.complaints[index] = complaint;
+    } else {
+      state.complaints.unshift(complaint);
+    }
+  }
+
+  function updateComplaintTimelineInState(reference, timeline) {
+    const complaint = state.complaints.find((item) => item.reference === reference);
+    if (complaint) {
+      complaint.timeline = Array.isArray(timeline) ? timeline : [];
+    }
+  }
+
+  function refreshComplaintMetrics() {
+    if (!state.metrics) {
+      state.metrics = { counts: {}, system: {} };
+    }
+    if (!state.metrics.counts) {
+      state.metrics.counts = {};
+    }
+    const openCount = state.complaints.filter((complaint) => ['intake', 'triage', 'work'].includes(complaint.status)).length;
+    state.metrics.counts.openComplaints = openCount;
+    updateMetricCards(state.metrics.counts);
+  }
+
+  function syncComplaintCollections(data = {}) {
+    if (Array.isArray(data.complaints)) {
+      state.complaints = data.complaints;
+    } else if (data.complaint) {
+      upsertComplaint(data.complaint);
+    }
+    const currentAssigneeValue = complaintAssigneeSelect ? complaintAssigneeSelect.value : '';
+    populateComplaintAssignees(currentAssigneeValue);
+    renderComplaints();
+    renderComplaintTable();
+    refreshComplaintMetrics();
+    if (activeComplaintRef) {
+      const active = state.complaints.find((item) => item.reference === activeComplaintRef);
+      if (active) {
+        openComplaintTimeline(active, { fetchLatest: false });
+      }
+    }
+  }
+
+  function formatSlaInput(value) {
+    if (!value) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [year, month, day] = value.split('-');
+      return `${day}-${month}-${year}`;
+    }
+    return value;
+  }
+
+  function openComplaintTimeline(complaint, { fetchLatest = true } = {}) {
+    if (!complaint || !complaint.reference) return;
+    if (!complaintTimelineList || !complaintTimelineWrapper) return;
+    activeComplaintRef = complaint.reference;
+
+    const renderEntries = (entries) => {
+      complaintTimelineList.innerHTML = '';
+      if (!entries.length) {
+        const empty = document.createElement('li');
+        empty.innerHTML = '<p class="text-muted mb-0">No activity recorded yet.</p>';
+        complaintTimelineList.appendChild(empty);
+        return;
+      }
+      entries.forEach((entry) => {
+        const item = document.createElement('li');
+        const timestamp = entry.time ? entry.time.replace(' ', 'T') : '';
+        const timeEl = document.createElement('time');
+        timeEl.dateTime = timestamp || entry.time || '';
+        timeEl.textContent = formatDate(timestamp || entry.time || '');
+        item.appendChild(timeEl);
+
+        const summaryEl = document.createElement('p');
+        summaryEl.innerHTML = `<strong>${escapeHtml(entry.summary || capitalize(entry.type || 'update'))}</strong>`;
+        item.appendChild(summaryEl);
+
+        const metaEl = document.createElement('p');
+        metaEl.className = 'text-xs text-muted';
+        metaEl.textContent = `${entry.actor || 'System'} · ${capitalize(entry.type || 'note')}`;
+        item.appendChild(metaEl);
+
+        if (entry.details) {
+          const detailsEl = document.createElement('p');
+          detailsEl.innerHTML = escapeHtml(entry.details).replace(/\n/g, '<br />');
+          item.appendChild(detailsEl);
+        }
+
+        if (entry.document) {
+          const docEl = document.createElement('p');
+          docEl.className = 'text-xs text-muted';
+          docEl.textContent = `Document: ${entry.document.name || 'Attachment'} (${entry.document.reference || 'Shared'})`;
+          item.appendChild(docEl);
+        }
+
+        complaintTimelineList.appendChild(item);
+      });
+    };
+
+    complaintTimelineWrapper.hidden = false;
+    renderEntries(Array.isArray(complaint.timeline) ? complaint.timeline : []);
+
+    if (complaintNoteForm) {
+      complaintNoteForm.hidden = false;
+      complaintNoteForm.dataset.reference = complaint.reference;
+      if (complaintNoteInput) {
+        complaintNoteInput.value = '';
+      }
+      clearInlineStatus(complaintNoteStatus);
+    }
+
+    if (complaintTimelineNote) {
+      complaintTimelineNote.innerHTML = `<i class="fa-solid fa-clipboard-list" aria-hidden="true"></i> Timeline for ${escapeHtml(
+        complaint.reference
+      )} · ${escapeHtml(complaint.title || '')}${fetchLatest ? ' · refreshing…' : ''}`;
+    }
+
+    if (fetchLatest) {
+      api('complaint-timeline', { params: { reference: complaint.reference } })
+        .then((data) => {
+          const timeline = Array.isArray(data.timeline) ? data.timeline : [];
+          updateComplaintTimelineInState(complaint.reference, timeline);
+          renderEntries(timeline);
+          if (complaintTimelineNote) {
+            complaintTimelineNote.innerHTML = `<i class="fa-solid fa-clipboard-list" aria-hidden="true"></i> Timeline for ${escapeHtml(
+              complaint.reference
+            )} · ${escapeHtml(complaint.title || '')}`;
+          }
+        })
+        .catch((error) => {
+          showToast('Timeline unavailable', error.message || 'Unable to load latest activity.', 'error');
+          if (complaintTimelineNote) {
+            complaintTimelineNote.innerHTML = `<i class="fa-solid fa-circle-info" aria-hidden="true"></i> Timeline for ${escapeHtml(
+              complaint.reference
+            )} · showing cached updates`;
+          }
+        });
+    }
+  }
+
+  function persistComplaintAssignment(selectNode) {
+    if (!selectNode) return;
+    const reference = selectNode.dataset.complaintAssign;
+    if (!reference) return;
+    const complaint = state.complaints.find((item) => item.reference === reference);
+    if (!complaint) return;
+    const newValue = selectNode.value;
+    const previousValue = complaint.assignedTo ? String(complaint.assignedTo) : '';
+    if (newValue === previousValue) return;
+
+    selectNode.disabled = true;
+    const request = newValue
+      ? api('assign-complaint', { method: 'POST', body: { reference, assigneeId: Number(newValue) } })
+      : api('save-complaint', {
+          method: 'POST',
+          body: {
+            reference,
+            title: complaint.title,
+            description: complaint.description || '',
+            priority: complaint.priority || 'medium',
+            status: complaint.status || 'intake',
+            assignedTo: '',
+            slaDue: complaint.slaDue || '',
+          },
+        });
+
+    request
+      .then((data) => {
+        syncComplaintCollections(data);
+        showToast('Assignment updated', `Ticket ${reference} synced with employee queue.`, 'success');
+      })
+      .catch((error) => {
+        showToast('Assignment failed', error.message || 'Unable to update assignment.', 'error');
+        selectNode.value = previousValue;
+      })
+      .finally(() => {
+        selectNode.disabled = false;
+      });
+  }
+
+  function fillComplaintForm(complaint) {
+    if (!complaintForm || !complaint) return;
+    const referenceInput = complaintForm.querySelector('input[name="reference"]');
+    const titleInput = complaintForm.querySelector('input[name="title"]');
+    const statusInput = complaintForm.querySelector('select[name="status"]');
+    const priorityInput = complaintForm.querySelector('select[name="priority"]');
+    const slaInput = complaintForm.querySelector('input[name="slaDue"]');
+    const descriptionInput = complaintForm.querySelector('textarea[name="description"]');
+
+    if (referenceInput) referenceInput.value = complaint.reference || '';
+    if (titleInput) titleInput.value = complaint.title || '';
+    if (statusInput && complaint.status) statusInput.value = complaint.status;
+    if (priorityInput && complaint.priority) priorityInput.value = complaint.priority;
+    populateComplaintAssignees(complaint.assignedTo ? String(complaint.assignedTo) : '');
+    if (complaintAssigneeSelect) {
+      complaintAssigneeSelect.value = complaint.assignedTo ? String(complaint.assignedTo) : '';
+    }
+    if (slaInput) slaInput.value = complaint.slaDue ? formatSlaInput(complaint.slaDue) : '';
+    if (descriptionInput) descriptionInput.value = complaint.description || '';
+  }
+
+  complaintForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(complaintForm);
+    const title = (formData.get('title') || '').toString().trim();
+    if (!title) {
+      renderInlineStatus(complaintFormStatus, 'error', 'Title required', 'Provide a ticket title before saving.');
+      return;
+    }
+    const slaDue = (formData.get('slaDue') || '').toString().trim();
+    if (slaDue && !/^\d{2}-\d{2}-\d{4}$/.test(slaDue) && !/^\d{4}-\d{2}-\d{2}$/.test(slaDue)) {
+      renderInlineStatus(complaintFormStatus, 'error', 'Invalid SLA date', 'Use DD-MM-YYYY format for SLA targets.');
+      return;
+    }
+    const assignedRaw = (formData.get('assignedTo') || '').toString().trim();
+    const payload = {
+      reference: (formData.get('reference') || '').toString().trim(),
+      title,
+      description: (formData.get('description') || '').toString(),
+      priority: (formData.get('priority') || 'medium').toString(),
+      status: (formData.get('status') || 'intake').toString(),
+      assignedTo: assignedRaw !== '' ? Number(assignedRaw) : '',
+      slaDue,
+    };
+
+    const submitButton = complaintForm.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.dataset.originalLabel = submitButton.dataset.originalLabel || submitButton.innerHTML;
+      submitButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+    }
+
+    renderInlineStatus(
+      complaintFormStatus,
+      'progress',
+      'Saving ticket…',
+      'Synchronising complaint details with the employee dashboard.'
+    );
+
+    api('save-complaint', { method: 'POST', body: payload })
+      .then((data) => {
+        renderInlineStatus(
+          complaintFormStatus,
+          'success',
+          'Ticket saved',
+          'Complaint metadata updated for Admin and Employee views.'
+        );
+        syncComplaintCollections(data);
+        const saved =
+          data.complaint ||
+          (Array.isArray(data.complaints)
+            ? data.complaints.find((item) => item.reference === (data.complaint?.reference || payload.reference))
+            : null);
+        if (saved) {
+          fillComplaintForm(saved);
+          openComplaintTimeline(saved, { fetchLatest: false });
+        }
+        showToast('Ticket saved', 'Complaint changes propagated to employee workspace.', 'success');
+      })
+      .catch((error) => {
+        renderInlineStatus(
+          complaintFormStatus,
+          'error',
+          'Save failed',
+          error.message || 'Unable to save the complaint right now.'
+        );
+      })
+      .finally(() => {
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.innerHTML = submitButton.dataset.originalLabel || 'Save ticket';
+        }
+      });
+  });
+
+  complaintForm?.addEventListener('reset', () => {
+    clearInlineStatus(complaintFormStatus);
+    populateComplaintAssignees();
+  });
+
+  complaintTableBody?.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const reference = button.dataset.reference;
+    if (!reference) return;
+    const complaint = state.complaints.find((item) => item.reference === reference);
+    if (!complaint) {
+      showToast('Ticket missing', 'Unable to locate the selected complaint record.', 'error');
+      return;
+    }
+    if (button.dataset.action === 'edit-complaint') {
+      fillComplaintForm(complaint);
+      renderInlineStatus(
+        complaintFormStatus,
+        'info',
+        'Editing ticket',
+        `Loaded ${complaint.reference} into the form for updates.`
+      );
+      complaintForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (button.dataset.action === 'view-timeline') {
+      openComplaintTimeline(complaint, { fetchLatest: true });
+      complaintTimelineWrapper?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+
+  complaintTableBody?.addEventListener('change', (event) => {
+    const select = event.target.closest('select[data-complaint-assign]');
+    if (!select) return;
+    persistComplaintAssignment(select);
+  });
+
+  complaintNoteForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!activeComplaintRef) {
+      renderInlineStatus(
+        complaintNoteStatus,
+        'error',
+        'Select a ticket',
+        'Choose a ticket from the register before adding a note.'
+      );
+      return;
+    }
+    const note = (complaintNoteInput?.value || '').toString().trim();
+    if (!note) {
+      renderInlineStatus(complaintNoteStatus, 'error', 'Note required', 'Enter a note to log against the ticket.');
+      return;
+    }
+    const submitButton = complaintNoteForm.querySelector('button[type="submit"]');
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.dataset.originalLabel = submitButton.dataset.originalLabel || submitButton.innerHTML;
+      submitButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+    }
+    renderInlineStatus(
+      complaintNoteStatus,
+      'progress',
+      'Logging note…',
+      'Updating the shared complaint timeline.'
+    );
+    api('add-complaint-note', { method: 'POST', body: { reference: activeComplaintRef, note } })
+      .then((data) => {
+        clearInlineStatus(complaintNoteStatus);
+        syncComplaintCollections(data);
+        if (complaintNoteInput) {
+          complaintNoteInput.value = '';
+        }
+        showToast('Note added', 'Timeline updated for Admin and Employee portals.', 'success');
+      })
+      .catch((error) => {
+        renderInlineStatus(
+          complaintNoteStatus,
+          'error',
+          'Unable to save note',
+          error.message || 'Try again in a few moments.'
+        );
+      })
+      .finally(() => {
+        if (submitButton) {
+          submitButton.disabled = false;
+          submitButton.innerHTML = submitButton.dataset.originalLabel || 'Log note';
+        }
+      });
+  });
 
   function renderAudit() {
     if (!auditPlaceholder) return;
@@ -3423,14 +4214,18 @@
     upsertBlogPost(normalized);
     renderBlogPosts();
     updateBlogActions();
-    state.aiAutoblog = {
-      ...(state.aiAutoblog || {}),
+    const previousAutoblog = state.aiAutoblog || {};
+    const nextAutoblogState = {
+      ...previousAutoblog,
       enabled: true,
       theme: normalizedTheme,
       time: scheduleTime,
-      lastPublishedAt: new Date().toISOString(),
       lastRandomTheme: normalizedTheme === 'random' ? actualTheme : null,
     };
+    if (!fallback) {
+      nextAutoblogState.lastPublishedAt = new Date().toISOString();
+    }
+    state.aiAutoblog = nextAutoblogState;
     const tone = fallback ? 'info' : 'success';
     const title = fallback ? 'Auto-blog cached offline' : 'Schedule active';
     const message = fallback
@@ -3778,12 +4573,90 @@
     }
   });
 
+  complaintSelect?.addEventListener('change', () => {
+    state.selectedComplaint = complaintSelect.value || '';
+    renderComplaintDetail(state.selectedComplaint);
+  });
+
+  complaintAssignForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!complaintSelect) {
+      showToast('Assignment failed', 'Select a ticket to assign.', 'warning');
+      return;
+    }
+    const reference = complaintSelect.value || '';
+    if (!reference) {
+      showToast('Assignment failed', 'Select a ticket to assign.', 'warning');
+      return;
+    }
+    const payload = {
+      reference,
+      assigneeId: complaintAssigneeSelect?.value ?? '',
+      slaDue: complaintSlaInput?.value ?? '',
+    };
+    api('assign-complaint', { method: 'POST', body: payload })
+      .then((data) => {
+        state.complaints = data.complaints;
+        if (data.metrics) {
+          state.metrics = data.metrics;
+          updateMetricCards(state.metrics.counts);
+          updateSystemHealth(state.metrics.system);
+        }
+        if (data.complaint?.reference) {
+          state.selectedComplaint = data.complaint.reference;
+        }
+        renderComplaints();
+        renderComplaintDetail(state.selectedComplaint || reference);
+        showToast('Assignment updated', 'Complaint ownership saved successfully.', 'success');
+      })
+      .catch((error) => showToast('Assignment failed', error.message, 'error'));
+  });
+
+  complaintNoteForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const reference = state.selectedComplaint || complaintSelect?.value || '';
+    if (!reference) {
+      showToast('Note not logged', 'Select a ticket before adding a note.', 'warning');
+      return;
+    }
+    const formData = new FormData(complaintNoteForm);
+    const note = String(formData.get('note') || '').trim();
+    if (!note) {
+      showToast('Note not logged', 'Enter note details before submitting.', 'warning');
+      return;
+    }
+    api('add-complaint-note', { method: 'POST', body: { reference, note } })
+      .then((data) => {
+        complaintNoteForm.reset();
+        state.complaints = data.complaints;
+        if (data.metrics) {
+          state.metrics = data.metrics;
+          updateMetricCards(state.metrics.counts);
+        }
+        state.selectedComplaint = reference;
+        renderComplaints();
+        renderComplaintDetail(reference);
+        showToast('Note added', 'Your guidance is now visible to assigned employees.', 'success');
+      })
+      .catch((error) => showToast('Unable to add note', error.message, 'error'));
+  });
+
+  window.addEventListener('focus', () => {
+    refreshComplaints();
+  });
+
   function hydrateFromConfig() {
+    state.complaints = Array.isArray(config.complaints) ? config.complaints : [];
+    state.audit = Array.isArray(config.audit) ? config.audit : [];
     updateMetricCards(state.metrics.counts);
     updateSystemHealth(state.metrics.system);
     hydrateRetention();
     populateGemini();
     populateTaskAssignees();
+    populateComplaintAssignees();
+    renderComplaints();
+    renderComplaintDetail(state.selectedComplaint);
+    renderAudit();
     renderTasks();
     renderInstallations();
     renderWarranties();
@@ -3811,6 +4684,7 @@
   function loadBootstrap() {
     api('bootstrap')
       .then((data) => {
+        const previousSelection = state.selectedComplaint;
         state.users = data.users;
         state.invitations = data.invitations.filter((invite) => invite.status === 'pending');
         state.complaints = data.complaints;
@@ -3818,6 +4692,9 @@
         state.metrics = data.metrics;
         state.loginPolicy = data.loginPolicy;
         state.gemini = data.gemini;
+        if (previousSelection && !state.complaints.some((complaint) => complaint.reference === previousSelection)) {
+          state.selectedComplaint = '';
+        }
         if (data.tasks) state.tasks = data.tasks;
         if (data.documents) state.documents = data.documents;
         if (data.dataQuality) state.dataQuality = data.dataQuality;
@@ -3843,9 +4720,11 @@
         populateLoginPolicy();
         populateGemini();
         populateTaskAssignees();
+        populateComplaintAssignees();
         renderUsers();
         renderInvitations();
         renderComplaints();
+        renderComplaintDetail(state.selectedComplaint);
         renderAudit();
         renderTasks();
         renderInstallations();
@@ -3878,7 +4757,7 @@
         hydrateFromConfig();
         renderUsers();
         renderInvitations();
-        renderComplaints();
+        syncComplaintCollections({ complaints: state.complaints });
         renderAudit();
       });
   }
