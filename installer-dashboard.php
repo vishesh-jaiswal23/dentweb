@@ -1,10 +1,36 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/bootstrap.php';
+
+require_role('installer');
+$user = current_user();
+
+$scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+if ($scriptDir === '/' || $scriptDir === '.') {
+    $scriptDir = '';
+}
+$basePath = rtrim($scriptDir, '/');
+$prefix = $basePath === '' ? '' : $basePath;
+$pathFor = static function (string $path) use ($prefix): string {
+    $clean = ltrim($path, '/');
+    return ($prefix === '' ? '' : $prefix) . '/' . $clean;
+};
+
+$logoutUrl = $pathFor('logout.php');
+$installerName = trim((string) ($user['full_name'] ?? 'Installer'));
+if ($installerName === '') {
+    $installerName = 'Installer';
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Installer Workspace | Dakshayani Enterprises</title>
-  <meta name="description" content="Installer workspace placeholder for Dakshayani Enterprises." />
+  <meta name="description" content="Secure installer workspace for Dakshayani Enterprises." />
   <link rel="icon" href="images/favicon.ico" />
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -28,11 +54,11 @@
           <i class="fa-solid fa-helmet-safety" aria-hidden="true"></i>
           <div>
             <small>Signed in as</small>
-            <strong>Installer</strong>
+            <strong><?= htmlspecialchars($installerName, ENT_QUOTES) ?> · Installer</strong>
           </div>
         </div>
         <div class="dashboard-auth-actions">
-          <a href="login.php" class="btn btn-ghost">
+          <a href="<?= htmlspecialchars($logoutUrl, ENT_QUOTES) ?>" class="btn btn-ghost">
             <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
             Log out
           </a>
@@ -44,10 +70,10 @@
           <span class="hero-eyebrow"><i class="fa-solid fa-helmet-safety"></i> Installer workspace</span>
           <h1>Installer portal coming soon</h1>
           <p class="lead">
-            Upload site surveys, share commissioning photos, and close work orders effortlessly. This installer toolkit is in the
-            works.
+            Upload site surveys, share commissioning photos, and close work orders effortlessly.
+            This installer toolkit is in the works and stays protected behind your secure login.
           </p>
-          <a href="login.php" class="btn btn-secondary">Back to login portal</a>
+          <a href="<?= htmlspecialchars($logoutUrl, ENT_QUOTES) ?>" class="btn btn-secondary">Back to login portal</a>
         </div>
       </section>
     </div>

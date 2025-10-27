@@ -319,15 +319,13 @@
     customers: 'Customers',
     leads: 'Leads',
     tickets: 'Tickets',
-    documents: 'Documents',
     referrers: 'Referrers',
   };
   const SEARCH_VIEW_MAP = {
     customers: 'leads',
-    leads: 'tasks',
+    leads: 'leads',
     tickets: 'complaints',
-    documents: 'documents',
-    referrers: 'communication',
+    referrers: 'leads',
   };
   let searchTimer = null;
 
@@ -342,7 +340,7 @@
       searchInput.value = '';
     }
     if (searchResults) {
-      searchResults.innerHTML = '<p class="dashboard-search-empty">Start typing to surface customers, leads, tickets, and documents assigned to you.</p>';
+      searchResults.innerHTML = '<p class="dashboard-search-empty">Start typing to surface customers, leads, tickets, and requests assigned to you.</p>';
       searchResults.hidden = true;
     }
   }
@@ -356,7 +354,7 @@
       searchInput.focus();
     }
     if (searchResults) {
-      searchResults.innerHTML = '<p class="dashboard-search-empty">Start typing to surface customers, leads, tickets, and documents assigned to you.</p>';
+      searchResults.innerHTML = '<p class="dashboard-search-empty">Start typing to surface customers, leads, tickets, and requests assigned to you.</p>';
       searchResults.hidden = false;
     }
   }
@@ -401,9 +399,6 @@
             case 'tickets':
               subtitle = `${item.title || ''} · ${item.status ? capitalize(item.status) : ''}`.trim();
               break;
-            case 'documents':
-              subtitle = `${item.reference || ''} ${Array.isArray(item.tags) ? item.tags.slice(0, 3).join(', ') : ''}`.trim();
-              break;
             case 'referrers':
               subtitle = item.meta || '';
               break;
@@ -435,7 +430,7 @@
     if (!canUseSearch || !searchResults) return;
     const trimmed = query.trim();
     if (trimmed.length < 2) {
-      searchResults.innerHTML = '<p class="dashboard-search-empty">Start typing to surface customers, leads, tickets, and documents assigned to you.</p>';
+      searchResults.innerHTML = '<p class="dashboard-search-empty">Start typing to surface customers, leads, tickets, and requests assigned to you.</p>';
       searchResults.hidden = trimmed.length === 0;
       return;
     }
