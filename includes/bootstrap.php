@@ -628,6 +628,7 @@ function seed_defaults(PDO $db): void
         'gemini_text_model' => 'gemini-2.5-flash',
         'gemini_image_model' => 'gemini-2.5-flash-image',
         'gemini_tts_model' => 'gemini-2.5-flash-preview-tts',
+        'gemini_enabled' => '0',
     ];
 
     $insertSetting = $db->prepare('INSERT OR IGNORE INTO settings(key, value) VALUES(:key, :value)');
