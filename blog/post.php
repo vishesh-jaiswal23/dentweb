@@ -14,6 +14,42 @@ if (!$post) {
     render_not_found();
 }
 
+$authorName = trim((string) ($post['author_name'] ?? ''));
+
+function blog_is_gemini_label(?string $label): bool
+{
+    if ($label === null) {
+        return false;
+    }
+
+    return stripos($label, 'gemini') !== false;
+}
+
+function blog_filter_tags(array $tags): array
+{
+    $filtered = [];
+
+    foreach ($tags as $tag) {
+        $label = is_array($tag) ? trim((string) ($tag['name'] ?? '')) : trim((string) $tag);
+        if ($label === '' || blog_is_gemini_label($label)) {
+            continue;
+        }
+
+        if (is_array($tag)) {
+            $tag['name'] = $label;
+            $filtered[] = $tag;
+        } else {
+            $filtered[] = $label;
+        }
+    }
+
+    return $filtered;
+}
+
+if ($authorName !== '' && blog_is_gemini_label($authorName)) {
+    $authorName = '';
+}
+
 $coverImage = $post['cover_image'] ?? '';
 $coverAlt = $post['cover_image_alt'] ?? '';
 $coverAltText = $coverAlt !== '' ? $coverAlt : ($post['title'] ?? 'Blog cover');
@@ -48,7 +84,8 @@ if ($ogImage !== '' && !preg_match('#^https?://#i', $ogImage)) {
 
 send_cache_headers($post['updated_at'] ?? '', 'blog-post-' . $post['id']);
 
-$tags = array_map(static fn ($tag) => is_array($tag) ? $tag['name'] : $tag, $post['tags'] ?? []);
+$visibleTagsRaw = blog_filter_tags($post['tags'] ?? []);
+$tags = array_map(static fn ($tag) => is_array($tag) ? $tag['name'] : $tag, $visibleTagsRaw);
 $adjacent = blog_get_adjacent_posts($db, (int) $post['id']);
 $related = blog_related_posts($db, (int) $post['id'], 3);
 
@@ -71,12 +108,12 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
             'body_html' => $post['body_html'] ?? '',
             'cover_image' => $imageForJson,
             'cover_image_alt' => $coverAltText,
-            'author_name' => $post['author_name'] ?? '',
+            'author_name' => $authorName,
             'published_at' => $post['published_at'] ?? '',
             'updated_at' => $post['updated_at'] ?? '',
             'published_ist' => format_ist($post['published_at'] ?? ''),
             'updated_ist' => format_ist($post['updated_at'] ?? ''),
-            'tags' => $post['tags'] ?? [],
+            'tags' => $visibleTagsRaw,
             'canonical_url' => $canonicalUrl,
         ],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -190,7 +227,7 @@ function format_ist(?string $timestamp): string
         'image' => $ogImage,
         'datePublished' => $publishedIso ?: null,
         'dateModified' => $updatedIso ?: null,
-        'author' => $post['author_name'] ? ['@type' => 'Person', 'name' => $post['author_name']] : ['@type' => 'Organization', 'name' => 'Dakshayani Enterprises'],
+        'author' => $authorName !== '' ? ['@type' => 'Person', 'name' => $authorName] : ['@type' => 'Organization', 'name' => 'Dakshayani Enterprises'],
         'mainEntityOfPage' => ['@type' => 'WebPage', '@id' => $canonicalUrl],
         'publisher' => ['@type' => 'Organization', 'name' => 'Dakshayani Enterprises', 'logo' => ['@type' => 'ImageObject', 'url' => absolute_url('/images/logo/New dakshayani logo centered small.png')]],
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) ?>
@@ -234,8 +271,8 @@ function format_ist(?string $timestamp): string
                     <?php if ($updatedIso && $updatedIso !== $publishedIso): ?>
                         <span><i class="fa-solid fa-rotate"></i> Updated <?= htmlspecialchars(format_ist($post['updated_at']), ENT_QUOTES | ENT_HTML5) ?></span>
                     <?php endif; ?>
-                    <?php if (!empty($post['author_name'])): ?>
-                        <span><i class="fa-solid fa-user"></i> <?= htmlspecialchars($post['author_name'], ENT_QUOTES | ENT_HTML5) ?></span>
+                    <?php if ($authorName !== ''): ?>
+                        <span><i class="fa-solid fa-user"></i> <?= htmlspecialchars($authorName, ENT_QUOTES | ENT_HTML5) ?></span>
                     <?php endif; ?>
                 </p>
             </div>
