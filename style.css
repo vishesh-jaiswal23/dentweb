@@ -5645,6 +5645,83 @@ body[data-festival-theme] .hero-highlight {
   gap: 1.5rem;
 }
 
+.dashboard-ai-stack {
+  gap: 1.75rem;
+}
+
+.dashboard-ai-suite {
+  gap: 1.5rem;
+}
+
+.dashboard-ai-suite__header {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dashboard-ai-suite__header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--base-800);
+}
+
+.dashboard-ai-suite__header .dashboard-muted {
+  font-size: 0.9rem;
+}
+
+.dashboard-ai-suite__grid {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.dashboard-ai-suite__panel {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.dashboard-ai-suite__panel--primary {
+  gap: 1.35rem;
+}
+
+.dashboard-ai-suite__panel--card {
+  background: var(--alt-surface);
+  padding: 1.25rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: none;
+}
+
+.dashboard-ai-suite__panel--card h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--base-700);
+}
+
+.dashboard-ai-suite__panel--card .dashboard-muted {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.dashboard-ai-suite__aside {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.dashboard-ai-suite__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.dashboard-ai-schedule {
+  gap: 1.25rem;
+}
+
+body[data-dashboard-theme='dark'] .dashboard-ai-suite__panel--card {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
 .dashboard-form {
   background: var(--surface);
   border-radius: 1.25rem;
@@ -6272,6 +6349,13 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 
   .dashboard-form-grid {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+}
+
+@media (min-width: 992px) {
+  .dashboard-ai-suite__grid {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    align-items: start;
   }
 }
 
