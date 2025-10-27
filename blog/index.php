@@ -100,6 +100,15 @@ function build_query(array $params): string
     return http_build_query(array_filter($params, static fn ($value) => $value !== null && $value !== '' && $value !== false));
 }
 
+function blog_is_gemini_label(?string $label): bool
+{
+    if ($label === null) {
+        return false;
+    }
+
+    return stripos($label, 'gemini') !== false;
+}
+
 $canonicalParams = [];
 if ($page > 1) {
     $canonicalParams['page'] = $page;
@@ -271,7 +280,14 @@ if ($tag !== '') {
                         $cover = $post['cover_image'] ?? '';
                         $coverAlt = $post['cover_image_alt'] ?? '';
                         $altText = $coverAlt !== '' ? $coverAlt : ($post['title'] ?? 'Blog cover');
-                        $tagsDisplay = $post['tags'] ?? [];
+                        $tagsDisplay = [];
+                        foreach (($post['tags'] ?? []) as $tagItem) {
+                            $tagName = is_array($tagItem) ? ($tagItem['name'] ?? '') : (string) $tagItem;
+                            if ($tagName === '' || blog_is_gemini_label($tagName)) {
+                                continue;
+                            }
+                            $tagsDisplay[] = $tagItem;
+                        }
                         ?>
                         <article class="blog-card">
                             <?php if ($cover): ?>
@@ -424,7 +440,7 @@ if ($tag !== '') {
             const list = Array.isArray(tags) ? tags : [];
             list.forEach((tag) => {
                 const label = typeof tag === 'string' ? tag : (tag && tag.name);
-                if (!label) return;
+                if (!label || /gemini/i.test(label)) return;
                 const chip = document.createElement('span');
                 chip.textContent = label;
                 tagsNode.appendChild(chip);
@@ -449,7 +465,7 @@ if ($tag !== '') {
                 if (post.updated_ist && post.updated_ist !== post.published_ist) {
                     metaParts.push(`Updated ${post.updated_ist} IST`);
                 }
-                if (post.author_name) {
+                if (post.author_name && !/gemini/i.test(post.author_name)) {
                     metaParts.push(`By ${post.author_name}`);
                 }
                 metaNode.textContent = metaParts.join(' · ');
