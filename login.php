@@ -8,6 +8,45 @@ if (!isset($bootstrapError) || !is_string($bootstrapError)) {
     $bootstrapError = '';
 }
 
+$supportEmail = null;
+if (defined('ADMIN_EMAIL')) {
+    $configuredEmail = constant('ADMIN_EMAIL');
+    if (is_string($configuredEmail) && filter_var($configuredEmail, FILTER_VALIDATE_EMAIL)) {
+        $supportEmail = $configuredEmail;
+    }
+}
+
+if ($supportEmail === null) {
+    $emailCandidates = [
+        $_ENV['ADMIN_EMAIL'] ?? null,
+        $_SERVER['ADMIN_EMAIL'] ?? null,
+    ];
+
+    $envEmail = getenv('ADMIN_EMAIL');
+    if (is_string($envEmail)) {
+        $emailCandidates[] = $envEmail;
+    }
+
+    foreach ($emailCandidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+        $candidate = trim($candidate);
+        if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            $supportEmail = $candidate;
+            break;
+        }
+    }
+
+    if ($supportEmail === null) {
+        $supportEmail = 'support@dakshayani.in';
+    }
+}
+
+if (!defined('ADMIN_EMAIL') && is_string($supportEmail) && $supportEmail !== '') {
+    define('ADMIN_EMAIL', $supportEmail);
+}
+
 $supportEmail = resolve_admin_email();
 
 start_session();
