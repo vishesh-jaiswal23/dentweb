@@ -5290,8 +5290,12 @@ body[data-festival-theme] .hero-highlight {
 @media (min-width: 1100px) {
   .dashboard-body {
     display: grid;
-    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
     align-items: start;
+  }
+
+  .dashboard-body.dashboard-body--nav-first {
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
   }
 }
 
