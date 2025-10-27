@@ -4,10 +4,19 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/bootstrap.php';
 
+if (!isset($bootstrapError) || !is_string($bootstrapError)) {
+    $bootstrapError = '';
+}
+
 $supportEmail = null;
-if (defined('ADMIN_EMAIL') && filter_var(ADMIN_EMAIL, FILTER_VALIDATE_EMAIL)) {
-    $supportEmail = ADMIN_EMAIL;
-} else {
+if (defined('ADMIN_EMAIL')) {
+    $configuredEmail = constant('ADMIN_EMAIL');
+    if (is_string($configuredEmail) && filter_var($configuredEmail, FILTER_VALIDATE_EMAIL)) {
+        $supportEmail = $configuredEmail;
+    }
+}
+
+if ($supportEmail === null) {
     $emailCandidates = [
         $_ENV['ADMIN_EMAIL'] ?? null,
         $_SERVER['ADMIN_EMAIL'] ?? null,
@@ -32,10 +41,10 @@ if (defined('ADMIN_EMAIL') && filter_var(ADMIN_EMAIL, FILTER_VALIDATE_EMAIL)) {
     if ($supportEmail === null) {
         $supportEmail = 'support@dakshayani.in';
     }
+}
 
-    if (!defined('ADMIN_EMAIL')) {
-        define('ADMIN_EMAIL', $supportEmail);
-    }
+if (!defined('ADMIN_EMAIL') && is_string($supportEmail) && $supportEmail !== '') {
+    define('ADMIN_EMAIL', $supportEmail);
 }
 
 $supportEmail = (string) $supportEmail;
@@ -60,8 +69,27 @@ $roleRoutes = [
 
 $error = $bootstrapError;
 $success = '';
-$selectedRole = $_POST['role'] ?? 'admin';
-$emailValue = $_POST['email'] ?? '';
+
+$selectedRole = 'admin';
+$submittedRole = isset($_POST['role']) && is_string($_POST['role']) ? trim($_POST['role']) : '';
+$isRoleValid = true;
+if ($submittedRole !== '') {
+    if (array_key_exists($submittedRole, $roleRoutes)) {
+        $selectedRole = $submittedRole;
+    } else {
+        $isRoleValid = false;
+    }
+}
+
+$emailValue = '';
+if (isset($_POST['email']) && is_string($_POST['email'])) {
+    $emailValue = trim($_POST['email']);
+}
+
+$passwordValue = '';
+if (isset($_POST['password']) && is_string($_POST['password'])) {
+    $passwordValue = (string) $_POST['password'];
+}
 
 if (!empty($_SESSION['offline_session_invalidated'])) {
     $error = 'Your emergency administrator session ended because the secure database is available again. Please sign in using your standard credentials.';
@@ -75,7 +103,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $csrfToken = $_POST['csrf_token'] ?? '';
         if (!verify_csrf_token($csrfToken)) {
             $error = 'Your session expired. Please refresh and try again.';
+        } elseif (!$isRoleValid) {
+            $error = 'The selected portal is not available. Please choose a valid option and try again.';
         } else {
+            $email = $emailValue;
+            $password = $passwordValue;
             $user = null;
             try {
                 $user = authenticate_user($email, $password, $selectedRole);
@@ -92,6 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$user) {
                     $error = 'The provided credentials were incorrect or the account is inactive.';
                 } else {
+                    session_regenerate_id(true);
                     $_SESSION['user'] = [
                         'id' => $user['id'],
                         'full_name' => $user['full_name'],
