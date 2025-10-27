@@ -551,18 +551,18 @@ function recent_audit_logs(PDO $db): array
 
 function current_metrics(PDO $db): array
 {
-    $employeeCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee'")->fetchColumn();
+    $counts = admin_overview_counts($db);
     $pendingInvites = (int) $db->query("SELECT COUNT(*) FROM invitations WHERE status = 'pending'")->fetchColumn();
-    $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status IN ('intake','triage','work')")->fetchColumn();
     $metrics = $db->query('SELECT name, value FROM system_metrics')->fetchAll(PDO::FETCH_KEY_PAIR);
 
     return [
         'counts' => [
-            'employees' => $employeeCount,
-            'customers' => $employeeCount,
+            'employees' => $counts['employees'],
+            'leads' => $counts['leads'],
+            'installations' => $counts['installations'],
+            'complaints' => $counts['complaints'],
+            'subsidy' => $counts['subsidy'],
             'pendingInvitations' => $pendingInvites,
-            'openComplaints' => $openComplaints,
-            'subsidyPipeline' => $metrics['subsidy_pipeline'] ?? '0',
         ],
         'system' => [
             'last_backup' => $metrics['last_backup'] ?? 'Not recorded',
