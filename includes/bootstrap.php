@@ -3,6 +3,66 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/blog.php';
 
+function safe_get_constant(string $name, $default = null)
+{
+    if (!defined($name)) {
+        return $default;
+    }
+
+    try {
+        return constant($name);
+    } catch (Throwable $exception) {
+        error_log(sprintf('Failed to read constant %s: %s', $name, $exception->getMessage()));
+        return $default;
+    }
+}
+
+function resolve_admin_email(): string
+{
+    static $resolvedEmail = null;
+    if ($resolvedEmail !== null) {
+        return $resolvedEmail;
+    }
+
+    $candidates = [
+        safe_get_constant('ADMIN_EMAIL'),
+        $_ENV['ADMIN_EMAIL'] ?? null,
+        $_SERVER['ADMIN_EMAIL'] ?? null,
+        getenv('ADMIN_EMAIL') ?: null,
+        $_ENV['FALLBACK_ADMIN_EMAIL'] ?? null,
+        $_SERVER['FALLBACK_ADMIN_EMAIL'] ?? null,
+        getenv('FALLBACK_ADMIN_EMAIL') ?: null,
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            continue;
+        }
+
+        if (!filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            continue;
+        }
+
+        $resolvedEmail = $candidate;
+        break;
+    }
+
+    if ($resolvedEmail === null) {
+        $resolvedEmail = 'support@dakshayani.in';
+    }
+
+    if (!defined('ADMIN_EMAIL')) {
+        define('ADMIN_EMAIL', $resolvedEmail);
+    }
+
+    return $resolvedEmail;
+}
+
 function get_db(): PDO
 {
     static $db = null;
@@ -432,146 +492,6 @@ function unify_employee_roles(PDO $db): void
 
         $db->prepare('DELETE FROM roles WHERE id = :role_id')->execute([':role_id' => $roleId]);
         record_system_audit($db, 'role_removed', 'role', $roleId, sprintf('Legacy role %s removed during Employee role unification', $roleName));
-    }
-}
-
-function ensure_default_user(PDO $db, array $account): void
-{
-    $roleStmt = $db->prepare('SELECT id FROM roles WHERE name = :name LIMIT 1');
-    $roleStmt->execute([':name' => $account['role']]);
-    $roleId = $roleStmt->fetchColumn();
-    if ($roleId === false) {
-        return;
-    }
-    $roleId = (int) $roleId;
-
-    $emails = array_map('strtolower', array_filter([
-        $account['email'] ?? null,
-        ...($account['legacy_emails'] ?? []),
-    ], 'is_string'));
-    $usernames = array_map('strtolower', array_filter([
-        $account['username'] ?? null,
-        ...($account['legacy_usernames'] ?? []),
-    ], 'is_string'));
-
-    $conditions = [];
-    $params = [];
-
-    if ($emails) {
-        $emails = array_values(array_unique($emails));
-        $placeholders = [];
-        foreach ($emails as $index => $email) {
-            $placeholder = ':email_lookup_' . $index;
-            $placeholders[] = $placeholder;
-            $params[$placeholder] = $email;
-        }
-        $conditions[] = 'LOWER(email) IN (' . implode(', ', $placeholders) . ')';
-    }
-
-    if ($usernames) {
-        $usernames = array_values(array_unique($usernames));
-        $placeholders = [];
-        foreach ($usernames as $index => $username) {
-            $placeholder = ':username_lookup_' . $index;
-            $placeholders[] = $placeholder;
-            $params[$placeholder] = $username;
-        }
-        $conditions[] = 'LOWER(username) IN (' . implode(', ', $placeholders) . ')';
-    }
-
-    $existing = null;
-    if ($conditions) {
-        $sql = 'SELECT id, email, username, password_hash, status, role_id, permissions_note, full_name FROM users WHERE ' . implode(' OR ', $conditions) . ' LIMIT 1';
-        $lookup = $db->prepare($sql);
-        $lookup->execute($params);
-        $existing = $lookup->fetch(PDO::FETCH_ASSOC) ?: null;
-    }
-
-    $defaultPassword = (string) ($account['password'] ?? '');
-    $nowPasswordHash = null;
-
-    if ($existing === null) {
-        $insert = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'), datetime('now'), datetime('now'))");
-        if ($defaultPassword !== '') {
-            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
-        }
-
-        $insert->execute([
-            ':full_name' => $account['full_name'],
-            ':email' => $account['email'],
-            ':username' => $account['username'],
-            ':password_hash' => $nowPasswordHash,
-            ':role_id' => $roleId,
-            ':permissions_note' => $account['permissions_note'] ?? '',
-        ]);
-        return;
-    }
-
-    $updates = [];
-    $updateParams = [':id' => (int) $existing['id']];
-
-    if ((int) $existing['role_id'] !== $roleId) {
-        $updates[] = 'role_id = :role_id';
-        $updateParams[':role_id'] = $roleId;
-    }
-
-    $legacyEmails = array_map('strtolower', $account['legacy_emails'] ?? []);
-    $existingEmail = strtolower((string) ($existing['email'] ?? ''));
-    $targetEmail = strtolower((string) ($account['email'] ?? ''));
-    if ($targetEmail !== '' && $existingEmail !== $targetEmail) {
-        if (!$legacyEmails || in_array($existingEmail, $legacyEmails, true)) {
-            $updates[] = 'email = :email';
-            $updateParams[':email'] = $account['email'];
-        }
-    }
-
-    $legacyUsernames = array_map('strtolower', $account['legacy_usernames'] ?? []);
-    $existingUsername = strtolower((string) ($existing['username'] ?? ''));
-    $targetUsername = strtolower((string) ($account['username'] ?? ''));
-    if ($targetUsername !== '' && $existingUsername !== $targetUsername) {
-        if (!$legacyUsernames || in_array($existingUsername, $legacyUsernames, true)) {
-            $updates[] = 'username = :username';
-            $updateParams[':username'] = $account['username'];
-        }
-    }
-
-    $existingName = trim((string) ($existing['full_name'] ?? ''));
-    $targetName = (string) ($account['full_name'] ?? '');
-    if ($targetName !== '' && ($existingName === '' || $existingName === $targetName)) {
-        if ($existingName !== $targetName) {
-            $updates[] = 'full_name = :full_name';
-            $updateParams[':full_name'] = $targetName;
-        }
-    }
-
-    $existingNote = trim((string) ($existing['permissions_note'] ?? ''));
-    $targetNote = (string) ($account['permissions_note'] ?? '');
-    if ($targetNote !== '' && ($existingNote === '' || $existingNote === $targetNote)) {
-        if ($existingNote !== $targetNote) {
-            $updates[] = 'permissions_note = :permissions_note';
-            $updateParams[':permissions_note'] = $targetNote;
-        }
-    }
-
-    if (($existing['status'] ?? '') !== 'active') {
-        $updates[] = "status = 'active'";
-    }
-
-    $existingHash = (string) ($existing['password_hash'] ?? '');
-    if ($defaultPassword !== '' && ($existingHash === '' || !password_verify($defaultPassword, $existingHash))) {
-        if ($nowPasswordHash === null) {
-            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
-        }
-        $updates[] = 'password_hash = :password_hash';
-        $updateParams[':password_hash'] = $nowPasswordHash;
-        $updates[] = "password_last_set_at = datetime('now')";
-    }
-
-    if ($updates) {
-        $updates[] = "updated_at = datetime('now')";
-        $sql = 'UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = :id';
-        $stmt = $db->prepare($sql);
-        $stmt->execute($updateParams);
     }
 }
 
@@ -2095,7 +2015,7 @@ function portal_get_complaint(PDO $db, string $reference): array
     return portal_normalize_complaint_row(portal_fetch_complaint_row($db, $reference));
 }
 
-function portal_employee_submit_document(PDO $db, int $userId, string $reference, array $payload): array
+function portal_employee_submit_complaint_document(PDO $db, int $userId, string $reference, array $payload): array
 {
     enforce_complaint_access($db, $reference, $userId);
 
