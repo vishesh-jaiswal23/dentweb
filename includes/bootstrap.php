@@ -628,6 +628,24 @@ function now_ist(): string
     return $now->format('Y-m-d H:i:s');
 }
 
+function portal_gemini_profile(PDO $db): array
+{
+    $apiKey = trim((string) (get_setting('gemini_api_key', $db) ?? ''));
+    $textModel = get_setting('gemini_text_model', $db) ?? 'gemini-2.5-flash';
+    $imageModel = get_setting('gemini_image_model', $db) ?? 'gemini-2.5-flash-image';
+    $ttsModel = get_setting('gemini_tts_model', $db) ?? 'gemini-2.5-flash-preview-tts';
+
+    $enabled = $apiKey !== '' && strtoupper($apiKey) !== 'SET_IN_ADMIN_PORTAL';
+
+    return [
+        'enabled' => $enabled,
+        'textModel' => $textModel,
+        'imageModel' => $imageModel,
+        'ttsModel' => $ttsModel,
+        'lastChecked' => now_ist(),
+    ];
+}
+
 function portal_role_label(string $roleName): string
 {
     return strtolower($roleName) === 'employee' ? 'Employee' : ucfirst($roleName);
