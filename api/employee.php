@@ -26,11 +26,23 @@ $action = $_GET['action'] ?? '';
 $actor = current_user();
 $userId = (int) ($actor['id'] ?? 0);
 
+if (($actor['status'] ?? 'active') !== 'active') {
+    respond_error('Account inactive. Contact Admin to regain access.');
+    exit;
+}
+
 try {
     switch ($action) {
         case 'bootstrap':
             require_method('GET');
             respond_success(employee_bootstrap_payload($db, $userId));
+            break;
+        case 'upload-document':
+            require_method('POST');
+            respond_success([
+                'document' => portal_employee_submit_document($db, read_json(), $userId),
+                'documents' => portal_list_documents($db, 'employee', $userId),
+            ]);
             break;
         case 'update-task-status':
             require_method('POST');
@@ -150,7 +162,7 @@ function employee_bootstrap_payload(PDO $db, int $userId): array
     return [
         'tasks' => portal_list_tasks($db, $userId),
         'complaints' => portal_employee_complaints($db, $userId),
-        'documents' => portal_list_documents($db, 'employee'),
+        'documents' => portal_list_documents($db, 'employee', $userId),
         'notifications' => portal_list_notifications($db, $userId, 'employee'),
         'sync' => portal_latest_sync($db, $userId),
     ];

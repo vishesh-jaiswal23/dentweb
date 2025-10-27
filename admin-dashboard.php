@@ -11,7 +11,7 @@ $db = get_db();
 $rolesStmt = $db->query('SELECT id, name FROM roles ORDER BY name');
 $availableRoles = $rolesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$customerCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'customer'")->fetchColumn();
+$employeeCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee'")->fetchColumn();
 $pendingInvites = (int) $db->query("SELECT COUNT(*) FROM invitations WHERE status = 'pending'")->fetchColumn();
 $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status IN ('intake','triage','work')")->fetchColumn();
 $systemMetrics = $db->query('SELECT name, value FROM system_metrics')->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -284,14 +284,14 @@ $subsidyApplications = [];
         <div class="dashboard-main">
           <section class="dashboard-section" id="overview" role="tabpanel" data-tab-panel>
             <h2>Operational overview</h2>
-            <p class="dashboard-section-sub">Real-time KPIs from leads, customers, service tickets, AMC and subsidy queues.</p>
+            <p class="dashboard-section-sub">Real-time KPIs from onboarding, employees, service tickets, AMC and subsidy queues.</p>
             <div class="dashboard-cards">
               <article class="dashboard-card dashboard-card--neutral">
                 <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-solar-panel"></i></div>
                 <div>
-                  <p class="dashboard-card-title">Active customers</p>
-                  <p class="dashboard-card-value" data-metric="customers"><?= htmlspecialchars((string) $customerCount, ENT_QUOTES) ?></p>
-                  <p class="dashboard-card-meta">Counts update automatically when new customer logins are activated.</p>
+                  <p class="dashboard-card-title">Active employees</p>
+                  <p class="dashboard-card-value" data-metric="employees"><?= htmlspecialchars((string) $employeeCount, ENT_QUOTES) ?></p>
+                  <p class="dashboard-card-meta">Counts update automatically when Admin activates an employee account.</p>
                 </div>
               </article>
               <article class="dashboard-card dashboard-card--positive">
@@ -1817,6 +1817,119 @@ $subsidyApplications = [];
                 </div>
               </article>
             </div>
+            <div class="dashboard-profile-grid">
+              <form class="dashboard-form" data-complaint-form>
+                <h3>Create or update ticket</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Ticket reference
+                    <input type="text" name="reference" placeholder="Leave blank to auto-generate" />
+                  </label>
+                  <label>
+                    Ticket title
+                    <input type="text" name="title" placeholder="Service call from Ranchi" required />
+                  </label>
+                  <label>
+                    Status
+                    <select name="status">
+                      <option value="intake">Intake</option>
+                      <option value="triage">Triage</option>
+                      <option value="work">Work</option>
+                      <option value="resolution">Resolution</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </label>
+                  <label>
+                    Priority
+                    <select name="priority">
+                      <option value="medium" selected>Medium</option>
+                      <option value="high">High</option>
+                      <option value="low">Low</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
+                  </label>
+                  <label>
+                    Assign to employee
+                    <select name="assignedTo" data-complaint-assignee>
+                      <option value="">Unassigned</option>
+                    </select>
+                  </label>
+                  <label>
+                    SLA target (DD-MM-YYYY)
+                    <input type="text" name="slaDue" placeholder="DD-MM-YYYY" />
+                  </label>
+                </div>
+                <label>
+                  Description
+                  <textarea
+                    name="description"
+                    rows="3"
+                    placeholder="Capture customer statement, affected equipment, and any troubleshooting performed."
+                  ></textarea>
+                </label>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  Leave the reference blank to generate a new SR code. Using an existing reference updates that ticket in place.
+                </p>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Save ticket</button>
+                  <button type="reset" class="btn btn-ghost">Clear</button>
+                </div>
+                <div class="dashboard-inline-status" data-complaint-form-status hidden></div>
+              </form>
+
+              <article class="dashboard-form dashboard-form--table">
+                <h3>Ticket register</h3>
+                <div class="dashboard-table-wrapper" role="region" aria-live="polite">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Reference</th>
+                        <th scope="col">Summary</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">SLA</th>
+                        <th scope="col">Assignee</th>
+                        <th scope="col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody data-complaint-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="6">No complaints logged yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Ticket timeline</h3>
+                <p class="dashboard-form-note" data-complaint-timeline-note>
+                  <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  Select a ticket from the register to review its activity log and append notes.
+                </p>
+                <div class="ticket-timeline" data-complaint-timeline-wrapper hidden>
+                  <ol data-complaint-timeline></ol>
+                </div>
+                <form class="dashboard-inline-form" data-complaint-note-form hidden>
+                  <h4>Add internal note</h4>
+                  <div class="dashboard-inline-fields">
+                    <label>
+                      Note for employees
+                      <textarea
+                        name="note"
+                        rows="3"
+                        placeholder="Share troubleshooting guidance or customer commitments."
+                        required
+                      ></textarea>
+                    </label>
+                  </div>
+                  <div>
+                    <button type="submit" class="btn btn-secondary btn-sm">Log note</button>
+                  </div>
+                  <div class="dashboard-inline-status" data-complaint-note-status hidden></div>
+                </form>
+              </article>
+            </div>
           </section>
 
           <section class="dashboard-section" id="governance" role="tabpanel" data-tab-panel hidden>
@@ -1972,7 +2085,8 @@ $subsidyApplications = [];
     gemini: <?= json_encode($geminiSettings) ?>,
     metrics: <?= json_encode([
       'counts' => [
-        'customers' => $customerCount,
+        'employees' => $employeeCount,
+        'customers' => $employeeCount,
         'pendingInvitations' => $pendingInvites,
         'openComplaints' => $openComplaints,
         'subsidyPipeline' => $subsidyPipeline,
