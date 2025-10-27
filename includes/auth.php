@@ -178,6 +178,52 @@ function authenticate_user(string $identifier, string $password, string $roleNam
     }
 }
 
+function find_account_profile(string $identifier): ?array
+{
+    $normalized = trim($identifier);
+    if ($normalized === '') {
+        return null;
+    }
+
+    try {
+        $db = get_db();
+    } catch (Throwable $dbError) {
+        $offlineAccount = resolve_offline_account($dbError);
+        if ($offlineAccount === null) {
+            return null;
+        }
+
+        $matchesEmail = strcasecmp($offlineAccount['email'], $normalized) === 0;
+        $username = $offlineAccount['username'] ?? null;
+        $matchesUsername = is_string($username) && strcasecmp($username, $normalized) === 0;
+        if (!$matchesEmail && !$matchesUsername) {
+            return null;
+        }
+
+        return [
+            'id' => (int) ($offlineAccount['id'] ?? 0),
+            'full_name' => $offlineAccount['name'] ?? 'Primary Administrator',
+            'email' => $offlineAccount['email'],
+            'username' => $offlineAccount['username'] ?? $offlineAccount['email'],
+            'status' => 'active',
+            'role_name' => $offlineAccount['role'],
+            'offline_mode' => true,
+        ];
+    }
+
+    $stmt = $db->prepare("SELECT users.id, users.full_name, users.email, users.username, users.status, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE LOWER(users.email) = LOWER(:identifier) OR LOWER(users.username) = LOWER(:identifier) LIMIT 1");
+    $stmt->execute([':identifier' => $normalized]);
+
+    $profile = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$profile) {
+        return null;
+    }
+
+    $profile['id'] = (int) ($profile['id'] ?? 0);
+
+    return $profile;
+}
+
 function authenticate_user_fallback(string $identifier, string $password, string $roleName, Throwable $reason): ?array
 {
     $account = resolve_offline_account($reason);
