@@ -169,6 +169,81 @@ CREATE TABLE IF NOT EXISTS complaints (
 SQL
     );
 
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS crm_leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    email TEXT,
+    source TEXT,
+    status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','contacted','qualified','lost','converted')),
+    assigned_to INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(assigned_to) REFERENCES users(id)
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_status ON crm_leads(status)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_updated_at ON crm_leads(updated_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS installations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_name TEXT NOT NULL,
+    project_reference TEXT,
+    capacity_kw REAL,
+    status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning','in_progress','completed','on_hold','cancelled')),
+    scheduled_date TEXT,
+    handover_date TEXT,
+    assigned_to INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(assigned_to) REFERENCES users(id)
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_installations_status ON installations(status)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_installations_updated_at ON installations(updated_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS subsidy_applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_name TEXT NOT NULL,
+    application_number TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','submitted','approved','rejected','disbursed')),
+    amount INTEGER,
+    submitted_on TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes'))
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_subsidy_applications_status ON subsidy_applications(status)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_subsidy_applications_updated_at ON subsidy_applications(updated_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    module TEXT NOT NULL,
+    due_on TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','done','dismissed')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes'))
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_status ON reminders(status)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_module ON reminders(module)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_updated_at ON reminders(updated_at DESC)');
+
     $complaintColumns = $db->query("PRAGMA table_info('complaints')")->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('notes', $complaintColumns, true)) {
         $db->exec("ALTER TABLE complaints ADD COLUMN notes TEXT DEFAULT '[]'");
@@ -2135,6 +2210,280 @@ function portal_all_complaints(PDO $db): array
 {
     $stmt = $db->query('SELECT complaints.*, users.full_name AS assigned_to_name, roles.name AS assigned_role FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id LEFT JOIN roles ON users.role_id = roles.id ORDER BY complaints.created_at DESC');
     return portal_normalize_complaint_rows($db, $stmt->fetchAll());
+}
+
+function admin_overview_counts(PDO $db): array
+{
+    $activeEmployees = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee' AND users.status = 'active'")->fetchColumn();
+    $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
+    $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE status = 'in_progress'")->fetchColumn();
+    $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status IN ('intake','triage','work')")->fetchColumn();
+    $pendingSubsidy = (int) $db->query("SELECT COUNT(*) FROM subsidy_applications WHERE status IN ('pending','submitted')")->fetchColumn();
+
+    return [
+        'employees' => $activeEmployees,
+        'leads' => $newLeads,
+        'installations' => $activeInstallations,
+        'complaints' => $openComplaints,
+        'subsidy' => $pendingSubsidy,
+    ];
+}
+
+function admin_today_highlights(PDO $db, int $limit = 12): array
+{
+    $entries = [];
+
+    $addEntry = static function (?string $timestamp, string $module, string $summary, array $context = []) use (&$entries): void {
+        if ($timestamp === null || trim($timestamp) === '') {
+            return;
+        }
+
+        $parsed = strtotime($timestamp);
+        if ($parsed === false) {
+            return;
+        }
+
+        $entries[] = [
+            'module' => $module,
+            'summary' => $summary,
+            'timestamp' => $timestamp,
+            'sort_key' => $parsed,
+            'context' => $context,
+        ];
+    };
+
+    $leadStmt = $db->query('SELECT id, name, status, updated_at, created_at FROM crm_leads ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    foreach ($leadStmt->fetchAll() as $row) {
+        $status = lead_status_label($row['status'] ?? '');
+        $title = sprintf('Lead "%s" is %s', $row['name'], strtolower($status));
+        $addEntry($row['updated_at'] ?: $row['created_at'], 'leads', $title, [
+            'id' => (int) $row['id'],
+            'status' => $status,
+        ]);
+    }
+
+    $installationStmt = $db->query('SELECT id, customer_name, project_reference, status, updated_at, created_at FROM installations ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    foreach ($installationStmt->fetchAll() as $row) {
+        $status = installation_status_label($row['status'] ?? '');
+        $name = $row['project_reference'] ?: $row['customer_name'];
+        $title = sprintf('Installation %s now %s', $name, strtolower($status));
+        $addEntry($row['updated_at'] ?: $row['created_at'], 'installations', $title, [
+            'id' => (int) $row['id'],
+            'status' => $status,
+        ]);
+    }
+
+    $complaintStmt = $db->query('SELECT id, reference, status, updated_at, created_at FROM complaints ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    foreach ($complaintStmt->fetchAll() as $row) {
+        $status = complaint_status_label($row['status'] ?? '');
+        $title = sprintf('Complaint %s moved to %s', $row['reference'], strtolower($status));
+        $addEntry($row['updated_at'] ?: $row['created_at'], 'complaints', $title, [
+            'id' => (int) $row['id'],
+            'status' => $status,
+        ]);
+    }
+
+    $subsidyStmt = $db->query('SELECT id, application_number, customer_name, status, updated_at, created_at FROM subsidy_applications ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    foreach ($subsidyStmt->fetchAll() as $row) {
+        $status = subsidy_status_label($row['status'] ?? '');
+        $label = $row['application_number'] ?: $row['customer_name'];
+        $title = sprintf('Subsidy %s marked %s', $label, strtolower($status));
+        $addEntry($row['updated_at'] ?: $row['created_at'], 'subsidy', $title, [
+            'id' => (int) $row['id'],
+            'status' => $status,
+        ]);
+    }
+
+    $reminderStmt = $db->query('SELECT id, title, status, module, due_on, updated_at, created_at FROM reminders ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    foreach ($reminderStmt->fetchAll() as $row) {
+        $status = reminder_status_label($row['status'] ?? '');
+        $due = $row['due_on'] ? (' due ' . format_due_date($row['due_on'])) : '';
+        $title = sprintf('Reminder "%s" is %s%s', $row['title'], strtolower($status), $due);
+        $addEntry($row['updated_at'] ?: $row['created_at'], 'reminders', $title, [
+            'id' => (int) $row['id'],
+            'status' => $status,
+            'module' => $row['module'] ?? '',
+        ]);
+    }
+
+    if (count($entries) === 0) {
+        return [];
+    }
+
+    usort($entries, static function (array $a, array $b): int {
+        return $b['sort_key'] <=> $a['sort_key'];
+    });
+
+    $sliced = array_slice($entries, 0, $limit);
+
+    return array_map(static function (array $item): array {
+        $timestamp = new DateTimeImmutable($item['timestamp']);
+        return [
+            'module' => $item['module'],
+            'summary' => $item['summary'],
+            'timestamp' => $timestamp->format(DateTimeInterface::ATOM),
+            'context' => $item['context'],
+        ];
+    }, $sliced);
+}
+
+function format_due_date(string $date): string
+{
+    try {
+        $dt = new DateTimeImmutable($date, new DateTimeZone('UTC'));
+    } catch (Throwable $exception) {
+        return $date;
+    }
+
+    return $dt->format('j M');
+}
+
+function lead_status_label(string $status): string
+{
+    $map = [
+        'new' => 'New',
+        'contacted' => 'Contacted',
+        'qualified' => 'Qualified',
+        'lost' => 'Lost',
+        'converted' => 'Converted',
+    ];
+
+    $normalized = strtolower(trim($status));
+
+    return $map[$normalized] ?? ucfirst($normalized ?: 'New');
+}
+
+function installation_status_label(string $status): string
+{
+    $map = [
+        'planning' => 'Planning',
+        'in_progress' => 'In Progress',
+        'completed' => 'Completed',
+        'on_hold' => 'On Hold',
+        'cancelled' => 'Cancelled',
+    ];
+
+    $normalized = strtolower(trim($status));
+
+    return $map[$normalized] ?? ucfirst(str_replace('_', ' ', $normalized ?: 'in progress'));
+}
+
+function complaint_status_label(string $status): string
+{
+    $map = [
+        'intake' => 'Intake',
+        'triage' => 'Triage',
+        'work' => 'Work In Progress',
+        'resolution' => 'Resolution',
+        'closed' => 'Closed',
+    ];
+
+    $normalized = strtolower(trim($status));
+
+    return $map[$normalized] ?? ucfirst($normalized ?: 'open');
+}
+
+function subsidy_status_label(string $status): string
+{
+    $map = [
+        'pending' => 'Pending',
+        'submitted' => 'Submitted',
+        'approved' => 'Approved',
+        'rejected' => 'Rejected',
+        'disbursed' => 'Disbursed',
+    ];
+
+    $normalized = strtolower(trim($status));
+
+    return $map[$normalized] ?? ucfirst($normalized ?: 'pending');
+}
+
+function reminder_status_label(string $status): string
+{
+    $map = [
+        'open' => 'Open',
+        'done' => 'Done',
+        'dismissed' => 'Dismissed',
+    ];
+
+    $normalized = strtolower(trim($status));
+
+    return $map[$normalized] ?? ucfirst($normalized ?: 'open');
+}
+
+function admin_list_employees(PDO $db, string $status = 'active'): array
+{
+    $status = strtolower(trim($status));
+    $stmt = $db->prepare('SELECT users.full_name, users.email, users.status, users.created_at, users.last_login_at FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = \"employee\" AND (:status = \"all\" OR users.status = :status) ORDER BY users.full_name COLLATE NOCASE');
+    $stmt->execute([
+        ':status' => $status === 'all' ? 'all' : $status,
+    ]);
+
+    return $stmt->fetchAll();
+}
+
+function admin_list_leads(PDO $db, string $status = 'new'): array
+{
+    $status = strtolower(trim($status));
+    if ($status === 'all') {
+        $stmt = $db->query('SELECT name, phone, email, status, source, assigned_to, created_at, updated_at FROM crm_leads ORDER BY COALESCE(updated_at, created_at) DESC');
+        return $stmt->fetchAll();
+    }
+
+    $stmt = $db->prepare('SELECT name, phone, email, status, source, assigned_to, created_at, updated_at FROM crm_leads WHERE status = :status ORDER BY COALESCE(updated_at, created_at) DESC');
+    $stmt->execute([':status' => $status]);
+
+    return $stmt->fetchAll();
+}
+
+function admin_list_installations(PDO $db, string $status = 'in_progress'): array
+{
+    $status = strtolower(trim($status));
+    if ($status === 'all') {
+        $stmt = $db->query('SELECT customer_name, project_reference, status, scheduled_date, handover_date, created_at, updated_at FROM installations ORDER BY COALESCE(updated_at, created_at) DESC');
+        return $stmt->fetchAll();
+    }
+
+    $stmt = $db->prepare('SELECT customer_name, project_reference, status, scheduled_date, handover_date, created_at, updated_at FROM installations WHERE status = :status ORDER BY COALESCE(updated_at, created_at) DESC');
+    $stmt->execute([':status' => $status]);
+
+    return $stmt->fetchAll();
+}
+
+function admin_list_complaints(PDO $db, string $status = 'open'): array
+{
+    if ($status === 'all') {
+        $stmt = $db->query('SELECT reference, title, status, priority, created_at, updated_at FROM complaints ORDER BY COALESCE(updated_at, created_at) DESC');
+        return $stmt->fetchAll();
+    }
+
+    $stmt = $db->prepare("SELECT reference, title, status, priority, created_at, updated_at FROM complaints WHERE status IN ('intake','triage','work') ORDER BY COALESCE(updated_at, created_at) DESC");
+    $stmt->execute();
+
+    return $stmt->fetchAll();
+}
+
+function admin_list_subsidy(PDO $db, string $status = 'pending'): array
+{
+    $status = strtolower(trim($status));
+    if ($status === 'all') {
+        $stmt = $db->query('SELECT customer_name, application_number, status, amount, submitted_on, created_at, updated_at FROM subsidy_applications ORDER BY COALESCE(updated_at, created_at) DESC');
+        return $stmt->fetchAll();
+    }
+
+    $valid = [
+        'pending' => ['pending', 'submitted'],
+        'approved' => ['approved'],
+        'rejected' => ['rejected'],
+        'disbursed' => ['disbursed'],
+    ];
+
+    $statuses = $valid[$status] ?? [$status];
+    $placeholders = implode(',', array_fill(0, count($statuses), '?'));
+    $stmt = $db->prepare("SELECT customer_name, application_number, status, amount, submitted_on, created_at, updated_at FROM subsidy_applications WHERE status IN ($placeholders) ORDER BY COALESCE(updated_at, created_at) DESC");
+    $stmt->execute($statuses);
+
+    return $stmt->fetchAll();
 }
 
 function portal_find_complaint_id(PDO $db, string $reference): ?int
