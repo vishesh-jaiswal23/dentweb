@@ -6282,9 +6282,8 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
     gap: 1.5rem;
   }
 
-  .dashboard-body {
+  .dashboard-body.dashboard-body--with-aside {
     grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
-    align-items: start;
   }
 
   .dashboard-nav {

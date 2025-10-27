@@ -323,7 +323,7 @@ $attachmentIcon = static function (string $filename): string {
         </nav>
       </header>
 
-      <div class="dashboard-body">
+      <div class="dashboard-body dashboard-body--with-aside">
         <div class="dashboard-main">
           <section id="overview" class="dashboard-section" data-section>
             <h2>Employee overview</h2>
