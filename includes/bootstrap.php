@@ -314,6 +314,7 @@ CREATE TABLE IF NOT EXISTS reminders (
     proposer_id INTEGER NOT NULL,
     approver_id INTEGER,
     completed_at TEXT,
+    deleted_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
     FOREIGN KEY(proposer_id) REFERENCES users(id),
@@ -321,6 +322,10 @@ CREATE TABLE IF NOT EXISTS reminders (
 )
 SQL
     );
+
+    if (!empty($reminderColumns) && !in_array('deleted_at', $reminderColumns, true)) {
+        $db->exec("ALTER TABLE reminders ADD COLUMN deleted_at TEXT");
+    }
 
     $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_status ON reminders(status)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_module ON reminders(module)');
@@ -3042,7 +3047,7 @@ function admin_overview_counts(PDO $db): array
     $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
     $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
-    $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active')")->fetchColumn();
+    $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active') AND deleted_at IS NULL")->fetchColumn();
 
     $pendingStmt = $db->query(<<<'SQL'
 WITH ranked AS (
@@ -3141,7 +3146,7 @@ function admin_today_highlights(PDO $db, int $limit = 12): array
         ]);
     }
 
-    $reminderStmt = $db->query('SELECT id, title, status, module, due_at, updated_at, created_at FROM reminders ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    $reminderStmt = $db->query("SELECT id, title, status, module, due_at, updated_at, created_at FROM reminders WHERE deleted_at IS NULL ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25");
     foreach ($reminderStmt->fetchAll() as $row) {
         $status = reminder_status_label($row['status'] ?? '');
         $moduleLabel = reminder_module_label($row['module'] ?? '');
@@ -4663,6 +4668,115 @@ function reminder_module_label(string $module): string
     return $options[$normalized] ?? ucfirst($normalized ?: 'Item');
 }
 
+function reminder_due_counts(PDO $db, ?int $userId = null): array
+{
+    $conditions = ["status = 'active'", 'deleted_at IS NULL'];
+    $params = [];
+    if ($userId !== null) {
+        $conditions[] = 'proposer_id = :user_id';
+        $params[':user_id'] = $userId;
+    }
+
+    $whereClause = implode(' AND ', $conditions);
+    $tz = new DateTimeZone('Asia/Kolkata');
+    $today = new DateTimeImmutable('now', $tz);
+    $startToday = $today->setTime(0, 0, 0)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    $endToday = $today->setTime(23, 59, 59)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+
+    $dueTodaySql = 'SELECT COUNT(*) FROM reminders WHERE ' . $whereClause . ' AND due_at BETWEEN :start_today AND :end_today';
+    $overdueSql = 'SELECT COUNT(*) FROM reminders WHERE ' . $whereClause . ' AND due_at < :start_today';
+    $upcomingSql = 'SELECT COUNT(*) FROM reminders WHERE ' . $whereClause . ' AND due_at > :end_today';
+
+    $dueTodayStmt = $db->prepare($dueTodaySql);
+    $overdueStmt = $db->prepare($overdueSql);
+    $upcomingStmt = $db->prepare($upcomingSql);
+
+    $baseParams = $params;
+    $dueTodayParams = $baseParams + [
+        ':start_today' => $startToday,
+        ':end_today' => $endToday,
+    ];
+    $overdueParams = $baseParams + [
+        ':start_today' => $startToday,
+    ];
+    $upcomingParams = $baseParams + [
+        ':end_today' => $endToday,
+    ];
+
+    $dueTodayStmt->execute($dueTodayParams);
+    $overdueStmt->execute($overdueParams);
+    $upcomingStmt->execute($upcomingParams);
+
+    return [
+        'due_today' => (int) $dueTodayStmt->fetchColumn(),
+        'overdue' => (int) $overdueStmt->fetchColumn(),
+        'upcoming' => (int) $upcomingStmt->fetchColumn(),
+    ];
+}
+
+function portal_employee_reminders(PDO $db, int $employeeId, array $options = []): array
+{
+    $status = strtolower(trim((string) ($options['status'] ?? 'all')));
+    $dueFilter = strtolower(trim((string) ($options['due'] ?? 'all')));
+    $limit = isset($options['limit']) ? (int) $options['limit'] : null;
+
+    $conditions = ['proposer_id = :employee_id', 'deleted_at IS NULL'];
+    $params = [
+        ':employee_id' => $employeeId,
+    ];
+
+    if ($status !== '' && $status !== 'all') {
+        $conditions[] = 'status = :status';
+        $params[':status'] = $status;
+    }
+
+    $tz = new DateTimeZone('Asia/Kolkata');
+    $today = new DateTimeImmutable('now', $tz);
+    $startToday = $today->setTime(0, 0, 0)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    $endToday = $today->setTime(23, 59, 59)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+
+    $forceActiveStatuses = ['due_today', 'overdue', 'upcoming'];
+    $shouldForceActive = in_array($dueFilter, $forceActiveStatuses, true);
+
+    if ($shouldForceActive && ($status === '' || $status === 'all')) {
+        $conditions[] = "status = 'active'";
+    }
+
+    if ($dueFilter === 'due_today') {
+        $conditions[] = 'due_at BETWEEN :start_today AND :end_today';
+        $params[':start_today'] = $startToday;
+        $params[':end_today'] = $endToday;
+    } elseif ($dueFilter === 'overdue') {
+        $conditions[] = 'due_at < :start_today';
+        $params[':start_today'] = $startToday;
+    } elseif ($dueFilter === 'upcoming') {
+        $conditions[] = 'due_at > :end_today';
+        $params[':end_today'] = $endToday;
+    }
+
+    $sql = 'SELECT * FROM reminders WHERE ' . implode(' AND ', $conditions) . ' ORDER BY due_at ASC, id ASC';
+    if ($limit !== null && $limit > 0) {
+        $sql .= ' LIMIT :limit';
+    }
+
+    $stmt = $db->prepare($sql);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+    }
+    if ($limit !== null && $limit > 0) {
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    }
+
+    $stmt->execute();
+
+    $reminders = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $reminders[] = employee_normalize_reminder_row($db, $row);
+    }
+
+    return $reminders;
+}
+
 function employee_parse_reminder_due(string $value): string
 {
     $value = trim($value);
@@ -4678,6 +4792,11 @@ function employee_parse_reminder_due(string $value): string
         } catch (Throwable $exception) {
             throw new RuntimeException('Invalid due date and time.');
         }
+    }
+
+    $startOfToday = (new DateTimeImmutable('now', $tz))->setTime(0, 0, 0);
+    if ($parsed < $startOfToday) {
+        throw new RuntimeException('Due date must be today or later.');
     }
 
     return $parsed->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
@@ -4750,6 +4869,19 @@ function employee_normalize_reminder_row(PDO $db, array $row): array
 
     $status = strtolower((string) ($row['status'] ?? 'proposed'));
 
+    $completedValue = (string) ($row['completed_at'] ?? '');
+    $completedDisplay = '';
+    if ($completedValue !== '') {
+        try {
+            $completedAt = new DateTimeImmutable($completedValue, new DateTimeZone('UTC'));
+            $completedDisplay = $completedAt->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M Y · h:i A');
+        } catch (Throwable $exception) {
+            $completedDisplay = $completedValue;
+        }
+    }
+
+    $status = strtolower((string) ($row['status'] ?? 'proposed'));
+
     return [
         'id' => (int) ($row['id'] ?? 0),
         'title' => (string) ($row['title'] ?? ''),
@@ -4766,12 +4898,15 @@ function employee_normalize_reminder_row(PDO $db, array $row): array
         'createdAt' => (string) ($row['created_at'] ?? ''),
         'updatedAt' => (string) ($row['updated_at'] ?? ''),
         'canWithdraw' => $status === 'proposed',
+        'canComplete' => $status === 'active',
+        'completedAt' => $completedValue,
+        'completedDisplay' => $completedDisplay,
     ];
 }
 
 function employee_find_reminder(PDO $db, int $id, int $employeeId): ?array
 {
-    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id AND proposer_id = :proposer LIMIT 1');
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id AND proposer_id = :proposer AND deleted_at IS NULL LIMIT 1');
     $stmt->execute([
         ':id' => $id,
         ':proposer' => $employeeId,
@@ -4786,7 +4921,7 @@ function employee_find_reminder(PDO $db, int $id, int $employeeId): ?array
 
 function employee_list_reminders(PDO $db, int $employeeId): array
 {
-    $stmt = $db->prepare('SELECT * FROM reminders WHERE proposer_id = :proposer ORDER BY due_at ASC, id ASC');
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE proposer_id = :proposer AND deleted_at IS NULL ORDER BY due_at ASC, id ASC');
     $stmt->execute([':proposer' => $employeeId]);
 
     $reminders = [];
@@ -4871,7 +5006,7 @@ function employee_propose_reminder(PDO $db, array $input, int $employeeId): arra
 
 function employee_cancel_reminder(PDO $db, int $reminderId, int $employeeId): array
 {
-    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id AND proposer_id = :proposer LIMIT 1');
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id AND proposer_id = :proposer AND deleted_at IS NULL LIMIT 1');
     $stmt->execute([
         ':id' => $reminderId,
         ':proposer' => $employeeId,
@@ -4903,6 +5038,52 @@ function employee_cancel_reminder(PDO $db, int $reminderId, int $employeeId): ar
     $updated = employee_find_reminder($db, $reminderId, $employeeId);
     if ($updated === null) {
         throw new RuntimeException('Reminder could not be updated.');
+    }
+
+    $fullContext = admin_find_reminder($db, $reminderId);
+    if ($fullContext !== null) {
+        portal_notify_reminder_status($db, $fullContext, 'cancelled');
+    }
+
+    return $updated;
+}
+
+function employee_complete_reminder(PDO $db, int $reminderId, int $employeeId): array
+{
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id AND proposer_id = :proposer AND deleted_at IS NULL LIMIT 1');
+    $stmt->execute([
+        ':id' => $reminderId,
+        ':proposer' => $employeeId,
+    ]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('Reminder not found.');
+    }
+
+    $status = strtolower((string) ($row['status'] ?? ''));
+    if ($status !== 'active') {
+        throw new RuntimeException('Only active reminders can be completed.');
+    }
+
+    $now = now_ist();
+    $update = $db->prepare('UPDATE reminders SET status = :status, completed_at = :completed_at, updated_at = :updated_at WHERE id = :id');
+    $update->execute([
+        ':status' => 'completed',
+        ':completed_at' => $now,
+        ':updated_at' => $now,
+        ':id' => $reminderId,
+    ]);
+
+    portal_log_action($db, $employeeId, 'status_change', 'reminder', $reminderId, 'Reminder completed by proposer');
+
+    $updated = employee_find_reminder($db, $reminderId, $employeeId);
+    if ($updated === null) {
+        throw new RuntimeException('Reminder could not be updated.');
+    }
+
+    $fullContext = admin_find_reminder($db, $reminderId);
+    if ($fullContext !== null) {
+        portal_notify_reminder_status($db, $fullContext, 'completed');
     }
 
     return $updated;
@@ -4962,8 +5143,14 @@ function admin_list_reminders(PDO $db, array $filters): array
     $module = strtolower(trim((string) ($filters['module'] ?? 'all')));
     $fromDate = trim((string) ($filters['from'] ?? ''));
     $toDate = trim((string) ($filters['to'] ?? ''));
+    $page = max(1, (int) ($filters['page'] ?? 1));
+    $perPage = (int) ($filters['per_page'] ?? 20);
+    if ($perPage <= 0) {
+        $perPage = 20;
+    }
+    $perPage = min($perPage, 100);
 
-    $conditions = [];
+    $conditions = ['reminders.deleted_at IS NULL'];
     $params = [];
 
     if ($status !== '' && $status !== 'all') {
@@ -4993,18 +5180,64 @@ function admin_list_reminders(PDO $db, array $filters): array
         }
     }
 
-    $sql = 'SELECT reminders.*, proposer.full_name AS proposer_name, approver.full_name AS approver_name FROM reminders '
-        . 'LEFT JOIN users proposer ON reminders.proposer_id = proposer.id '
-        . 'LEFT JOIN users approver ON reminders.approver_id = approver.id';
+    $whereSql = $conditions ? (' WHERE ' . implode(' AND ', $conditions)) : '';
 
-    if ($conditions) {
-        $sql .= ' WHERE ' . implode(' AND ', $conditions);
+    $countSql = 'SELECT COUNT(*) FROM reminders' . $whereSql;
+    $countStmt = $db->prepare($countSql);
+    $countStmt->execute($params);
+    $total = (int) $countStmt->fetchColumn();
+
+    $pageCount = $perPage > 0 ? (int) ceil($total / $perPage) : 1;
+    if ($pageCount < 1) {
+        $pageCount = 1;
+    }
+    if ($page > $pageCount) {
+        $page = $pageCount;
     }
 
-    $sql .= ' ORDER BY reminders.due_at ASC, reminders.id ASC';
+    $offset = ($page - 1) * $perPage;
+
+    $sql = 'SELECT reminders.*, proposer.full_name AS proposer_name, approver.full_name AS approver_name FROM reminders '
+        . 'LEFT JOIN users proposer ON reminders.proposer_id = proposer.id '
+        . 'LEFT JOIN users approver ON reminders.approver_id = approver.id'
+        . $whereSql
+        . ' ORDER BY reminders.due_at ASC, reminders.id ASC LIMIT :limit OFFSET :offset';
 
     $stmt = $db->prepare($sql);
-    $stmt->execute($params);
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+    }
+    $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', max(0, $offset), PDO::PARAM_INT);
+    $stmt->execute();
+
+    $items = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $items[] = admin_normalize_reminder_row($row);
+    }
+
+    return [
+        'items' => $items,
+        'pagination' => [
+            'page' => $page,
+            'perPage' => $perPage,
+            'total' => $total,
+            'pages' => $pageCount,
+        ],
+    ];
+}
+
+function admin_list_reminder_requests(PDO $db): array
+{
+    $stmt = $db->prepare(
+        'SELECT reminders.*, proposer.full_name AS proposer_name, approver.full_name AS approver_name '
+        . 'FROM reminders '
+        . 'LEFT JOIN users proposer ON reminders.proposer_id = proposer.id '
+        . 'LEFT JOIN users approver ON reminders.approver_id = approver.id '
+        . "WHERE reminders.status = 'proposed' AND reminders.deleted_at IS NULL "
+        . 'ORDER BY reminders.due_at ASC, reminders.id ASC'
+    );
+    $stmt->execute();
 
     $items = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -5025,7 +5258,7 @@ function admin_find_reminder(PDO $db, int $id): ?array
         . 'FROM reminders '
         . 'LEFT JOIN users proposer ON reminders.proposer_id = proposer.id '
         . 'LEFT JOIN users approver ON reminders.approver_id = approver.id '
-        . 'WHERE reminders.id = :id LIMIT 1'
+        . 'WHERE reminders.id = :id AND reminders.deleted_at IS NULL LIMIT 1'
     );
     $stmt->execute([':id' => $id]);
 
@@ -5057,6 +5290,19 @@ function admin_create_reminder(PDO $db, array $input, int $actorId): array
     $dueAt = trim((string) ($input['due_at'] ?? ''));
     if ($dueAt === '') {
         throw new RuntimeException('Due date and time is required.');
+    }
+
+    try {
+        $dueDate = new DateTimeImmutable($dueAt, new DateTimeZone('UTC'));
+    } catch (Throwable $exception) {
+        throw new RuntimeException('Invalid due date and time.');
+    }
+
+    $todayStart = (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))
+        ->setTime(0, 0, 0)
+        ->setTimezone(new DateTimeZone('UTC'));
+    if ($dueDate < $todayStart) {
+        throw new RuntimeException('Due date must be today or later.');
     }
 
     $notes = trim((string) ($input['notes'] ?? ''));
@@ -5094,7 +5340,7 @@ function admin_update_reminder_status(PDO $db, int $id, string $targetStatus, in
         throw new RuntimeException('Unsupported reminder status change.');
     }
 
-    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id LIMIT 1');
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id AND deleted_at IS NULL LIMIT 1');
     $stmt->execute([':id' => $id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) {
@@ -5119,25 +5365,28 @@ function admin_update_reminder_status(PDO $db, int $id, string $targetStatus, in
 
         portal_log_action($db, $actorId, 'status_change', 'reminder', $id, 'Reminder approved');
     } elseif ($target === 'cancelled') {
-        if ($currentStatus !== 'proposed') {
-            throw new RuntimeException('Only proposed reminders can be rejected.');
-        }
-
         $reason = trim((string) $note);
-        if ($reason === '') {
+        if ($currentStatus === 'proposed' && $reason === '') {
             throw new RuntimeException('Rejection reason is required.');
         }
+
+        if (!in_array($currentStatus, ['proposed', 'active'], true)) {
+            throw new RuntimeException('Only proposed or active reminders can be cancelled.');
+        }
+
+        $decisionNote = $reason !== '' ? $reason : null;
 
         $update = $db->prepare('UPDATE reminders SET status = :status, approver_id = :approver_id, decision_note = :decision_note, completed_at = NULL, updated_at = :updated_at WHERE id = :id');
         $update->execute([
             ':status' => 'cancelled',
             ':approver_id' => $actorId,
-            ':decision_note' => $reason,
+            ':decision_note' => $decisionNote,
             ':updated_at' => $now,
             ':id' => $id,
         ]);
 
-        portal_log_action($db, $actorId, 'status_change', 'reminder', $id, 'Reminder rejected');
+        $logMessage = $currentStatus === 'proposed' ? 'Reminder rejected' : 'Reminder cancelled';
+        portal_log_action($db, $actorId, 'status_change', 'reminder', $id, $logMessage);
     } else { // completed
         if ($currentStatus !== 'active') {
             throw new RuntimeException('Only active reminders can be completed.');
@@ -5162,6 +5411,47 @@ function admin_update_reminder_status(PDO $db, int $id, string $targetStatus, in
     portal_notify_reminder_status($db, $updated, $target);
 
     return $updated;
+}
+
+function portal_notify_reminder_status(PDO $db, array $reminder, string $status): void
+{
+    try {
+        $normalizedStatus = strtolower(trim($status));
+        $proposerId = null;
+        if (isset($reminder['proposerId'])) {
+            $proposerId = $reminder['proposerId'];
+        } elseif (isset($reminder['proposer_id'])) {
+            $proposerId = $reminder['proposer_id'];
+        }
+
+        $proposerId = (int) ($proposerId ?? 0);
+        if ($proposerId <= 0) {
+            return;
+        }
+
+        $title = sprintf('Reminder %s', reminder_status_label($normalizedStatus));
+        $moduleLabel = $reminder['moduleLabel'] ?? reminder_module_label($reminder['module'] ?? '');
+        $linkedId = $reminder['linkedId'] ?? $reminder['linked_id'] ?? '';
+        $reminderTitle = trim((string) ($reminder['title'] ?? 'Reminder'));
+        if ($reminderTitle === '') {
+            $reminderTitle = 'Reminder';
+        }
+        $statusLabel = strtolower(reminder_status_label($normalizedStatus));
+        $linkText = $linkedId !== '' ? sprintf('%s #%s', $moduleLabel, $linkedId) : $moduleLabel;
+        $message = sprintf('"%s" for %s is now %s.', $reminderTitle, $linkText, $statusLabel);
+
+        $toneMap = [
+            'completed' => 'success',
+            'cancelled' => 'warning',
+            'active' => 'info',
+            'proposed' => 'info',
+        ];
+        $tone = $toneMap[$normalizedStatus] ?? 'info';
+
+        portal_store_reminder_banner($db, $proposerId, $tone, $title, $message);
+    } catch (Throwable $exception) {
+        error_log('Failed to notify reminder status: ' . $exception->getMessage());
+    }
 }
 
 function admin_list_employees(PDO $db, string $status = 'active'): array
