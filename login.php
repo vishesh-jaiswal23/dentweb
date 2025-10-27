@@ -60,8 +60,27 @@ $roleRoutes = [
 
 $error = $bootstrapError;
 $success = '';
-$selectedRole = $_POST['role'] ?? 'admin';
-$emailValue = $_POST['email'] ?? '';
+
+$selectedRole = 'admin';
+$submittedRole = isset($_POST['role']) && is_string($_POST['role']) ? trim($_POST['role']) : '';
+$isRoleValid = true;
+if ($submittedRole !== '') {
+    if (array_key_exists($submittedRole, $roleRoutes)) {
+        $selectedRole = $submittedRole;
+    } else {
+        $isRoleValid = false;
+    }
+}
+
+$emailValue = '';
+if (isset($_POST['email']) && is_string($_POST['email'])) {
+    $emailValue = trim($_POST['email']);
+}
+
+$passwordValue = '';
+if (isset($_POST['password']) && is_string($_POST['password'])) {
+    $passwordValue = (string) $_POST['password'];
+}
 
 if (!empty($_SESSION['offline_session_invalidated'])) {
     $error = 'Your emergency administrator session ended because the secure database is available again. Please sign in using your standard credentials.';
@@ -75,7 +94,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $csrfToken = $_POST['csrf_token'] ?? '';
         if (!verify_csrf_token($csrfToken)) {
             $error = 'Your session expired. Please refresh and try again.';
+        } elseif (!$isRoleValid) {
+            $error = 'The selected portal is not available. Please choose a valid option and try again.';
         } else {
+            $email = $emailValue;
+            $password = $passwordValue;
             $user = null;
             try {
                 $user = authenticate_user($email, $password, $selectedRole);
@@ -92,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$user) {
                     $error = 'The provided credentials were incorrect or the account is inactive.';
                 } else {
+                    session_regenerate_id(true);
                     $_SESSION['user'] = [
                         'id' => $user['id'],
                         'full_name' => $user['full_name'],
