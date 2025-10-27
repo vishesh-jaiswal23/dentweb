@@ -26,11 +26,23 @@ $action = $_GET['action'] ?? '';
 $actor = current_user();
 $userId = (int) ($actor['id'] ?? 0);
 
+if (($actor['status'] ?? 'active') !== 'active') {
+    respond_error('Account inactive. Contact Admin to regain access.');
+    exit;
+}
+
 try {
     switch ($action) {
         case 'bootstrap':
             require_method('GET');
             respond_success(employee_bootstrap_payload($db, $userId));
+            break;
+        case 'upload-document':
+            require_method('POST');
+            respond_success([
+                'document' => portal_employee_submit_document($db, read_json(), $userId),
+                'documents' => portal_list_documents($db, 'employee', $userId),
+            ]);
             break;
         case 'update-task-status':
             require_method('POST');
@@ -61,6 +73,34 @@ try {
                 'complaint' => $complaint,
                 'complaints' => portal_employee_complaints($db, $userId),
             ]);
+            break;
+        case 'add-complaint-note':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            if ($reference === '') {
+                throw new RuntimeException('Complaint reference is required.');
+            }
+            enforce_complaint_access($db, $reference, $userId);
+            $complaint = portal_add_complaint_note($db, $payload, $userId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_employee_complaints($db, $userId),
+            ]);
+            break;
+        case 'complaint-timeline':
+            require_method('GET');
+            $reference = (string) ($_GET['reference'] ?? '');
+            if ($reference === '') {
+                throw new RuntimeException('Complaint reference is required.');
+            }
+            enforce_complaint_access($db, $reference, $userId);
+            $complaintId = portal_find_complaint_id($db, $reference);
+            if ($complaintId === null) {
+                throw new RuntimeException('Complaint not found.');
+            }
+            $timeline = portal_fetch_complaint_updates($db, [$complaintId]);
+            respond_success(['timeline' => $timeline[$complaintId] ?? []]);
             break;
         case 'mark-notification':
             require_method('POST');
@@ -126,7 +166,7 @@ function employee_bootstrap_payload(PDO $db, int $userId): array
     return [
         'tasks' => portal_list_tasks($db, $userId),
         'complaints' => portal_employee_complaints($db, $userId),
-        'documents' => portal_list_documents($db, 'employee'),
+        'documents' => portal_list_documents($db, 'employee', $userId),
         'notifications' => portal_list_notifications($db, $userId, 'employee'),
         'sync' => portal_latest_sync($db, $userId),
     ];

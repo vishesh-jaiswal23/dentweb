@@ -42,18 +42,6 @@ $supportEmail = (string) $supportEmail;
 
 start_session();
 
-$bootstrapError = '';
-$db = null;
-try {
-    $db = get_db();
-} catch (Throwable $exception) {
-    $bootstrapError = 'Error: The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
-    if ($supportEmail !== '') {
-        $bootstrapError .= ' Reach out to ' . $supportEmail . ' for assistance.';
-    }
-    error_log('Login bootstrap failed: ' . $exception->getMessage());
-}
-
 $scriptDir = str_replace('\\', '/', dirname($_SERVER['PHP_SELF'] ?? ''));
 if ($scriptDir === '/' || $scriptDir === '.') {
     $scriptDir = '';
@@ -83,16 +71,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!verify_csrf_token($csrfToken)) {
             $error = 'Your session expired. Please refresh and try again.';
         } else {
-            $selectedRole = $_POST['role'] ?? 'admin';
-            $email = trim($_POST['email'] ?? '');
-            $password = $_POST['password'] ?? '';
-
-            if (!isset($roleRoutes[$selectedRole])) {
-                $error = 'Select a valid portal to continue.';
-            } elseif ($email === '' || $password === '') {
-                $error = 'Enter both your email ID and password.';
-            } else {
+            $user = null;
+            try {
                 $user = authenticate_user($email, $password, $selectedRole);
+            } catch (Throwable $exception) {
+                $error = 'Error: The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
+                if ($supportEmail !== '') {
+                    $error .= ' Reach out to ' . $supportEmail . ' for assistance.';
+                }
+                error_log('Login attempt failed: ' . $exception->getMessage());
+                $user = null;
+            }
+
+            if (empty($error)) {
                 if (!$user) {
                     $error = 'The provided credentials were incorrect or the account is inactive.';
                 } else {
