@@ -69,6 +69,24 @@ try {
             require_method('POST');
             respond_success(update_login_policy($db, read_json()));
             break;
+        case 'save-task':
+            require_method('POST');
+            respond_success(['task' => portal_save_task($db, read_json(), $actorId), 'tasks' => portal_list_tasks($db)]);
+            break;
+        case 'update-task-status':
+            require_method('POST');
+            $payload = read_json();
+            $taskId = (int) ($payload['id'] ?? 0);
+            if ($taskId <= 0) {
+                throw new RuntimeException('Task ID is required.');
+            }
+            $status = (string) ($payload['status'] ?? '');
+            respond_success(['task' => portal_update_task_status($db, $taskId, $status, $actorId), 'tasks' => portal_list_tasks($db)]);
+            break;
+        case 'save-document':
+            require_method('POST');
+            respond_success(['document' => portal_save_document($db, read_json(), $actorId), 'documents' => portal_list_documents($db, 'admin')]);
+            break;
         case 'fetch-audit':
             require_method('GET');
             respond_success(['audit' => recent_audit_logs($db)]);
@@ -439,6 +457,11 @@ function bootstrap_payload(PDO $db): array
             'imageModel' => get_setting('gemini_image_model', $db) ?? 'gemini-2.5-flash-image',
             'ttsModel' => get_setting('gemini_tts_model', $db) ?? 'gemini-2.5-flash-preview-tts',
         ],
+        'tasks' => [
+            'items' => portal_list_tasks($db),
+            'team' => portal_list_team($db),
+        ],
+        'documents' => portal_list_documents($db, 'admin'),
         'blog' => [
             'posts' => blog_admin_list($db),
         ],

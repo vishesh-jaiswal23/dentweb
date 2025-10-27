@@ -50,6 +50,10 @@ $taskTeam = [];
 $taskItems = [];
 $documents = [];
 
+$taskTeam = portal_list_team($db);
+$taskItems = portal_list_tasks($db);
+$documents = portal_list_documents($db, 'admin');
+
 $blogPosts = blog_admin_list($db);
 
 $dataQuality = [
@@ -181,7 +185,7 @@ $subsidyApplications = [];
         </div>
       </header>
 
-      <div class="dashboard-body">
+      <div class="dashboard-body dashboard-body--nav-first">
         <nav class="dashboard-nav" aria-label="Admin navigation" role="tablist">
           <p class="dashboard-nav-title">Workspace</p>
           <ul>

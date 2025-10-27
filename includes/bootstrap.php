@@ -114,6 +114,73 @@ SQL
     );
 
     $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS portal_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','in_progress','done')),
+    priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high')),
+    due_date TEXT,
+    linked_reference TEXT,
+    notes TEXT,
+    assignee_id INTEGER,
+    created_by INTEGER,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(assignee_id) REFERENCES users(id),
+    FOREIGN KEY(created_by) REFERENCES users(id)
+)
+SQL
+    );
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS portal_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    linked_to TEXT,
+    reference TEXT,
+    tags TEXT,
+    url TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    visibility TEXT NOT NULL DEFAULT 'employee' CHECK(visibility IN ('employee','admin','both')),
+    uploaded_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(uploaded_by) REFERENCES users(id)
+)
+SQL
+    );
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS portal_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audience TEXT NOT NULL DEFAULT 'employee' CHECK(audience IN ('employee','admin','all')),
+    tone TEXT NOT NULL DEFAULT 'info' CHECK(tone IN ('info','success','warning','danger')),
+    icon TEXT,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    link TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    expires_at TEXT
+)
+SQL
+    );
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS portal_notification_status (
+    notification_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'unread' CHECK(status IN ('unread','read','dismissed')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    PRIMARY KEY(notification_id, user_id),
+    FOREIGN KEY(notification_id) REFERENCES portal_notifications(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+)
+SQL
+    );
+
+    $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS system_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -259,7 +326,7 @@ function seed_defaults(PDO $db): void
     }
 
     $defaultGeminiSettings = [
-        'gemini_api_key' => 'AIzaSyAsCEn7cd9vZlb5M5z9kw3XwbGkOjg8md0',
+        'gemini_api_key' => 'SET_IN_ADMIN_PORTAL',
         'gemini_text_model' => 'gemini-2.5-flash',
         'gemini_image_model' => 'gemini-2.5-flash-image',
         'gemini_tts_model' => 'gemini-2.5-flash-preview-tts',
@@ -276,6 +343,8 @@ function seed_defaults(PDO $db): void
 
     blog_seed_default($db);
     blog_backfill_cover_images($db);
+
+    seed_portal_defaults($db);
 }
 
 function get_setting(string $key, ?PDO $db = null): ?string
@@ -304,6 +373,7 @@ function apply_schema_patches(PDO $db): void
     upgrade_users_table($db);
     upgrade_blog_posts_table($db);
     ensure_login_policy_row($db);
+    ensure_portal_tables($db);
 }
 
 function upgrade_users_table(PDO $db): void
@@ -390,4 +460,633 @@ function ensure_blog_indexes(PDO $db): void
 {
     $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_posts_status_published_at ON blog_posts(status, published_at DESC)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_post_tags_tag ON blog_post_tags(tag_id)');
+}
+
+function ensure_portal_tables(PDO $db): void
+{
+    $tables = $db->query("SELECT name FROM sqlite_master WHERE type = 'table'")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('portal_tasks', $tables, true)) {
+        $db->exec(<<<'SQL'
+CREATE TABLE portal_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'todo' CHECK(status IN ('todo','in_progress','done')),
+    priority TEXT NOT NULL DEFAULT 'medium' CHECK(priority IN ('low','medium','high')),
+    due_date TEXT,
+    linked_reference TEXT,
+    notes TEXT,
+    assignee_id INTEGER,
+    created_by INTEGER,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(assignee_id) REFERENCES users(id),
+    FOREIGN KEY(created_by) REFERENCES users(id)
+)
+SQL
+        );
+    }
+
+    if (!in_array('portal_documents', $tables, true)) {
+        $db->exec(<<<'SQL'
+CREATE TABLE portal_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    linked_to TEXT,
+    reference TEXT,
+    tags TEXT,
+    url TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    visibility TEXT NOT NULL DEFAULT 'employee' CHECK(visibility IN ('employee','admin','both')),
+    uploaded_by INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(uploaded_by) REFERENCES users(id)
+)
+SQL
+        );
+    }
+
+    if (!in_array('portal_notifications', $tables, true)) {
+        $db->exec(<<<'SQL'
+CREATE TABLE portal_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    audience TEXT NOT NULL DEFAULT 'employee' CHECK(audience IN ('employee','admin','all')),
+    tone TEXT NOT NULL DEFAULT 'info' CHECK(tone IN ('info','success','warning','danger')),
+    icon TEXT,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    link TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    expires_at TEXT
+)
+SQL
+        );
+    }
+
+    if (!in_array('portal_notification_status', $tables, true)) {
+        $db->exec(<<<'SQL'
+CREATE TABLE portal_notification_status (
+    notification_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'unread' CHECK(status IN ('unread','read','dismissed')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    PRIMARY KEY(notification_id, user_id),
+    FOREIGN KEY(notification_id) REFERENCES portal_notifications(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+)
+SQL
+        );
+    }
+}
+
+function seed_portal_defaults(PDO $db): void
+{
+    $taskCount = (int) $db->query('SELECT COUNT(*) FROM portal_tasks')->fetchColumn();
+    if ($taskCount === 0) {
+        $now = new DateTime('now', new DateTimeZone('Asia/Kolkata'));
+        $tasks = [
+            [
+                'title' => 'Verify subsidy documents',
+                'description' => 'Cross-check uploaded paperwork before subsidy submission.',
+                'priority' => 'high',
+                'status' => 'todo',
+                'due_date' => $now->modify('+2 days')->format('Y-m-d'),
+                'linked_reference' => 'SR-101',
+            ],
+            [
+                'title' => 'Schedule AMC visit for Asha Devi',
+                'description' => 'Confirm availability and share visit checklist.',
+                'priority' => 'medium',
+                'status' => 'in_progress',
+                'due_date' => $now->modify('+3 days')->format('Y-m-d'),
+                'linked_reference' => 'AMC-204',
+            ],
+        ];
+        $insert = $db->prepare('INSERT INTO portal_tasks(title, description, priority, status, due_date, linked_reference, created_at, updated_at) VALUES(:title, :description, :priority, :status, :due_date, :linked_reference, datetime(\'now\', \' +330 minutes\'), datetime(\'now\', \' +330 minutes\'))');
+        foreach ($tasks as $task) {
+            $insert->execute([
+                ':title' => $task['title'],
+                ':description' => $task['description'],
+                ':priority' => $task['priority'],
+                ':status' => $task['status'],
+                ':due_date' => $task['due_date'],
+                ':linked_reference' => $task['linked_reference'],
+            ]);
+        }
+    }
+
+    $documentCount = (int) $db->query('SELECT COUNT(*) FROM portal_documents')->fetchColumn();
+    if ($documentCount === 0) {
+        $insertDoc = $db->prepare('INSERT INTO portal_documents(name, linked_to, reference, tags, url, version, visibility, uploaded_by, created_at, updated_at) VALUES(:name, :linked_to, :reference, :tags, :url, :version, :visibility, NULL, datetime(\'now\', \' +330 minutes\'), datetime(\'now\', \' +330 minutes\'))');
+        $insertDoc->execute([
+            ':name' => 'Service Playbook',
+            ':linked_to' => 'operations',
+            ':reference' => 'DOC-OPS-01',
+            ':tags' => json_encode(['SOP', 'Service']),
+            ':url' => '#',
+            ':version' => 1,
+            ':visibility' => 'both',
+        ]);
+        $insertDoc->execute([
+            ':name' => 'Subsidy Checklist',
+            ':linked_to' => 'subsidy',
+            ':reference' => 'DOC-SUB-11',
+            ':tags' => json_encode(['Checklist']),
+            ':url' => '#',
+            ':version' => 1,
+            ':visibility' => 'employee',
+        ]);
+    }
+
+    $notificationCount = (int) $db->query('SELECT COUNT(*) FROM portal_notifications')->fetchColumn();
+    if ($notificationCount === 0) {
+        $insertNotification = $db->prepare('INSERT INTO portal_notifications(audience, tone, icon, title, message, link, created_at) VALUES(:audience, :tone, :icon, :title, :message, :link, datetime(\'now\', \' +330 minutes\'))');
+        $insertNotification->execute([
+            ':audience' => 'employee',
+            ':tone' => 'info',
+            ':icon' => 'fa-solid fa-ticket',
+            ':title' => 'Ticket SR-219 assigned',
+            ':message' => 'Admin added SR-219 to your queue with a 24-hour SLA.',
+            ':link' => '#complaints',
+        ]);
+        $insertNotification->execute([
+            ':audience' => 'employee',
+            ':tone' => 'warning',
+            ':icon' => 'fa-solid fa-clock',
+            ':title' => 'SLA due soon',
+            ':message' => 'SR-205 needs an update before 18:00 IST today.',
+            ':link' => '#complaints',
+        ]);
+    }
+}
+
+function now_ist(): string
+{
+    $now = new DateTime('now', new DateTimeZone('Asia/Kolkata'));
+    return $now->format('Y-m-d H:i:s');
+}
+
+function portal_role_label(string $roleName): string
+{
+    return strtolower($roleName) === 'employee' ? 'Employee' : ucfirst($roleName);
+}
+
+function portal_find_user(PDO $db, int $id): ?array
+{
+    $stmt = $db->prepare('SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE users.id = :id LIMIT 1');
+    $stmt->execute([':id' => $id]);
+    $user = $stmt->fetch();
+    return $user ?: null;
+}
+
+function portal_list_team(PDO $db): array
+{
+    $stmt = $db->query("SELECT users.id, users.full_name, users.email, users.permissions_note, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name IN ('employee','admin') ORDER BY roles.name, users.full_name");
+    $team = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $team[] = [
+            'id' => (int) $row['id'],
+            'name' => $row['full_name'],
+            'email' => $row['email'],
+            'role' => portal_role_label($row['role_name']),
+            'note' => $row['permissions_note'] ?? '',
+        ];
+    }
+
+    return $team;
+}
+
+function portal_list_tasks(PDO $db, ?int $assigneeId = null): array
+{
+    $sql = "SELECT portal_tasks.*, users.full_name AS assignee_name, users.email AS assignee_email, roles.name AS assignee_role FROM portal_tasks LEFT JOIN users ON portal_tasks.assignee_id = users.id LEFT JOIN roles ON users.role_id = roles.id";
+    $params = [];
+    if ($assigneeId !== null) {
+        $sql .= ' WHERE portal_tasks.assignee_id = :assignee_id';
+        $params[':assignee_id'] = $assigneeId;
+    }
+    $sql .= " ORDER BY CASE portal_tasks.status WHEN 'todo' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END, COALESCE(portal_tasks.due_date, ''), portal_tasks.id DESC";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
+    $tasks = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $tasks[] = portal_normalize_task_row($row);
+    }
+
+    return $tasks;
+}
+
+function portal_normalize_task_row(array $row): array
+{
+    $assigneeRole = $row['assignee_role'] ?? '';
+    return [
+        'id' => (int) $row['id'],
+        'title' => $row['title'],
+        'description' => $row['description'] ?? '',
+        'status' => $row['status'],
+        'priority' => $row['priority'],
+        'dueDate' => $row['due_date'] ?? '',
+        'linkedTo' => $row['linked_reference'] ?? '',
+        'notes' => $row['notes'] ?? '',
+        'assigneeId' => $row['assignee_id'] !== null ? (string) $row['assignee_id'] : '',
+        'assigneeName' => $row['assignee_name'] ?? '',
+        'assigneeRole' => $assigneeRole ? portal_role_label($assigneeRole) : '',
+        'createdAt' => $row['created_at'] ?? '',
+        'updatedAt' => $row['updated_at'] ?? '',
+        'completedAt' => $row['completed_at'] ?? '',
+    ];
+}
+
+function portal_save_task(PDO $db, array $input, int $actorId): array
+{
+    $title = trim((string) ($input['title'] ?? ''));
+    if ($title === '') {
+        throw new RuntimeException('Task title is required.');
+    }
+
+    $status = $input['status'] ?? 'todo';
+    if (!in_array($status, ['todo', 'in_progress', 'done'], true)) {
+        $status = 'todo';
+    }
+
+    $priority = $input['priority'] ?? 'medium';
+    if (!in_array($priority, ['low', 'medium', 'high'], true)) {
+        $priority = 'medium';
+    }
+
+    $dueDate = trim((string) ($input['dueDate'] ?? ''));
+    if ($dueDate !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dueDate)) {
+        throw new RuntimeException('Due date must be in YYYY-MM-DD format.');
+    }
+
+    $assigneeId = isset($input['assigneeId']) && $input['assigneeId'] !== '' ? (int) $input['assigneeId'] : null;
+    if ($assigneeId !== null) {
+        $assignee = portal_find_user($db, $assigneeId);
+        if (!$assignee || $assignee['role_name'] !== 'employee') {
+            throw new RuntimeException('Select a valid employee for assignment.');
+        }
+    }
+
+    $now = now_ist();
+    $linked = trim((string) ($input['linkedTo'] ?? ''));
+    $notes = trim((string) ($input['notes'] ?? ''));
+    $description = trim((string) ($input['description'] ?? ''));
+
+    $taskId = isset($input['id']) ? (int) $input['id'] : 0;
+    if ($taskId > 0) {
+        $stmt = $db->prepare('UPDATE portal_tasks SET title = :title, description = :description, status = :status, priority = :priority, due_date = :due_date, linked_reference = :linked_reference, notes = :notes, assignee_id = :assignee_id, updated_at = :updated_at WHERE id = :id');
+        $stmt->execute([
+            ':title' => $title,
+            ':description' => $description,
+            ':status' => $status,
+            ':priority' => $priority,
+            ':due_date' => $dueDate !== '' ? $dueDate : null,
+            ':linked_reference' => $linked !== '' ? $linked : null,
+            ':notes' => $notes !== '' ? $notes : null,
+            ':assignee_id' => $assigneeId,
+            ':updated_at' => $now,
+            ':id' => $taskId,
+        ]);
+        portal_log_action($db, $actorId, 'update', 'task', $taskId, 'Task updated via admin portal');
+    } else {
+        $stmt = $db->prepare('INSERT INTO portal_tasks(title, description, status, priority, due_date, linked_reference, notes, assignee_id, created_by, created_at, updated_at) VALUES(:title, :description, :status, :priority, :due_date, :linked_reference, :notes, :assignee_id, :created_by, :created_at, :updated_at)');
+        $stmt->execute([
+            ':title' => $title,
+            ':description' => $description,
+            ':status' => $status,
+            ':priority' => $priority,
+            ':due_date' => $dueDate !== '' ? $dueDate : null,
+            ':linked_reference' => $linked !== '' ? $linked : null,
+            ':notes' => $notes !== '' ? $notes : null,
+            ':assignee_id' => $assigneeId,
+            ':created_by' => $actorId ?: null,
+            ':created_at' => $now,
+            ':updated_at' => $now,
+        ]);
+        $taskId = (int) $db->lastInsertId();
+        portal_log_action($db, $actorId, 'create', 'task', $taskId, 'Task created via admin portal');
+    }
+
+    if ($status === 'done') {
+        $db->prepare('UPDATE portal_tasks SET completed_at = :completed_at WHERE id = :id')->execute([
+            ':completed_at' => $now,
+            ':id' => $taskId,
+        ]);
+    } else {
+        $db->prepare('UPDATE portal_tasks SET completed_at = NULL WHERE id = :id')->execute([':id' => $taskId]);
+    }
+
+    $stmt = $db->prepare('SELECT portal_tasks.*, users.full_name AS assignee_name, users.email AS assignee_email, roles.name AS assignee_role FROM portal_tasks LEFT JOIN users ON portal_tasks.assignee_id = users.id LEFT JOIN roles ON users.role_id = roles.id WHERE portal_tasks.id = :id LIMIT 1');
+    $stmt->execute([':id' => $taskId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Task not found after save.');
+    }
+
+    return portal_normalize_task_row($row);
+}
+
+function portal_update_task_status(PDO $db, int $taskId, string $status, int $actorId): array
+{
+    if (!in_array($status, ['todo', 'in_progress', 'done'], true)) {
+        throw new RuntimeException('Invalid task status.');
+    }
+
+    $stmt = $db->prepare('SELECT * FROM portal_tasks WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $taskId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Task not found.');
+    }
+
+    $now = now_ist();
+    $update = $db->prepare('UPDATE portal_tasks SET status = :status, updated_at = :updated_at, completed_at = :completed_at WHERE id = :id');
+    $update->execute([
+        ':status' => $status,
+        ':updated_at' => $now,
+        ':completed_at' => $status === 'done' ? $now : null,
+        ':id' => $taskId,
+    ]);
+
+    portal_log_action($db, $actorId, 'status_change', 'task', $taskId, 'Task status updated to ' . $status);
+
+    $stmt = $db->prepare('SELECT portal_tasks.*, users.full_name AS assignee_name, users.email AS assignee_email, roles.name AS assignee_role FROM portal_tasks LEFT JOIN users ON portal_tasks.assignee_id = users.id LEFT JOIN roles ON users.role_id = roles.id WHERE portal_tasks.id = :id LIMIT 1');
+    $stmt->execute([':id' => $taskId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Unable to load task after update.');
+    }
+
+    return portal_normalize_task_row($row);
+}
+
+function portal_list_documents(PDO $db, string $audience = 'admin'): array
+{
+    $allowed = ['employee', 'admin', 'both'];
+    if (!in_array($audience, ['employee', 'admin'], true)) {
+        $audience = 'admin';
+    }
+
+    if ($audience === 'admin') {
+        $stmt = $db->query('SELECT portal_documents.*, users.full_name AS uploaded_by_name FROM portal_documents LEFT JOIN users ON portal_documents.uploaded_by = users.id ORDER BY portal_documents.updated_at DESC');
+    } else {
+        $stmt = $db->prepare('SELECT portal_documents.*, users.full_name AS uploaded_by_name FROM portal_documents LEFT JOIN users ON portal_documents.uploaded_by = users.id WHERE portal_documents.visibility IN (\'employee\', \'both\') ORDER BY portal_documents.updated_at DESC');
+        $stmt->execute();
+        return portal_normalize_documents($stmt->fetchAll());
+    }
+
+    return portal_normalize_documents($stmt->fetchAll());
+}
+
+function portal_normalize_documents(array $rows): array
+{
+    $documents = [];
+    foreach ($rows as $row) {
+        $tags = [];
+        if (!empty($row['tags'])) {
+            $decoded = json_decode((string) $row['tags'], true);
+            if (is_array($decoded)) {
+                $tags = array_values(array_filter(array_map('strval', $decoded)));
+            }
+        }
+        $documents[] = [
+            'id' => (int) $row['id'],
+            'name' => $row['name'],
+            'linkedTo' => $row['linked_to'] ?? '',
+            'reference' => $row['reference'] ?? '',
+            'tags' => $tags,
+            'url' => $row['url'] ?? '',
+            'version' => (int) ($row['version'] ?? 1),
+            'visibility' => $row['visibility'] ?? 'employee',
+            'uploadedBy' => $row['uploaded_by_name'] ?? 'Admin',
+            'updatedAt' => $row['updated_at'] ?? '',
+        ];
+    }
+
+    return $documents;
+}
+
+function portal_save_document(PDO $db, array $input, int $actorId): array
+{
+    $name = trim((string) ($input['name'] ?? ''));
+    $linkedTo = trim((string) ($input['linkedTo'] ?? ''));
+    if ($name === '' || $linkedTo === '') {
+        throw new RuntimeException('Document name and linked module are required.');
+    }
+
+    $reference = trim((string) ($input['reference'] ?? ''));
+    $url = trim((string) ($input['url'] ?? ''));
+    $tags = $input['tags'] ?? [];
+    if (is_string($tags)) {
+        $tags = array_filter(array_map('trim', explode(',', $tags)));
+    }
+    if (!is_array($tags)) {
+        $tags = [];
+    }
+    $visibility = $input['visibility'] ?? 'employee';
+    if (!in_array($visibility, ['employee', 'admin', 'both'], true)) {
+        $visibility = 'employee';
+    }
+
+    $now = now_ist();
+    $documentId = isset($input['id']) ? (int) $input['id'] : 0;
+    if ($documentId > 0) {
+        $stmt = $db->prepare('UPDATE portal_documents SET name = :name, linked_to = :linked_to, reference = :reference, tags = :tags, url = :url, version = version + 1, visibility = :visibility, uploaded_by = :uploaded_by, updated_at = :updated_at WHERE id = :id');
+        $stmt->execute([
+            ':name' => $name,
+            ':linked_to' => $linkedTo,
+            ':reference' => $reference !== '' ? $reference : null,
+            ':tags' => json_encode(array_values($tags)),
+            ':url' => $url !== '' ? $url : null,
+            ':visibility' => $visibility,
+            ':uploaded_by' => $actorId ?: null,
+            ':updated_at' => $now,
+            ':id' => $documentId,
+        ]);
+        portal_log_action($db, $actorId, 'update', 'document', $documentId, 'Document metadata updated');
+    } else {
+        $stmt = $db->prepare('INSERT INTO portal_documents(name, linked_to, reference, tags, url, version, visibility, uploaded_by, created_at, updated_at) VALUES(:name, :linked_to, :reference, :tags, :url, 1, :visibility, :uploaded_by, :created_at, :updated_at)');
+        $stmt->execute([
+            ':name' => $name,
+            ':linked_to' => $linkedTo,
+            ':reference' => $reference !== '' ? $reference : null,
+            ':tags' => json_encode(array_values($tags)),
+            ':url' => $url !== '' ? $url : null,
+            ':visibility' => $visibility,
+            ':uploaded_by' => $actorId ?: null,
+            ':created_at' => $now,
+            ':updated_at' => $now,
+        ]);
+        $documentId = (int) $db->lastInsertId();
+        portal_log_action($db, $actorId, 'create', 'document', $documentId, 'Document added to shared vault');
+    }
+
+    $stmt = $db->prepare('SELECT portal_documents.*, users.full_name AS uploaded_by_name FROM portal_documents LEFT JOIN users ON portal_documents.uploaded_by = users.id WHERE portal_documents.id = :id');
+    $stmt->execute([':id' => $documentId]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Document not found after save.');
+    }
+
+    return portal_normalize_documents([$row])[0];
+}
+
+function portal_list_notifications(PDO $db, int $userId, string $audience = 'employee'): array
+{
+    $stmt = $db->prepare('SELECT n.*, IFNULL(s.status, \'unread\') AS read_status FROM portal_notifications n LEFT JOIN portal_notification_status s ON n.id = s.notification_id AND s.user_id = :user_id WHERE n.audience IN (\'all\', :audience) ORDER BY n.created_at DESC');
+    $stmt->execute([
+        ':user_id' => $userId,
+        ':audience' => $audience,
+    ]);
+
+    $notifications = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $notifications[] = [
+            'id' => (int) $row['id'],
+            'tone' => $row['tone'] ?? 'info',
+            'icon' => $row['icon'] ?? 'fa-solid fa-circle-info',
+            'title' => $row['title'],
+            'message' => $row['message'],
+            'link' => $row['link'] ?? '#',
+            'time' => $row['created_at'] ?? '',
+            'isRead' => ($row['read_status'] ?? 'unread') === 'read',
+        ];
+    }
+
+    return $notifications;
+}
+
+function portal_mark_notification(PDO $db, int $notificationId, int $userId, string $status): void
+{
+    if (!in_array($status, ['read', 'unread', 'dismissed'], true)) {
+        throw new RuntimeException('Invalid notification status.');
+    }
+
+    $stmt = $db->prepare('INSERT INTO portal_notification_status(notification_id, user_id, status, updated_at) VALUES(:notification_id, :user_id, :status, :updated_at)
+        ON CONFLICT(notification_id, user_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at');
+    $stmt->execute([
+        ':notification_id' => $notificationId,
+        ':user_id' => $userId,
+        ':status' => $status,
+        ':updated_at' => now_ist(),
+    ]);
+}
+
+function portal_latest_sync(PDO $db, ?int $userId = null): ?string
+{
+    $parts = [];
+    $tasksQuery = 'SELECT MAX(updated_at) FROM portal_tasks';
+    $complaintsQuery = 'SELECT MAX(updated_at) FROM complaints';
+    $documentsQuery = 'SELECT MAX(updated_at) FROM portal_documents';
+    $notificationsQuery = 'SELECT MAX(created_at) FROM portal_notifications';
+
+    $parts[] = $db->query($tasksQuery)->fetchColumn();
+    $parts[] = $db->query($complaintsQuery)->fetchColumn();
+    $parts[] = $db->query($documentsQuery)->fetchColumn();
+    $parts[] = $db->query($notificationsQuery)->fetchColumn();
+
+    if ($userId !== null) {
+        $stmt = $db->prepare('SELECT MAX(updated_at) FROM portal_notification_status WHERE user_id = :user_id');
+        $stmt->execute([':user_id' => $userId]);
+        $parts[] = $stmt->fetchColumn();
+    }
+
+    $parts = array_filter(array_map(static fn ($value) => $value !== false ? $value : null, $parts));
+    if (empty($parts)) {
+        return null;
+    }
+
+    rsort($parts);
+    return $parts[0] ?: null;
+}
+
+function portal_log_action(PDO $db, int $actorId, string $action, string $entityType, int $entityId, string $description): void
+{
+    $stmt = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description, created_at) VALUES(:actor_id, :action, :entity_type, :entity_id, :description, :created_at)');
+    $stmt->execute([
+        ':actor_id' => $actorId ?: null,
+        ':action' => $action,
+        ':entity_type' => $entityType,
+        ':entity_id' => $entityId,
+        ':description' => $description,
+        ':created_at' => now_ist(),
+    ]);
+}
+
+function portal_employee_complaints(PDO $db, int $userId): array
+{
+    $stmt = $db->prepare('SELECT complaints.*, users.full_name AS assigned_to_name, roles.name AS assigned_role FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id LEFT JOIN roles ON users.role_id = roles.id WHERE complaints.assigned_to = :user_id ORDER BY complaints.created_at DESC');
+    $stmt->execute([':user_id' => $userId]);
+    return array_map('portal_normalize_complaint_row', $stmt->fetchAll());
+}
+
+function portal_all_complaints(PDO $db): array
+{
+    $stmt = $db->query('SELECT complaints.*, users.full_name AS assigned_to_name, roles.name AS assigned_role FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id LEFT JOIN roles ON users.role_id = roles.id ORDER BY complaints.created_at DESC');
+    return array_map('portal_normalize_complaint_row', $stmt->fetchAll());
+}
+
+function portal_normalize_complaint_row(array $row): array
+{
+    return [
+        'id' => (int) $row['id'],
+        'reference' => $row['reference'],
+        'title' => $row['title'],
+        'description' => $row['description'] ?? '',
+        'priority' => $row['priority'] ?? 'medium',
+        'status' => $row['status'] ?? 'intake',
+        'assignedTo' => $row['assigned_to'] !== null ? (int) $row['assigned_to'] : null,
+        'assigneeName' => $row['assigned_to_name'] ?? '',
+        'assigneeRole' => $row['assigned_role'] ?? '',
+        'slaDue' => $row['sla_due_at'] ?? '',
+        'createdAt' => $row['created_at'] ?? '',
+        'updatedAt' => $row['updated_at'] ?? '',
+    ];
+}
+
+function portal_update_complaint_status(PDO $db, string $reference, string $statusKey, int $actorId): array
+{
+    $reference = trim($reference);
+    if ($reference === '') {
+        throw new RuntimeException('Complaint reference is required.');
+    }
+
+    $stmt = $db->prepare('SELECT * FROM complaints WHERE reference = :reference LIMIT 1');
+    $stmt->execute([':reference' => $reference]);
+    $row = $stmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Complaint not found.');
+    }
+
+    $statusMap = [
+        'in_progress' => 'work',
+        'awaiting_response' => 'resolution',
+        'resolved' => 'closed',
+        'escalated' => 'triage',
+    ];
+
+    if (!isset($statusMap[$statusKey])) {
+        throw new RuntimeException('Unsupported ticket status.');
+    }
+
+    $newStatus = $statusMap[$statusKey];
+    $update = $db->prepare('UPDATE complaints SET status = :status, updated_at = :updated_at, assigned_to = CASE WHEN :status = \'triage\' THEN NULL ELSE assigned_to END WHERE reference = :reference');
+    $update->execute([
+        ':status' => $newStatus,
+        ':updated_at' => now_ist(),
+        ':reference' => $reference,
+    ]);
+
+    portal_log_action($db, $actorId, 'status_change', 'complaint', (int) $row['id'], 'Complaint updated to ' . $newStatus);
+
+    $stmt = $db->prepare('SELECT complaints.*, users.full_name AS assigned_to_name, roles.name AS assigned_role FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id LEFT JOIN roles ON users.role_id = roles.id WHERE complaints.reference = :reference LIMIT 1');
+    $stmt->execute([':reference' => $reference]);
+    $updated = $stmt->fetch();
+    if (!$updated) {
+        throw new RuntimeException('Unable to load complaint after update.');
+    }
+
+    return portal_normalize_complaint_row($updated);
 }

@@ -2051,32 +2051,34 @@
   taskForm?.addEventListener('submit', (event) => {
     event.preventDefault();
     const formData = new FormData(taskForm);
-    const assigneeId = formData.get('assignee');
-    if (!assigneeId) {
-      showToast('Task incomplete', 'Select a team member before saving.', 'warning');
-      return;
-    }
+    const assigneeId = (formData.get('assignee') || '').toString();
     const title = (formData.get('title') || '').toString().trim();
     if (!title) {
       showToast('Task incomplete', 'Provide a task title before saving.', 'warning');
       return;
     }
-    const task = {
-      id: Date.now(),
+    const payload = {
       title,
-      assigneeId: assigneeId.toString(),
+      assigneeId,
       status: (formData.get('status') || 'todo').toString(),
-      dueDate: formData.get('dueDate') || '',
+      dueDate: (formData.get('dueDate') || '').toString(),
       priority: (formData.get('priority') || 'medium').toString(),
       linkedTo: (formData.get('linkedTo') || '').toString(),
       notes: (formData.get('notes') || '').toString(),
-      createdAt: new Date().toISOString(),
     };
-    state.tasks.items.unshift(task);
-    renderTasks();
-    showToast('Task created', 'The assignment has been added to the board.', 'success');
-    taskForm.reset();
-    populateTaskAssignees();
+    api('save-task', { method: 'POST', body: payload })
+      .then((data) => {
+        if (Array.isArray(data.tasks)) {
+          state.tasks.items = data.tasks;
+        }
+        renderTasks();
+        showToast('Task created', 'The assignment has been added to the board.', 'success');
+        taskForm.reset();
+        populateTaskAssignees();
+      })
+      .catch((error) => {
+        showToast('Task not saved', error.message || 'Unable to save the task.', 'error');
+      });
   });
 
   taskForm?.addEventListener('reset', () => {
@@ -2088,21 +2090,32 @@
     if (!button) return;
     const taskId = button.dataset.taskId;
     if (!taskId) return;
-    const task = state.tasks.items.find((item) => String(item.id) === String(taskId));
-    if (!task) return;
     if (button.dataset.action === 'advance-task') {
       const nextStatus = button.dataset.nextStatus;
       if (!nextStatus) return;
-      task.status = nextStatus;
-      if (nextStatus === 'done') {
-        task.completedAt = new Date().toISOString();
-      }
-      renderTasks();
-      showToast('Task updated', `Moved to ${TASK_STATUS_LABELS[nextStatus]}.`, 'success');
+      api('update-task-status', { method: 'POST', body: { id: Number(taskId), status: nextStatus } })
+        .then((data) => {
+          if (Array.isArray(data.tasks)) {
+            state.tasks.items = data.tasks;
+          }
+          renderTasks();
+          showToast('Task updated', `Moved to ${TASK_STATUS_LABELS[nextStatus]}.`, 'success');
+        })
+        .catch((error) => {
+          showToast('Task update failed', error.message || 'Unable to update the task.', 'error');
+        });
     } else if (button.dataset.action === 'reset-task') {
-      task.status = 'todo';
-      renderTasks();
-      showToast('Task reopened', 'Task moved back to To Do.', 'info');
+      api('update-task-status', { method: 'POST', body: { id: Number(taskId), status: 'todo' } })
+        .then((data) => {
+          if (Array.isArray(data.tasks)) {
+            state.tasks.items = data.tasks;
+          }
+          renderTasks();
+          showToast('Task reopened', 'Task moved back to To Do.', 'info');
+        })
+        .catch((error) => {
+          showToast('Task update failed', error.message || 'Unable to update the task.', 'error');
+        });
     }
   });
 
@@ -2258,44 +2271,35 @@
       return;
     }
     const reference = (formData.get('reference') || '').toString();
-    const existingIndex = state.documents.findIndex(
-      (doc) => doc.name.toLowerCase() === name.toLowerCase() && (doc.reference || '') === reference
-    );
     const tags = (formData.get('tags') || '')
       .toString()
       .split(',')
       .map((tag) => tag.trim())
       .filter(Boolean);
-    const updatedAt = new Date().toISOString();
-    if (existingIndex >= 0) {
-      const existing = state.documents[existingIndex];
-      state.documents[existingIndex] = {
-        ...existing,
-        linkedTo,
-        reference,
-        tags,
-        url: (formData.get('url') || '').toString(),
-        version: (existing.version || 1) + 1,
-        updatedAt,
-        uploadedBy: config.currentUser?.name || 'Administrator',
-      };
-      showToast('Version updated', `Created version ${state.documents[existingIndex].version} of ${name}.`, 'success');
-    } else {
-      state.documents.unshift({
-        id: Date.now(),
-        name,
-        linkedTo,
-        reference,
-        tags,
-        url: (formData.get('url') || '').toString(),
-        version: 1,
-        updatedAt,
-        uploadedBy: config.currentUser?.name || 'Administrator',
+    const existing = state.documents.find(
+      (doc) => doc.name.toLowerCase() === name.toLowerCase() && (doc.reference || '') === reference
+    );
+    const payload = {
+      id: existing?.id ?? null,
+      name,
+      linkedTo,
+      reference,
+      tags,
+      url: (formData.get('url') || '').toString(),
+      visibility: existing?.visibility ?? 'employee',
+    };
+    api('save-document', { method: 'POST', body: payload })
+      .then((data) => {
+        if (Array.isArray(data.documents)) {
+          state.documents = data.documents;
+        }
+        documentForm.reset();
+        renderDocuments();
+        showToast(existing ? 'Version updated' : 'Document saved', existing ? `Created a new version of ${name}.` : 'File metadata stored in the vault.', 'success');
+      })
+      .catch((error) => {
+        showToast('Document not saved', error.message || 'Unable to store the document metadata.', 'error');
       });
-      showToast('Document saved', 'File metadata stored in the vault.', 'success');
-    }
-    documentForm.reset();
-    renderDocuments();
   });
 
   documentFilter?.addEventListener('change', () => renderDocuments());
