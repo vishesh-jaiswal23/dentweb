@@ -529,11 +529,12 @@
 
   function complaintStatusKey(status) {
     switch (status) {
-      case 'resolution':
+      case 'resolved':
         return 'awaiting_response';
+      case 'triage':
+        return 'escalated';
       case 'closed':
         return 'resolved';
-      case 'triage':
       case 'work':
       case 'intake':
       default:
@@ -1355,8 +1356,8 @@
   // Ticket workflow ----------------------------------------------------------
   const STATUS_LABELS = {
     in_progress: { label: 'In Progress', tone: 'progress' },
-    awaiting_response: { label: 'Awaiting Response', tone: 'waiting' },
-    resolved: { label: 'Resolved', tone: 'resolved' },
+    awaiting_response: { label: 'Resolved (Pending Admin)', tone: 'waiting' },
+    resolved: { label: 'Closed', tone: 'resolved' },
     escalated: { label: 'Escalated to Admin', tone: 'escalated' },
   };
 

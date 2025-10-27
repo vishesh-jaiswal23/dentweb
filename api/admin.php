@@ -89,27 +89,9 @@ try {
             break;
         case 'save-complaint':
             require_method('POST');
-            respond_success(['complaint' => portal_save_complaint($db, read_json(), $actorId), 'complaints' => portal_all_complaints($db)]);
-            break;
-        case 'assign-complaint':
-            require_method('POST');
-            respond_success(['complaint' => portal_assign_complaint($db, read_json(), $actorId), 'complaints' => portal_all_complaints($db)]);
-            break;
-        case 'add-complaint-note':
-            require_method('POST');
-            respond_success(['complaint' => portal_add_complaint_note($db, read_json(), $actorId)]);
-            break;
-        case 'complaint-timeline':
-            require_method('GET');
-            respond_success(['timeline' => fetch_complaint_timeline($db, $_GET)]);
-            break;
-        case 'fetch-audit':
-            require_method('GET');
-            respond_success(['audit' => recent_audit_logs($db)]);
-            break;
-        case 'fetch-complaints':
-            require_method('GET');
+            $complaint = portal_save_complaint($db, read_json(), $actorId);
             respond_success([
+                'complaint' => $complaint,
                 'complaints' => portal_all_complaints($db),
                 'metrics' => current_metrics($db),
             ]);
@@ -132,7 +114,8 @@ try {
             $payload = read_json();
             $reference = (string) ($payload['reference'] ?? '');
             $note = (string) ($payload['note'] ?? '');
-            $complaint = portal_add_complaint_note($db, $reference, $note, $actorId);
+            $visibility = (string) ($payload['visibility'] ?? 'internal');
+            $complaint = portal_add_complaint_note($db, $reference, $note, $actorId, $visibility);
             respond_success([
                 'complaint' => $complaint,
                 'complaints' => portal_all_complaints($db),
@@ -150,6 +133,39 @@ try {
             $complaint = portal_add_complaint_attachment($db, $reference, $attachment, $actorId);
             respond_success([
                 'complaint' => $complaint,
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'update-complaint-status':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
+            $status = (string) ($payload['status'] ?? '');
+            $complaint = portal_admin_update_complaint_status($db, $reference, $status, $actorId);
+            respond_success([
+                'complaint' => $complaint,
+                'complaints' => portal_all_complaints($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'complaint-timeline':
+            require_method('GET');
+            respond_success([
+                'timeline' => fetch_complaint_timeline($db, $_GET),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'fetch-audit':
+            require_method('GET');
+            respond_success([
+                'audit' => recent_audit_logs($db),
+                'metrics' => current_metrics($db),
+            ]);
+            break;
+        case 'fetch-complaints':
+            require_method('GET');
+            respond_success([
                 'complaints' => portal_all_complaints($db),
                 'metrics' => current_metrics($db),
             ]);
