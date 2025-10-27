@@ -48,7 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $redirectView = strtolower(trim((string) ($_POST['redirect_view'] ?? 'leads')));
+    $redirectViewInput = $_POST['redirect_view'] ?? null;
+    $redirectViewProvided = is_string($redirectViewInput) && trim($redirectViewInput) !== '';
+    $redirectView = strtolower(trim((string) ($redirectViewInput ?? 'leads')));
 
     try {
         switch ($action) {
@@ -99,13 +101,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('success', $targetAmc ? 'AMC commitment recorded.' : 'AMC commitment removed.');
                 $redirectView = 'installations';
                 break;
+            case 'propose_reminder':
+                $module = (string) ($_POST['module'] ?? '');
+                $linkedId = (int) ($_POST['linked_id'] ?? 0);
+                $moduleChoice = (string) ($_POST['module_choice'] ?? '');
+                if (($module === '' || $linkedId <= 0) && $moduleChoice !== '') {
+                    $parts = explode(':', $moduleChoice, 2);
+                    if (!empty($parts[0])) {
+                        $module = (string) $parts[0];
+                    }
+                    if (!empty($parts[1])) {
+                        $linkedId = (int) $parts[1];
+                    }
+                }
+                $payload = [
+                    'module' => $module,
+                    'linked_id' => $linkedId,
+                    'title' => (string) ($_POST['title'] ?? ''),
+                    'due_at' => (string) ($_POST['due_at'] ?? ''),
+                    'notes' => (string) ($_POST['notes'] ?? ''),
+                ];
+                employee_propose_reminder($db, $payload, $employeeId);
+                set_flash('success', 'Reminder proposed for admin approval.');
+                if (!$redirectViewProvided) {
+                    $redirectView = 'reminders';
+                }
+                break;
+            case 'withdraw_reminder':
+                $reminderId = (int) ($_POST['reminder_id'] ?? 0);
+                if ($reminderId <= 0) {
+                    throw new RuntimeException('Reminder reference is required.');
+                }
+                employee_cancel_reminder($db, $reminderId, $employeeId);
+                set_flash('success', 'Reminder proposal withdrawn.');
+                $redirectView = 'reminders';
+                break;
             default:
                 set_flash('error', 'Unsupported action.');
                 break;
         }
     } catch (Throwable $exception) {
         set_flash('error', $exception->getMessage());
-        $redirectView = 'installations';
+        if (!$redirectViewProvided) {
+            $redirectView = 'installations';
+        }
     }
 
     header('Location: employee-dashboard.php?view=' . urlencode($redirectView));
@@ -164,6 +203,7 @@ $tasks = $bootstrapData['tasks'] ?? [];
 $complaints = $bootstrapData['complaints'] ?? [];
 $documentsRaw = $bootstrapData['documents'] ?? [];
 $notificationsRaw = $bootstrapData['notifications'] ?? [];
+$reminders = $bootstrapData['reminders'] ?? [];
 $requestsRaw = $bootstrapData['requests'] ?? [];
 $syncSnapshot = $bootstrapData['sync'] ?? null;
 $employeeRequests = is_array($requestsRaw) ? $requestsRaw : [];
@@ -503,6 +543,8 @@ foreach ($complaints as $complaint) {
 
     $tickets[] = [
         'id' => $complaint['reference'],
+        'complaintId' => (int) ($complaint['id'] ?? 0),
+        'reference' => $complaint['reference'],
         'title' => $complaint['title'],
         'customer' => $customerName,
         'status' => $map['key'],
@@ -810,6 +852,69 @@ function employee_format_date(?string $value): string
 
 
 $installations = installation_list_for_role($db, 'employee', $employeeId);
+
+$reminderLinkOptions = [];
+foreach ($employeeLeads as $lead) {
+    $leadId = (int) ($lead['id'] ?? 0);
+    if ($leadId <= 0) {
+        continue;
+    }
+    $name = trim((string) ($lead['name'] ?? ''));
+    $label = sprintf('Lead #%d', $leadId);
+    if ($name !== '') {
+        $label .= ' · ' . $name;
+    }
+    $reminderLinkOptions[] = [
+        'value' => 'lead:' . $leadId,
+        'label' => $label,
+    ];
+}
+foreach ($installations as $installation) {
+    $installationId = (int) ($installation['id'] ?? 0);
+    if ($installationId <= 0) {
+        continue;
+    }
+    $parts = [];
+    $customer = trim((string) ($installation['customer'] ?? ''));
+    $project = trim((string) ($installation['project'] ?? ''));
+    if ($customer !== '') {
+        $parts[] = $customer;
+    }
+    if ($project !== '') {
+        $parts[] = $project;
+    }
+    $label = sprintf('Installation #%d', $installationId);
+    if (!empty($parts)) {
+        $label .= ' · ' . implode(' · ', $parts);
+    }
+    $reminderLinkOptions[] = [
+        'value' => 'installation:' . $installationId,
+        'label' => $label,
+    ];
+}
+foreach ($complaints as $complaint) {
+    $complaintId = (int) ($complaint['id'] ?? 0);
+    if ($complaintId <= 0) {
+        continue;
+    }
+    $reference = trim((string) ($complaint['reference'] ?? ''));
+    $title = trim((string) ($complaint['title'] ?? ''));
+    if ($reference !== '') {
+        $label = 'Complaint ' . $reference;
+    } else {
+        $label = sprintf('Complaint #%d', $complaintId);
+    }
+    if ($title !== '') {
+        $label .= ' · ' . $title;
+    }
+    $reminderLinkOptions[] = [
+        'value' => 'complaint:' . $complaintId,
+        'label' => $label,
+    ];
+}
+usort($reminderLinkOptions, static function (array $left, array $right): int {
+    return strcmp($left['label'], $right['label']);
+});
 
 $subsidyCases = [];
 
@@ -1224,6 +1329,31 @@ $attachmentIcon = static function (string $filename): string {
                   <?php endif; ?>
                 </div>
 
+                <details class="reminder-proposal">
+                  <summary><i class="fa-solid fa-bell" aria-hidden="true"></i> Propose reminder</summary>
+                  <form method="post" class="reminder-proposal__form">
+                    <input type="hidden" name="action" value="propose_reminder" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                    <input type="hidden" name="module" value="lead" />
+                    <input type="hidden" name="linked_id" value="<?= (int) $lead['id'] ?>" />
+                    <input type="hidden" name="redirect_view" value="leads" />
+                    <p class="reminder-proposal__meta">Linked to Lead #<?= (int) $lead['id'] ?></p>
+                    <label>
+                      Title
+                      <input type="text" name="title" maxlength="150" required placeholder="Follow up call" />
+                    </label>
+                    <label>
+                      Due date &amp; time
+                      <input type="datetime-local" name="due_at" required />
+                    </label>
+                    <label>
+                      Notes (optional)
+                      <textarea name="notes" rows="2" placeholder="Context for the admin reviewer."></textarea>
+                    </label>
+                    <button type="submit" class="btn btn-ghost btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Send proposal</button>
+                  </form>
+                </details>
+
                 <footer class="lead-card__footer">
                   <span>Last updated <?= employee_format_datetime($lead['updatedAt']) ?></span>
                 </footer>
@@ -1305,6 +1435,32 @@ $attachmentIcon = static function (string $filename): string {
                     </div>
                     <button type="submit" class="btn btn-primary btn-sm">Save update</button>
                   </form>
+                  <details class="reminder-proposal reminder-proposal--inline">
+                    <summary><i class="fa-solid fa-bell" aria-hidden="true"></i> Propose reminder</summary>
+                    <form method="post" class="reminder-proposal__form">
+                      <input type="hidden" name="action" value="propose_reminder" />
+                      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                      <input type="hidden" name="module" value="installation" />
+                      <input type="hidden" name="linked_id" value="<?= (int) $installation['id'] ?>" />
+                      <input type="hidden" name="redirect_view" value="installations" />
+                      <p class="reminder-proposal__meta">
+                        Linked to Installation #<?= (int) $installation['id'] ?> <?= ($installation['project'] ?: $installation['customer']) !== '' ? '· ' . htmlspecialchars($installation['project'] ?: $installation['customer'], ENT_QUOTES) : '' ?>
+                      </p>
+                      <label>
+                        Title
+                        <input type="text" name="title" maxlength="150" required placeholder="Commissioning follow-up" />
+                      </label>
+                      <label>
+                        Due date &amp; time
+                        <input type="datetime-local" name="due_at" required />
+                      </label>
+                      <label>
+                        Notes (optional)
+                        <textarea name="notes" rows="2" placeholder="Add site context for admin review."></textarea>
+                      </label>
+                      <button type="submit" class="btn btn-ghost btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Send proposal</button>
+                    </form>
+                  </details>
                   <?php if (!empty($installation['entries'])): ?>
                   <div class="installation-card__timeline">
                     <h4>Recent notes</h4>
@@ -1404,6 +1560,32 @@ $attachmentIcon = static function (string $filename): string {
                     Return to Admin
                   </button>
                 </div>
+                <details class="reminder-proposal reminder-proposal--inline">
+                  <summary><i class="fa-solid fa-bell" aria-hidden="true"></i> Propose reminder</summary>
+                  <form method="post" class="reminder-proposal__form">
+                    <input type="hidden" name="action" value="propose_reminder" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                    <input type="hidden" name="module" value="complaint" />
+                    <input type="hidden" name="linked_id" value="<?= (int) ($ticket['complaintId'] ?? 0) ?>" />
+                    <input type="hidden" name="redirect_view" value="complaints" />
+                    <p class="reminder-proposal__meta">
+                      Linked to Complaint <?= htmlspecialchars($ticket['reference'], ENT_QUOTES) ?>
+                    </p>
+                    <label>
+                      Title
+                      <input type="text" name="title" maxlength="150" required placeholder="Customer call back" />
+                    </label>
+                    <label>
+                      Due date &amp; time
+                      <input type="datetime-local" name="due_at" required />
+                    </label>
+                    <label>
+                      Notes (optional)
+                      <textarea name="notes" rows="2" placeholder="Add context for admin approval."></textarea>
+                    </label>
+                    <button type="submit" class="btn btn-ghost btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Send proposal</button>
+                  </form>
+                </details>
                 <?php if (!empty($ticket['attachments'])): ?>
                 <div class="ticket-attachments">
                   <h4>Attachments</h4>
@@ -1451,47 +1633,113 @@ $attachmentIcon = static function (string $filename): string {
           <section id="reminders" class="dashboard-section" data-section>
             <h2>My reminders</h2>
             <p class="dashboard-section-sub">
-              Update statuses inline or drag cards between columns. Priorities, due dates, and reminders keep your workload aligned with Admin expectations.
+              Propose follow-up reminders for Admin approval and keep your task board aligned with the latest priorities.
             </p>
-            <?php if (!empty($reminderBannerAlerts)): ?>
-            <div class="reminder-banner-stack" role="status" aria-live="polite">
-              <?php foreach ($reminderBannerAlerts as $banner): ?>
-              <?php
-              $bannerTone = in_array($banner['tone'], ['success', 'info', 'warning', 'danger'], true) ? $banner['tone'] : 'info';
-              $bannerIcons = [
-                  'success' => 'fa-circle-check',
-                  'danger' => 'fa-triangle-exclamation',
-                  'warning' => 'fa-circle-exclamation',
-                  'info' => 'fa-circle-info',
-              ];
-              $bannerIcon = $bannerIcons[$bannerTone] ?? 'fa-circle-info';
-              ?>
-              <div class="reminder-banner reminder-banner--<?= htmlspecialchars($bannerTone, ENT_QUOTES) ?>">
-                <i class="fa-solid <?= htmlspecialchars($bannerIcon, ENT_QUOTES) ?>" aria-hidden="true"></i>
-                <div class="reminder-banner__content">
-                  <p class="reminder-banner__title"><?= htmlspecialchars($banner['title'], ENT_QUOTES) ?></p>
-                  <p class="reminder-banner__message"><?= htmlspecialchars($banner['message'], ENT_QUOTES) ?></p>
-                </div>
-              </div>
-              <?php endforeach; ?>
+            <div class="reminder-action-bar">
+              <details class="reminder-proposal reminder-proposal--wide">
+                <summary><i class="fa-solid fa-bell" aria-hidden="true"></i> Propose reminder</summary>
+                <?php if (empty($reminderLinkOptions)): ?>
+                <p class="text-muted">Link a lead, installation, or complaint to unlock reminder proposals.</p>
+                <?php else: ?>
+                <form method="post" class="reminder-proposal__form">
+                  <input type="hidden" name="action" value="propose_reminder" />
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                  <input type="hidden" name="redirect_view" value="reminders" />
+                  <label>
+                    Linked item
+                    <select name="module_choice" required>
+                      <option value="">Select a record…</option>
+                      <?php foreach ($reminderLinkOptions as $option): ?>
+                      <option value="<?= htmlspecialchars($option['value'], ENT_QUOTES) ?>"><?= htmlspecialchars($option['label'], ENT_QUOTES) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                  </label>
+                  <label>
+                    Title
+                    <input type="text" name="title" maxlength="150" required placeholder="Schedule follow-up" />
+                  </label>
+                  <label>
+                    Due date &amp; time
+                    <input type="datetime-local" name="due_at" required />
+                  </label>
+                  <label>
+                    Notes (optional)
+                    <textarea name="notes" rows="2" placeholder="Share context for the Admin reviewer."></textarea>
+                  </label>
+                  <button type="submit" class="btn btn-secondary btn-sm" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Send proposal</button>
+                </form>
+                <?php endif; ?>
+              </details>
             </div>
-            <?php endif; ?>
-            <div class="dashboard-reminder-summary">
-              <div class="dashboard-reminder-chips">
-                <a class="reminder-chip" href="<?= htmlspecialchars($employeeDueTodayLink, ENT_QUOTES) ?>">
-                  <span class="reminder-chip__label">Due today</span>
-                  <span class="reminder-chip__count"><?= number_format((int) ($employeeReminderCounts['due_today'] ?? 0)) ?></span>
-                </a>
-                <a class="reminder-chip reminder-chip--danger" href="<?= htmlspecialchars($employeeOverdueLink, ENT_QUOTES) ?>">
-                  <span class="reminder-chip__label">Overdue</span>
-                  <span class="reminder-chip__count"><?= number_format((int) ($employeeReminderCounts['overdue'] ?? 0)) ?></span>
-                </a>
+            <div class="reminder-list">
+              <h3>Reminder proposals</h3>
+              <?php if (empty($reminders)): ?>
+              <p class="empty-state">No reminder proposals yet. Submit one from a lead, installation, or complaint to get started.</p>
+              <?php else: ?>
+              <div class="reminder-table-wrapper">
+                <table class="reminder-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Title</th>
+                      <th scope="col">Linked to</th>
+                      <th scope="col">Due</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Notes</th>
+                      <th scope="col" class="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php foreach ($reminders as $reminder): ?>
+                    <?php
+                    $statusTone = match ($reminder['status']) {
+                        'proposed' => 'progress',
+                        'active' => 'attention',
+                        'completed' => 'success',
+                        'cancelled' => 'muted',
+                        default => 'info',
+                    };
+                    ?>
+                    <tr>
+                      <td><?= htmlspecialchars($reminder['title'], ENT_QUOTES) ?></td>
+                      <td><?= htmlspecialchars($reminder['linkedLabel'], ENT_QUOTES) ?></td>
+                      <td>
+                        <?php if ($reminder['dueIso'] !== ''): ?>
+                        <time datetime="<?= htmlspecialchars($reminder['dueIso'], ENT_QUOTES) ?>"><?= htmlspecialchars($reminder['dueDisplay'], ENT_QUOTES) ?></time>
+                        <?php else: ?>
+                        <span>—</span>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <span class="dashboard-status dashboard-status--<?= htmlspecialchars($statusTone, ENT_QUOTES) ?>">
+                          <?= htmlspecialchars($reminder['statusLabel'], ENT_QUOTES) ?>
+                        </span>
+                      </td>
+                      <td>
+                        <?php if ($reminder['notes'] !== ''): ?>
+                        <p><?= nl2br(htmlspecialchars($reminder['notes'], ENT_QUOTES)) ?></p>
+                        <?php endif; ?>
+                        <?php if ($reminder['decisionNote'] !== ''): ?>
+                        <p class="text-xs text-muted"><?= htmlspecialchars($reminder['decisionNote'], ENT_QUOTES) ?></p>
+                        <?php endif; ?>
+                      </td>
+                      <td class="text-right">
+                        <?php if ($reminder['canWithdraw']): ?>
+                        <form method="post" class="reminder-withdraw">
+                          <input type="hidden" name="action" value="withdraw_reminder" />
+                          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                          <input type="hidden" name="reminder_id" value="<?= (int) $reminder['id'] ?>" />
+                          <input type="hidden" name="redirect_view" value="reminders" />
+                          <button type="submit" class="btn btn-ghost btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Withdraw</button>
+                        </form>
+                        <?php else: ?>
+                        <span class="text-xs text-muted">—</span>
+                        <?php endif; ?>
+                      </td>
+                    </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
               </div>
-              <?php if ($reminderScopeParam !== 'all'): ?>
-              <p class="dashboard-reminder-summary__filter">
-                Showing <?= htmlspecialchars($reminderScopeLabel, ENT_QUOTES) ?>.
-                <a href="<?= htmlspecialchars($employeeRemindersResetLink, ENT_QUOTES) ?>">Reset</a>
-              </p>
               <?php endif; ?>
             </div>
             <div class="task-board" data-task-board>
