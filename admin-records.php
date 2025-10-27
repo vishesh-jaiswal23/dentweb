@@ -41,8 +41,8 @@ $modules = [
         'defaultFilter' => 'new',
         'filters' => [
             'new' => 'New',
-            'contacted' => 'Contacted',
-            'qualified' => 'Qualified',
+            'visited' => 'Visited',
+            'quotation' => 'Quotation',
             'converted' => 'Converted',
             'lost' => 'Lost',
             'all' => 'All leads',
@@ -56,7 +56,7 @@ $modules = [
                 $row['name'] ?? '',
                 lead_status_label($row['status'] ?? ''),
                 $row['source'] ? ucfirst((string) $row['source']) : '—',
-                $row['assigned_to'] ? ('User #' . $row['assigned_to']) : 'Unassigned',
+                ($row['assigned_name'] ?? '') !== '' ? $row['assigned_name'] : ($row['assigned_to'] ? ('User #' . $row['assigned_to']) : 'Unassigned'),
                 format_admin_datetime($row['updated_at'] ?: ($row['created_at'] ?? '')),
             ];
         },

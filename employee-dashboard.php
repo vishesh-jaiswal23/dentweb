@@ -36,6 +36,56 @@ if (!empty($user['id'])) {
     $employeeRecord = portal_find_user($db, (int) $user['id']);
 }
 $employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
+
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = (string) ($_POST['action'] ?? '');
+    $token = $_POST['csrf_token'] ?? null;
+    if (!verify_csrf_token(is_string($token) ? $token : null)) {
+        set_flash('error', 'Your session expired. Please submit again.');
+        header('Location: employee-dashboard.php?view=leads');
+        exit;
+    }
+
+    try {
+        switch ($action) {
+            case 'add_visit':
+                $payload = [
+                    'lead_id' => (int) ($_POST['lead_id'] ?? 0),
+                    'note' => (string) ($_POST['note'] ?? ''),
+                    'photo' => $_FILES['photo'] ?? null,
+                ];
+                employee_add_lead_visit($db, $payload, $employeeId);
+                set_flash('success', 'Visit logged successfully.');
+                break;
+            case 'advance_stage':
+                $leadId = (int) ($_POST['lead_id'] ?? 0);
+                $targetStage = (string) ($_POST['target_stage'] ?? '');
+                employee_progress_lead($db, $leadId, $targetStage, $employeeId);
+                set_flash('success', 'Lead stage updated.');
+                break;
+            case 'submit_proposal':
+                $payload = [
+                    'lead_id' => (int) ($_POST['lead_id'] ?? 0),
+                    'summary' => (string) ($_POST['summary'] ?? ''),
+                    'estimate' => (string) ($_POST['estimate'] ?? ''),
+                    'document' => $_FILES['document'] ?? null,
+                ];
+                employee_submit_lead_proposal($db, $payload, $employeeId);
+                set_flash('success', 'Proposal submitted for admin approval.');
+                break;
+            default:
+                set_flash('error', 'Unsupported action.');
+                break;
+        }
+    } catch (Throwable $exception) {
+        set_flash('error', $exception->getMessage());
+    }
+
+    header('Location: employee-dashboard.php?view=leads');
+    exit;
+}
+
 $tasks = portal_list_tasks($db, $employeeId);
 $complaints = portal_employee_complaints($db, $employeeId);
 $documentsRaw = portal_list_documents($db, 'employee', $employeeId);
@@ -660,22 +710,23 @@ $performanceMetrics = [
     ],
 ];
 
-$leadUpdates = [];
+$employeeLeads = employee_list_leads($db, $employeeId);
+$employeeLeadsCount = count($employeeLeads);
+$portalCsrfToken = $_SESSION['csrf_token'] ?? '';
 
-$pendingLeads = [];
+function employee_format_datetime(?string $value): string
+{
+    if (!$value) {
+        return '—';
+    }
+    try {
+        $dt = new DateTimeImmutable($value);
+        return $dt->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M Y · h:i A');
+    } catch (Throwable $exception) {
+        return $value;
+    }
+}
 
-$leadRecords = array_map(static function (array $complaint) use ($employeeName): array {
-    return [
-        'id' => $complaint['reference'],
-        'label' => $complaint['title'],
-        'description' => sprintf('Priority %s', ucfirst($complaint['priority'] ?? 'medium')),
-        'contact' => '—',
-        'status' => str_replace('_', ' ', $complaint['status']),
-        'nextAction' => 'Update ticket',
-        'owner' => $employeeName,
-        'type' => 'lead',
-    ];
-}, $complaints);
 
 $siteVisits = [];
 
@@ -739,7 +790,7 @@ $permissionMatrix = [
     'communication' => ['log' => true],
     'profile' => ['update' => true],
     'feedback' => ['create' => true],
-    'leads' => ['create' => true, 'update' => true],
+    'leads' => ['create' => false, 'update' => true],
     'visits' => ['update' => true],
     'warranty' => ['update' => true],
     'subsidy' => ['update' => true],
@@ -763,9 +814,7 @@ $scheduledVisitCount = count(array_filter($siteVisits, static function (array $v
     return ($visit['status'] ?? '') !== 'completed';
 }));
 
-$leadsHandledCount = count(array_filter($leadRecords, static function (array $record): bool {
-    return ($record['type'] ?? '') === 'lead';
-}));
+$leadsHandledCount = count($employeeLeads);
 
 $amcDueSoonCount = count(array_filter($warrantyAssets, static function (array $asset): bool {
     return in_array($asset['status'] ?? '', ['scheduled', 'due', 'overdue'], true);
@@ -979,138 +1028,130 @@ $attachmentIcon = static function (string $filename): string {
 
       <div class="dashboard-body dashboard-body--with-aside">
         <div class="dashboard-main">
-          <?php if ($currentView === 'leads'): ?>
+          
+<?php if ($currentView === 'leads'): ?>
           <section id="leads" class="dashboard-section" data-section>
-            <h2>My leads / visits</h2>
+            <h2>Leads &amp; site visits</h2>
             <p class="dashboard-section-sub">
-              Admin shares customer records with your role. Add notes, update contact details, or create new prospects—fresh entries
-              wait for Admin approval before they appear in the main CRM.
+              Progress assigned leads from first meeting through quotation. Capture visit evidence and submit proposals for admin approval.
             </p>
-            <div class="lead-layout">
-              <div class="dashboard-table-wrapper lead-table">
-                <table class="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Lead</th>
-                      <th scope="col">Contact</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">Next action</th>
-                      <th scope="col">Owner</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php if (empty($leadRecords)): ?>
-                    <tr>
-                      <td colspan="5" class="text-center text-muted">No leads or customers assigned yet. Admin-approved records will populate automatically.</td>
-                    </tr>
-                    <?php else: ?>
-                    <?php foreach ($leadRecords as $record): ?>
-                    <tr data-lead-row="<?= htmlspecialchars($record['id'], ENT_QUOTES) ?>">
-                      <td>
-                        <div class="dashboard-user">
-                          <strong><?= htmlspecialchars($record['label'], ENT_QUOTES) ?></strong>
-                          <span><?= htmlspecialchars($record['description'], ENT_QUOTES) ?></span>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="dashboard-user">
-                          <strong><?= htmlspecialchars($record['contactName'], ENT_QUOTES) ?></strong>
-                          <span><?= htmlspecialchars($record['contactDetail'], ENT_QUOTES) ?></span>
-                        </div>
-                      </td>
-                      <td><span class="dashboard-status dashboard-status--<?= htmlspecialchars($record['statusTone'], ENT_QUOTES) ?>"><?= htmlspecialchars($record['statusLabel'], ENT_QUOTES) ?></span></td>
-                      <td><?= htmlspecialchars($record['nextAction'], ENT_QUOTES) ?></td>
-                      <td><?= htmlspecialchars($record['owner'], ENT_QUOTES) ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <?php endif; ?>
-                  </tbody>
-                </table>
-              </div>
-              <aside class="lead-sidebar">
-                <article class="dashboard-panel">
-                  <h2>Log follow-up</h2>
-                  <form class="lead-note-form" data-lead-note-form>
-                    <label>
-                      Lead or customer
-                      <select name="lead" required>
-                        <option value="" selected disabled>Select record</option>
-                        <?php if (empty($leadRecords)): ?>
-                        <option value="" disabled>No records available</option>
-                        <?php else: ?>
-                        <?php foreach ($leadRecords as $record): ?>
-                        <option value="<?= htmlspecialchars($record['id'], ENT_QUOTES) ?>"><?= htmlspecialchars($record['label'] . ' · ' . $record['description'], ENT_QUOTES) ?></option>
-                        <?php endforeach; ?>
-                        <?php endif; ?>
-                      </select>
-                    </label>
-                    <label>
-                      Outcome / next step
-                      <textarea name="note" rows="3" placeholder="Document your conversation and agreed follow-up." required></textarea>
-                    </label>
-                    <button type="submit" class="btn btn-primary btn-sm">Save update</button>
-                  </form>
-                  <div class="lead-activity">
-                    <h3>Recent updates</h3>
-                    <ul data-lead-activity>
-                      <?php if (empty($leadUpdates)): ?>
-                      <li class="text-muted">Log a follow-up to start building the timeline.</li>
-                      <?php else: ?>
-                      <?php foreach ($leadUpdates as $update): ?>
-                      <li>
-                        <time datetime="<?= htmlspecialchars($update['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($update['label'], ENT_QUOTES) ?></time>
-                        <p><?= $update['message'] ?></p>
-                      </li>
-                      <?php endforeach; ?>
+            <?php if ($employeeLeadsCount > 0): ?>
+            <p class="lead-count">Handling <?= $employeeLeadsCount ?> active lead<?= $employeeLeadsCount === 1 ? '' : 's' ?>.</p>
+            <?php endif; ?>
+            <?php if (empty($employeeLeads)): ?>
+            <p class="empty-state">No leads assigned yet. Admin will share opportunities as soon as they are verified.</p>
+            <?php else: ?>
+            <div class="lead-board">
+              <?php foreach ($employeeLeads as $lead): ?>
+              <article class="lead-card" data-lead-id="<?= (int) $lead['id'] ?>">
+                <header class="lead-card__header">
+                  <div>
+                    <h3><?= htmlspecialchars($lead['name'], ENT_QUOTES) ?></h3>
+                    <p class="lead-card__stage">
+                      <span class="lead-stage lead-stage--<?= htmlspecialchars($lead['status'], ENT_QUOTES) ?>"><?= htmlspecialchars($lead['statusLabel'], ENT_QUOTES) ?></span>
+                      <?php if ($lead['siteLocation']): ?>
+                      · <?= htmlspecialchars($lead['siteLocation'], ENT_QUOTES) ?>
                       <?php endif; ?>
-                    </ul>
+                    </p>
                   </div>
-                </article>
-
-                <article class="dashboard-panel dashboard-panel--muted">
-                  <h2>Submit new prospect</h2>
-                  <form class="lead-intake-form" data-lead-intake data-validate-form data-compliance-source="Lead intake">
-                    <label>
-                      Prospect name
-                      <input type="text" name="prospect" placeholder="e.g., Sunrise Enclave" required />
-                    </label>
-                    <label>
-                      Location
-                      <input type="text" name="location" placeholder="City / landmark" required />
-                    </label>
-                    <label>
-                      Pincode
-                      <input type="text" name="pincode" placeholder="6-digit service area" required data-validate="pincode" maxlength="6" />
-                      <small class="form-field-error" data-validation-message></small>
-                    </label>
-                    <label>
-                      Contact number
-                      <input type="tel" name="contact" placeholder="10-digit mobile" required pattern="[0-9]{10}" data-validate="phone" />
-                      <small class="form-field-error" data-validation-message></small>
-                    </label>
-                    <label>
-                      Preferred visit date
-                      <input type="date" name="visit_date" data-validate="date" />
-                      <small class="form-field-error" data-validation-message></small>
-                    </label>
-                    <button type="submit" class="btn btn-secondary btn-sm">Send for approval</button>
-                  </form>
-                  <p class="text-xs text-muted mb-0">New entries remain pending until Admin verifies the details.</p>
-                  <ul class="pending-leads" data-pending-leads>
-                    <?php if (empty($pendingLeads)): ?>
-                    <li class="text-muted">Leads submitted for Admin approval will appear here once queued.</li>
-                    <?php else: ?>
-                    <?php foreach ($pendingLeads as $prospect): ?>
-                    <li>
-                      <strong><?= htmlspecialchars($prospect['name'], ENT_QUOTES) ?></strong>
-                      <span>Pending Admin approval · <?= htmlspecialchars($prospect['source'], ENT_QUOTES) ?></span>
-                    </li>
-                    <?php endforeach; ?>
+                  <ul class="lead-card__contact">
+                    <?php if ($lead['phone']): ?>
+                    <li><i class="fa-solid fa-phone" aria-hidden="true"></i> <?= htmlspecialchars($lead['phone'], ENT_QUOTES) ?></li>
+                    <?php endif; ?>
+                    <?php if ($lead['email']): ?>
+                    <li><i class="fa-solid fa-envelope" aria-hidden="true"></i> <?= htmlspecialchars($lead['email'], ENT_QUOTES) ?></li>
                     <?php endif; ?>
                   </ul>
-                </article>
-              </aside>
+                </header>
+
+                <?php if ($lead['siteDetails']): ?>
+                <p class="lead-card__notes"><?= nl2br(htmlspecialchars($lead['siteDetails'], ENT_QUOTES)) ?></p>
+                <?php endif; ?>
+
+                <div class="lead-card__timeline">
+                  <h4>Visit history</h4>
+                  <?php if (empty($lead['visits'])): ?>
+                  <p class="lead-card__empty">No visits logged yet. Add your first visit below.</p>
+                  <?php else: ?>
+                  <ul>
+                    <?php foreach (array_slice($lead['visits'], 0, 4) as $visit): ?>
+                    <li>
+                      <time datetime="<?= htmlspecialchars($visit['createdAt'], ENT_QUOTES) ?>"><?= employee_format_datetime($visit['createdAt']) ?></time>
+                      <p><?= nl2br(htmlspecialchars($visit['note'], ENT_QUOTES)) ?></p>
+                      <?php if (!empty($visit['photoDataUrl'])): ?>
+                      <a class="lead-card__link" href="<?= htmlspecialchars($visit['photoDataUrl'], ENT_QUOTES) ?>" target="_blank" rel="noopener">View photo</a>
+                      <?php endif; ?>
+                    </li>
+                    <?php endforeach; ?>
+                  </ul>
+                  <?php endif; ?>
+                </div>
+
+                <form method="post" class="lead-card__form" enctype="multipart/form-data">
+                  <input type="hidden" name="action" value="add_visit" />
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                  <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
+                  <label>
+                    Visit notes
+                    <textarea name="note" rows="3" required placeholder="Summarise the discussion, questions, or next steps."></textarea>
+                  </label>
+                  <label>
+                    Photo evidence (optional)
+                    <input type="file" name="photo" accept=".jpg,.jpeg,.png,.gif" />
+                  </label>
+                  <button type="submit" class="btn btn-secondary btn-sm">Log visit</button>
+                </form>
+
+                <div class="lead-card__actions">
+                  <?php if ($lead['canAdvance'] && $lead['nextStage']): ?>
+                  <form method="post" class="lead-card__advance">
+                    <input type="hidden" name="action" value="advance_stage" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                    <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
+                    <input type="hidden" name="target_stage" value="<?= htmlspecialchars($lead['nextStage'], ENT_QUOTES) ?>" />
+                    <button type="submit" class="btn btn-primary btn-xs">Mark as <?= htmlspecialchars(lead_status_label($lead['nextStage']), ENT_QUOTES) ?></button>
+                  </form>
+                  <?php endif; ?>
+
+                  <?php if ($lead['status'] === 'quotation'): ?>
+                    <?php if (!empty($lead['pendingProposal'])): ?>
+                    <p class="lead-card__status lead-card__status--pending">Proposal submitted · awaiting admin approval.</p>
+                    <?php elseif ($lead['canSubmitProposal']): ?>
+                    <form method="post" class="lead-card__form" enctype="multipart/form-data">
+                      <input type="hidden" name="action" value="submit_proposal" />
+                      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                      <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
+                      <label>
+                        Proposal summary
+                        <textarea name="summary" rows="3" required placeholder="Key deliverables, pricing, or timeline shared with the customer."></textarea>
+                      </label>
+                      <label>
+                        Estimate value (₹)
+                        <input type="number" name="estimate" min="0" step="0.01" placeholder="Optional" />
+                      </label>
+                      <label>
+                        Attach proposal (optional)
+                        <input type="file" name="document" accept=".pdf,.jpg,.jpeg,.png" />
+                      </label>
+                      <button type="submit" class="btn btn-success btn-sm">Submit proposal</button>
+                    </form>
+                    <?php else: ?>
+                    <p class="lead-card__status">Latest proposal reviewed by Admin.</p>
+                    <?php endif; ?>
+                  <?php elseif ($lead['status'] === 'converted'): ?>
+                  <p class="lead-card__status lead-card__status--success">Converted · handover in progress.</p>
+                  <?php elseif ($lead['status'] === 'lost'): ?>
+                  <p class="lead-card__status lead-card__status--muted">Marked lost by Admin.</p>
+                  <?php endif; ?>
+                </div>
+
+                <footer class="lead-card__footer">
+                  <span>Last updated <?= employee_format_datetime($lead['updatedAt']) ?></span>
+                </footer>
+              </article>
+              <?php endforeach; ?>
             </div>
+            <?php endif; ?>
           </section>
           <?php endif; ?>
 
