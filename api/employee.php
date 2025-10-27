@@ -169,18 +169,6 @@ function respond_error(string $message): void
     echo json_encode(['success' => false, 'error' => $message]);
 }
 
-function employee_bootstrap_payload(PDO $db, int $userId): array
-{
-    return [
-        'tasks' => portal_list_tasks($db, $userId),
-        'complaints' => portal_employee_complaints($db, $userId),
-        'documents' => portal_list_documents($db, 'employee', $userId),
-        'notifications' => portal_list_notifications($db, $userId, 'employee'),
-        'reminders' => employee_list_reminders($db, $userId),
-        'sync' => portal_latest_sync($db, $userId),
-    ];
-}
-
 function enforce_task_access(PDO $db, int $taskId, int $userId): void
 {
     $stmt = $db->prepare('SELECT assignee_id FROM portal_tasks WHERE id = :id LIMIT 1');

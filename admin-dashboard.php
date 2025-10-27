@@ -169,6 +169,14 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
           <i class="fa-solid fa-robot" aria-hidden="true"></i>
           AI Studio
         </a>
+        <a href="admin-users.php" class="btn btn-ghost">
+          <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
+          Users
+        </a>
+        <a href="admin-requests.php" class="btn btn-ghost">
+          <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+          Requests
+        </a>
         <button type="button" class="btn btn-ghost" data-theme-toggle>
           <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
           Theme

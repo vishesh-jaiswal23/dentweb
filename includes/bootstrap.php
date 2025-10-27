@@ -471,6 +471,75 @@ SQL
     );
 
     $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+    requested_by INTEGER NOT NULL,
+    subject TEXT NOT NULL,
+    target_type TEXT,
+    target_id INTEGER,
+    payload TEXT,
+    notes TEXT,
+    decision_note TEXT,
+    decided_by INTEGER,
+    decided_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(requested_by) REFERENCES users(id),
+    FOREIGN KEY(decided_by) REFERENCES users(id)
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, created_at DESC)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_approval_requests_target ON approval_requests(request_type, target_type, target_id)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS employee_leaves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+    request_id INTEGER,
+    approved_by INTEGER,
+    approved_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(approved_by) REFERENCES users(id),
+    FOREIGN KEY(request_id) REFERENCES approval_requests(id)
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_employee_leaves_user ON employee_leaves(user_id, start_date DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS employee_expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    category TEXT,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+    request_id INTEGER,
+    approved_by INTEGER,
+    approved_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(approved_by) REFERENCES users(id),
+    FOREIGN KEY(request_id) REFERENCES approval_requests(id)
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_employee_expenses_user ON employee_expenses(user_id, created_at DESC)');
+
+    $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS complaint_updates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     complaint_id INTEGER NOT NULL,
@@ -587,6 +656,8 @@ function seed_defaults(PDO $db): void
         'admin' => 'System administrators with full permissions.',
         'employee' => 'Internal staff managing operations and service.',
         'installer' => 'Field installers responsible for on-site execution.',
+        'referrer' => 'Channel partners supplying qualified leads.',
+        'customer' => 'End customers with read-only project tracking.',
     ];
 
     $insertRole = $db->prepare('INSERT OR IGNORE INTO roles(name, description) VALUES(:name, :description)');
@@ -692,9 +763,15 @@ function unify_employee_roles(PDO $db): void
         return;
     }
 
+    $preserve = ['installer', 'referrer', 'customer'];
+
     foreach ($legacyRoles as $legacyRole) {
         $roleId = (int) $legacyRole['id'];
         $roleName = (string) $legacyRole['name'];
+
+        if (in_array(strtolower($roleName), $preserve, true)) {
+            continue;
+        }
 
         $usersStmt = $db->prepare('SELECT id, email, permissions_note FROM users WHERE role_id = :role_id');
         $usersStmt->execute([':role_id' => $roleId]);
@@ -1946,7 +2023,7 @@ function seed_installations(PDO $db): void
 
 function merge_employee_roles(PDO $db): void
 {
-    $aliases = ['employee', 'installer', 'referrer', 'staff', 'team', 'field', 'agent', 'technician', 'support'];
+    $aliases = ['employee', 'staff', 'team', 'field', 'agent', 'technician', 'support'];
     $roleStmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
 
     $roleStmt->execute([':name' => 'employee']);
@@ -1997,7 +2074,6 @@ function canonical_role_name(string $roleName): string
 {
     $normalized = strtolower(trim($roleName));
     $map = [
-        'referrer' => 'employee',
         'staff' => 'employee',
         'team' => 'employee',
         'field' => 'employee',
@@ -2669,6 +2745,751 @@ function portal_log_action(PDO $db, int $actorId, string $action, string $entity
     ]);
 }
 
+function admin_resolve_role_id(PDO $db, string $roleName): int
+{
+    $normalized = strtolower(trim($roleName));
+    if ($normalized === '') {
+        throw new RuntimeException('Role is required.');
+    }
+
+    $stmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
+    $stmt->execute([':name' => $normalized]);
+    $roleId = $stmt->fetchColumn();
+    if ($roleId === false) {
+        throw new RuntimeException('Unsupported role selected.');
+    }
+
+    return (int) $roleId;
+}
+
+function admin_fetch_user(PDO $db, int $userId): array
+{
+    $stmt = $db->prepare('SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE users.id = :id LIMIT 1');
+    $stmt->execute([':id' => $userId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('User not found.');
+    }
+
+    return $row;
+}
+
+function admin_list_accounts(PDO $db, array $filters = []): array
+{
+    $status = strtolower(trim((string) ($filters['status'] ?? '')));
+    $conditions = [];
+    $params = [];
+
+    if ($status !== '' && $status !== 'all') {
+        if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
+            throw new RuntimeException('Unsupported status filter.');
+        }
+        $conditions[] = 'users.status = :status';
+        $params[':status'] = $status;
+    }
+
+    $sql = 'SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id';
+    if ($conditions) {
+        $sql .= ' WHERE ' . implode(' AND ', $conditions);
+    }
+    $sql .= ' ORDER BY users.created_at DESC';
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    return array_map(static function (array $row): array {
+        return [
+            'id' => (int) ($row['id'] ?? 0),
+            'full_name' => (string) ($row['full_name'] ?? ''),
+            'email' => (string) ($row['email'] ?? ''),
+            'username' => (string) ($row['username'] ?? ''),
+            'role' => (string) ($row['role_name'] ?? ''),
+            'status' => (string) ($row['status'] ?? ''),
+            'permissions_note' => (string) ($row['permissions_note'] ?? ''),
+            'created_at' => (string) ($row['created_at'] ?? ''),
+            'updated_at' => (string) ($row['updated_at'] ?? ''),
+            'last_login_at' => (string) ($row['last_login_at'] ?? ''),
+            'password_last_set_at' => (string) ($row['password_last_set_at'] ?? ''),
+        ];
+    }, $rows);
+}
+
+function admin_create_user(PDO $db, array $input, int $actorId): array
+{
+    $fullName = trim((string) ($input['full_name'] ?? ''));
+    if ($fullName === '') {
+        throw new RuntimeException('Full name is required.');
+    }
+
+    $email = strtolower(trim((string) ($input['email'] ?? '')));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('A valid email address is required.');
+    }
+
+    $username = strtolower(trim((string) ($input['username'] ?? '')));
+    if ($username === '' || !preg_match('/^[a-z0-9._-]{3,}$/', $username)) {
+        throw new RuntimeException('Username must be at least 3 characters (letters, numbers, dot, underscore, or dash).');
+    }
+
+    $roleName = (string) ($input['role'] ?? 'employee');
+    $roleId = admin_resolve_role_id($db, $roleName);
+
+    $password = (string) ($input['password'] ?? '');
+    if (strlen($password) < 8) {
+        throw new RuntimeException('Passwords must be at least 8 characters long.');
+    }
+
+    $status = strtolower(trim((string) ($input['status'] ?? 'active')));
+    if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
+        $status = 'active';
+    }
+
+    $permissionsNote = trim((string) ($input['permissions_note'] ?? ''));
+
+    $hash = password_hash($password, PASSWORD_DEFAULT);
+    $now = now_ist();
+
+    try {
+        $stmt = $db->prepare('INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, :status, :permissions_note, :password_last_set_at, :created_at, :updated_at)');
+        $stmt->execute([
+            ':full_name' => $fullName,
+            ':email' => $email,
+            ':username' => $username,
+            ':password_hash' => $hash,
+            ':role_id' => $roleId,
+            ':status' => $status,
+            ':permissions_note' => $permissionsNote !== '' ? $permissionsNote : null,
+            ':password_last_set_at' => $now,
+            ':created_at' => $now,
+            ':updated_at' => $now,
+        ]);
+    } catch (PDOException $exception) {
+        if ($exception->getCode() === '23000') {
+            throw new RuntimeException('Email or username already exists.');
+        }
+        throw $exception;
+    }
+
+    $userId = (int) $db->lastInsertId();
+    portal_log_action($db, $actorId, 'create', 'user', $userId, sprintf('User %s (%s) created with role %s', $fullName, $email, strtolower($roleName)));
+
+    return admin_list_accounts($db, ['status' => 'all']);
+}
+
+function admin_update_user_status(PDO $db, int $userId, string $status, int $actorId): array
+{
+    $status = strtolower(trim($status));
+    if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
+        throw new RuntimeException('Unsupported status.');
+    }
+
+    $now = now_ist();
+    $stmt = $db->prepare('UPDATE users SET status = :status, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':status' => $status,
+        ':updated_at' => $now,
+        ':id' => $userId,
+    ]);
+
+    portal_log_action($db, $actorId, 'status_change', 'user', $userId, 'Account marked as ' . $status);
+
+    return admin_list_accounts($db, ['status' => 'all']);
+}
+
+function admin_reset_user_password(PDO $db, int $userId, string $password, int $actorId): array
+{
+    if (strlen($password) < 8) {
+        throw new RuntimeException('Passwords must be at least 8 characters long.');
+    }
+
+    $hash = password_hash($password, PASSWORD_DEFAULT);
+    $now = now_ist();
+
+    $stmt = $db->prepare('UPDATE users SET password_hash = :hash, password_last_set_at = :password_last_set_at, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':hash' => $hash,
+        ':password_last_set_at' => $now,
+        ':updated_at' => $now,
+        ':id' => $userId,
+    ]);
+
+    portal_log_action($db, $actorId, 'password_reset', 'user', $userId, 'Password reset by administrator');
+
+    return admin_list_accounts($db, ['status' => 'all']);
+}
+
+function approval_request_normalize(array $row): array
+{
+    $payload = [];
+    if (isset($row['payload']) && $row['payload'] !== null && $row['payload'] !== '') {
+        try {
+            $decoded = json_decode((string) $row['payload'], true, 512, JSON_THROW_ON_ERROR);
+            if (is_array($decoded)) {
+                $payload = $decoded;
+            }
+        } catch (Throwable $exception) {
+            $payload = [];
+        }
+    }
+
+    return [
+        'id' => (int) ($row['id'] ?? 0),
+        'type' => (string) ($row['request_type'] ?? ''),
+        'status' => (string) ($row['status'] ?? ''),
+        'subject' => (string) ($row['subject'] ?? ''),
+        'targetType' => (string) ($row['target_type'] ?? ''),
+        'targetId' => isset($row['target_id']) && $row['target_id'] !== null ? (int) $row['target_id'] : null,
+        'payload' => $payload,
+        'notes' => (string) ($row['notes'] ?? ''),
+        'decisionNote' => (string) ($row['decision_note'] ?? ''),
+        'requestedBy' => isset($row['requested_by']) ? (int) $row['requested_by'] : null,
+        'requestedByName' => (string) ($row['requested_by_name'] ?? ''),
+        'decidedBy' => isset($row['decided_by']) ? (int) $row['decided_by'] : null,
+        'decidedByName' => (string) ($row['decided_by_name'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+        'decidedAt' => (string) ($row['decided_at'] ?? ''),
+    ];
+}
+
+function approval_request_fetch(PDO $db, int $id): array
+{
+    $stmt = $db->prepare('SELECT ar.*, requester.full_name AS requested_by_name, decider.full_name AS decided_by_name FROM approval_requests ar LEFT JOIN users requester ON ar.requested_by = requester.id LEFT JOIN users decider ON ar.decided_by = decider.id WHERE ar.id = :id LIMIT 1');
+    $stmt->execute([':id' => $id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('Approval request not found.');
+    }
+
+    return approval_request_normalize($row);
+}
+
+function approval_request_register(
+    PDO $db,
+    string $type,
+    int $userId,
+    string $subject,
+    array $payload = [],
+    ?string $targetType = null,
+    ?int $targetId = null,
+    string $notes = ''
+): array {
+    $type = strtolower(trim($type));
+    if ($type === '') {
+        throw new RuntimeException('Request type is required.');
+    }
+
+    $subject = trim($subject);
+    if ($subject === '') {
+        throw new RuntimeException('Request subject cannot be empty.');
+    }
+
+    $targetType = $targetType !== null ? strtolower(trim($targetType)) : null;
+    $targetId = $targetId !== null ? (int) $targetId : null;
+    $payloadJson = json_encode($payload, JSON_THROW_ON_ERROR);
+    $now = now_ist();
+
+    $existingId = null;
+    if ($targetType !== null && $targetType !== '' && $targetId !== null && $targetId > 0) {
+        $stmt = $db->prepare('SELECT id FROM approval_requests WHERE request_type = :type AND target_type = :target_type AND target_id = :target_id AND status = "pending" LIMIT 1');
+        $stmt->execute([
+            ':type' => $type,
+            ':target_type' => $targetType,
+            ':target_id' => $targetId,
+        ]);
+        $existingId = $stmt->fetchColumn();
+    }
+
+    if ($existingId !== false && $existingId !== null) {
+        $requestId = (int) $existingId;
+        $update = $db->prepare('UPDATE approval_requests SET subject = :subject, payload = :payload, notes = :notes, updated_at = :updated_at WHERE id = :id');
+        $update->execute([
+            ':subject' => $subject,
+            ':payload' => $payloadJson,
+            ':notes' => $notes !== '' ? $notes : null,
+            ':updated_at' => $now,
+            ':id' => $requestId,
+        ]);
+    } else {
+        $insert = $db->prepare('INSERT INTO approval_requests(request_type, status, requested_by, subject, target_type, target_id, payload, notes, created_at, updated_at) VALUES(:request_type, "pending", :requested_by, :subject, :target_type, :target_id, :payload, :notes, :created_at, :updated_at)');
+        $insert->execute([
+            ':request_type' => $type,
+            ':requested_by' => $userId,
+            ':subject' => $subject,
+            ':target_type' => $targetType !== null && $targetType !== '' ? $targetType : null,
+            ':target_id' => $targetId,
+            ':payload' => $payloadJson,
+            ':notes' => $notes !== '' ? $notes : null,
+            ':created_at' => $now,
+            ':updated_at' => $now,
+        ]);
+        $requestId = (int) $db->lastInsertId();
+    }
+
+    return approval_request_fetch($db, $requestId);
+}
+
+function approval_request_finalize(PDO $db, int $id, string $status, int $actorId, ?string $decisionNote = null): array
+{
+    $status = strtolower(trim($status));
+    if (!in_array($status, ['approved', 'rejected'], true)) {
+        throw new RuntimeException('Unsupported decision.');
+    }
+
+    $now = now_ist();
+    $stmt = $db->prepare('UPDATE approval_requests SET status = :status, decided_by = :decided_by, decided_at = :decided_at, decision_note = :decision_note, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':status' => $status,
+        ':decided_by' => $actorId,
+        ':decided_at' => $now,
+        ':decision_note' => $decisionNote !== null && trim($decisionNote) !== '' ? trim($decisionNote) : null,
+        ':updated_at' => $now,
+        ':id' => $id,
+    ]);
+
+    return approval_request_fetch($db, $id);
+}
+
+function approval_request_sync_by_target(PDO $db, string $type, string $targetType, int $targetId, string $status, int $actorId, ?string $note = null): void
+{
+    $stmt = $db->prepare('SELECT id FROM approval_requests WHERE request_type = :type AND target_type = :target_type AND target_id = :target_id AND status = "pending" ORDER BY created_at DESC LIMIT 1');
+    $stmt->execute([
+        ':type' => strtolower(trim($type)),
+        ':target_type' => strtolower(trim($targetType)),
+        ':target_id' => $targetId,
+    ]);
+    $requestId = $stmt->fetchColumn();
+    if ($requestId === false) {
+        return;
+    }
+
+    approval_request_finalize($db, (int) $requestId, $status, $actorId, $note);
+}
+
+function employee_submit_request(PDO $db, int $userId, string $type, array $payload): array
+{
+    $type = strtolower(trim($type));
+    switch ($type) {
+        case 'profile_edit':
+            $fullName = trim((string) ($payload['full_name'] ?? ''));
+            $email = strtolower(trim((string) ($payload['email'] ?? '')));
+            $username = strtolower(trim((string) ($payload['username'] ?? '')));
+            $notes = trim((string) ($payload['notes'] ?? ''));
+
+            $updates = [];
+            if ($fullName !== '') {
+                $updates['full_name'] = $fullName;
+            }
+            if ($email !== '') {
+                if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    throw new RuntimeException('Provide a valid email address.');
+                }
+                $updates['email'] = $email;
+            }
+            if ($username !== '') {
+                if (!preg_match('/^[a-z0-9._-]{3,}$/', $username)) {
+                    throw new RuntimeException('Username must be at least 3 characters (letters, numbers, dot, underscore, or dash).');
+                }
+                $updates['username'] = $username;
+            }
+
+            if (empty($updates)) {
+                throw new RuntimeException('Specify at least one field to update.');
+            }
+
+            $subject = 'Profile update request';
+            return approval_request_register($db, 'profile_edit', $userId, $subject, ['updates' => $updates], 'user', $userId, $notes);
+
+        case 'leave':
+            $startRaw = trim((string) ($payload['start_date'] ?? ''));
+            $endRaw = trim((string) ($payload['end_date'] ?? ''));
+            if ($startRaw === '' || $endRaw === '') {
+                throw new RuntimeException('Provide both start and end dates.');
+            }
+            $start = DateTimeImmutable::createFromFormat('Y-m-d', $startRaw, new DateTimeZone('Asia/Kolkata'));
+            $end = DateTimeImmutable::createFromFormat('Y-m-d', $endRaw, new DateTimeZone('Asia/Kolkata'));
+            if (!$start || !$end) {
+                throw new RuntimeException('Dates must use the YYYY-MM-DD format.');
+            }
+            if ($end < $start) {
+                throw new RuntimeException('End date cannot be before start date.');
+            }
+            $reason = trim((string) ($payload['reason'] ?? ''));
+            $subject = sprintf('Leave from %s to %s', $start->format('d M'), $end->format('d M'));
+            return approval_request_register($db, 'leave', $userId, $subject, [
+                'start_date' => $start->format('Y-m-d'),
+                'end_date' => $end->format('Y-m-d'),
+                'reason' => $reason,
+            ], 'user', $userId, $reason);
+
+        case 'expense':
+            $amount = (float) ($payload['amount'] ?? 0);
+            if ($amount <= 0) {
+                throw new RuntimeException('Expense amount must be greater than zero.');
+            }
+            $category = trim((string) ($payload['category'] ?? 'General'));
+            $description = trim((string) ($payload['description'] ?? ''));
+            $subject = sprintf('Expense ₹%s - %s', number_format($amount, 2), $category !== '' ? $category : 'General');
+            return approval_request_register($db, 'expense', $userId, $subject, [
+                'amount' => $amount,
+                'category' => $category,
+                'description' => $description,
+            ], 'user', $userId, $description);
+
+        case 'data_correction':
+            $module = strtolower(trim((string) ($payload['module'] ?? '')));
+            $recordId = (int) ($payload['record_id'] ?? 0);
+            $field = trim((string) ($payload['field'] ?? ''));
+            $value = trim((string) ($payload['value'] ?? ''));
+            $details = trim((string) ($payload['details'] ?? ''));
+
+            if ($module === '' || !in_array($module, ['lead', 'installation', 'complaint', 'other'], true)) {
+                throw new RuntimeException('Select a supported module for correction.');
+            }
+            if ($module !== 'other' && $recordId <= 0) {
+                throw new RuntimeException('Provide a valid record reference.');
+            }
+            if ($field === '' && $details === '') {
+                throw new RuntimeException('Describe the correction needed.');
+            }
+
+            $subject = 'Data correction for ' . ucfirst($module) . ($recordId > 0 ? ' #' . $recordId : '');
+            return approval_request_register($db, 'data_correction', $userId, $subject, [
+                'module' => $module,
+                'record_id' => $recordId,
+                'field' => $field,
+                'value' => $value,
+                'details' => $details,
+            ], $module !== 'other' ? $module : null, $recordId > 0 ? $recordId : null, $details !== '' ? $details : $field);
+
+        default:
+            throw new RuntimeException('Unsupported request type.');
+    }
+}
+
+function employee_list_requests(PDO $db, int $userId): array
+{
+    $stmt = $db->prepare('SELECT ar.*, users.full_name AS requested_by_name FROM approval_requests ar LEFT JOIN users ON ar.requested_by = users.id WHERE ar.requested_by = :user_id ORDER BY ar.created_at DESC');
+    $stmt->execute([':user_id' => $userId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    return array_map('approval_request_normalize', $rows);
+}
+
+function admin_list_requests(PDO $db, string $status = 'pending'): array
+{
+    $status = strtolower(trim($status));
+    $conditions = [];
+    $params = [];
+
+    if ($status !== '' && $status !== 'all') {
+        if (!in_array($status, ['pending', 'approved', 'rejected'], true)) {
+            throw new RuntimeException('Unsupported status filter.');
+        }
+        $conditions[] = 'ar.status = :status';
+        $params[':status'] = $status;
+    }
+
+    $sql = 'SELECT ar.*, requester.full_name AS requested_by_name, decider.full_name AS decided_by_name FROM approval_requests ar LEFT JOIN users requester ON ar.requested_by = requester.id LEFT JOIN users decider ON ar.decided_by = decider.id';
+    if ($conditions) {
+        $sql .= ' WHERE ' . implode(' AND ', $conditions);
+    }
+    $sql .= ' ORDER BY ar.created_at DESC';
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    return array_map('approval_request_normalize', $rows);
+}
+
+function admin_apply_profile_updates(PDO $db, array $updates, int $userId, int $actorId): void
+{
+    if (empty($updates)) {
+        return;
+    }
+
+    $allowed = ['full_name', 'email', 'username'];
+    $set = [];
+    $params = [
+        ':id' => $userId,
+        ':updated_at' => now_ist(),
+    ];
+
+    foreach ($updates as $key => $value) {
+        if (!in_array($key, $allowed, true)) {
+            continue;
+        }
+        if ($key === 'email') {
+            if (!filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                throw new RuntimeException('Approval failed: invalid email address.');
+            }
+            $check = $db->prepare('SELECT id FROM users WHERE email = :email AND id != :id LIMIT 1');
+            $check->execute([':email' => strtolower($value), ':id' => $userId]);
+            if ($check->fetchColumn()) {
+                throw new RuntimeException('Approval failed: email already in use.');
+            }
+            $params[':email'] = strtolower($value);
+            $set[] = 'email = :email';
+        } elseif ($key === 'username') {
+            if (!preg_match('/^[a-z0-9._-]{3,}$/', $value)) {
+                throw new RuntimeException('Approval failed: invalid username.');
+            }
+            $check = $db->prepare('SELECT id FROM users WHERE username = :username AND id != :id LIMIT 1');
+            $check->execute([':username' => strtolower($value), ':id' => $userId]);
+            if ($check->fetchColumn()) {
+                throw new RuntimeException('Approval failed: username already in use.');
+            }
+            $params[':username'] = strtolower($value);
+            $set[] = 'username = :username';
+        } else {
+            $params[':full_name'] = $value;
+            $set[] = 'full_name = :full_name';
+        }
+    }
+
+    if (empty($set)) {
+        return;
+    }
+
+    $sql = 'UPDATE users SET ' . implode(', ', $set) . ', updated_at = :updated_at WHERE id = :id';
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
+    portal_log_action($db, $actorId, 'update', 'user', $userId, 'Profile updates applied via approval');
+}
+
+function admin_record_leave(PDO $db, array $payload, int $userId, int $actorId, int $requestId, string $status): void
+{
+    $start = $payload['start_date'] ?? '';
+    $end = $payload['end_date'] ?? '';
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $start) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $end)) {
+        throw new RuntimeException('Leave dates are invalid.');
+    }
+
+    $reason = trim((string) ($payload['reason'] ?? ''));
+    $stmt = $db->prepare('INSERT INTO employee_leaves(user_id, start_date, end_date, reason, status, request_id, approved_by, approved_at, created_at, updated_at) VALUES(:user_id, :start_date, :end_date, :reason, :status, :request_id, :approved_by, :approved_at, :created_at, :updated_at)');
+    $now = now_ist();
+    $stmt->execute([
+        ':user_id' => $userId,
+        ':start_date' => $start,
+        ':end_date' => $end,
+        ':reason' => $reason !== '' ? $reason : null,
+        ':status' => $status,
+        ':request_id' => $requestId,
+        ':approved_by' => $actorId,
+        ':approved_at' => $now,
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+
+    if ($status === 'approved') {
+        portal_log_action($db, $actorId, 'create', 'leave', (int) $db->lastInsertId(), 'Leave request approved');
+    }
+}
+
+function admin_record_expense(PDO $db, array $payload, int $userId, int $actorId, int $requestId, string $status): void
+{
+    $amount = isset($payload['amount']) ? (float) $payload['amount'] : 0.0;
+    if ($amount <= 0) {
+        throw new RuntimeException('Expense amount is invalid.');
+    }
+    $category = trim((string) ($payload['category'] ?? 'General'));
+    $description = trim((string) ($payload['description'] ?? ''));
+    $now = now_ist();
+
+    $stmt = $db->prepare('INSERT INTO employee_expenses(user_id, amount, category, description, status, request_id, approved_by, approved_at, created_at, updated_at) VALUES(:user_id, :amount, :category, :description, :status, :request_id, :approved_by, :approved_at, :created_at, :updated_at)');
+    $stmt->execute([
+        ':user_id' => $userId,
+        ':amount' => $amount,
+        ':category' => $category !== '' ? $category : null,
+        ':description' => $description !== '' ? $description : null,
+        ':status' => $status,
+        ':request_id' => $requestId,
+        ':approved_by' => $actorId,
+        ':approved_at' => $now,
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+
+    if ($status === 'approved') {
+        portal_log_action($db, $actorId, 'create', 'expense', (int) $db->lastInsertId(), 'Expense approved via request');
+    }
+}
+
+function admin_apply_data_correction(PDO $db, array $payload, int $actorId): void
+{
+    $module = strtolower(trim((string) ($payload['module'] ?? '')));
+    $recordId = (int) ($payload['record_id'] ?? 0);
+    $field = trim((string) ($payload['field'] ?? ''));
+    $value = trim((string) ($payload['value'] ?? ''));
+    $details = trim((string) ($payload['details'] ?? ''));
+
+    if ($module === 'lead' && $recordId > 0) {
+        $allowed = ['name', 'phone', 'email', 'source', 'site_location', 'notes'];
+        if ($field !== '' && in_array($field, $allowed, true)) {
+            $sql = 'UPDATE crm_leads SET ' . $field . ' = :value, updated_at = :updated_at WHERE id = :id';
+            $stmt = $db->prepare($sql);
+            $stmt->execute([
+                ':value' => $value !== '' ? $value : null,
+                ':updated_at' => now_ist(),
+                ':id' => $recordId,
+            ]);
+            portal_log_action($db, $actorId, 'update', 'lead', $recordId, 'Data correction applied via approval');
+            return;
+        }
+    }
+
+    if ($module === 'installation' && $recordId > 0) {
+        $allowed = ['customer_name', 'project_reference', 'scheduled_date', 'handover_date'];
+        if ($field !== '' && in_array($field, $allowed, true)) {
+            $sql = 'UPDATE installations SET ' . $field . ' = :value, updated_at = :updated_at WHERE id = :id';
+            $stmt = $db->prepare($sql);
+            $stmt->execute([
+                ':value' => $value !== '' ? $value : null,
+                ':updated_at' => now_ist(),
+                ':id' => $recordId,
+            ]);
+            portal_log_action($db, $actorId, 'update', 'installation', $recordId, 'Data correction applied via approval');
+            return;
+        }
+    }
+
+    if ($module === 'complaint' && $recordId > 0) {
+        $allowed = ['title', 'description', 'customer_name', 'customer_contact'];
+        if ($field !== '' && in_array($field, $allowed, true)) {
+            $sql = 'UPDATE complaints SET ' . $field . ' = :value, updated_at = :updated_at WHERE id = :id';
+            $stmt = $db->prepare($sql);
+            $stmt->execute([
+                ':value' => $value !== '' ? $value : null,
+                ':updated_at' => now_ist(),
+                ':id' => $recordId,
+            ]);
+            portal_log_action($db, $actorId, 'update', 'complaint', $recordId, 'Data correction applied via approval');
+            return;
+        }
+    }
+
+    if ($details === '') {
+        throw new RuntimeException('Unable to auto-apply this correction. Please update the record manually.');
+    }
+}
+
+function admin_decide_request(PDO $db, int $requestId, string $decision, int $actorId, string $note = ''): array
+{
+    $decision = strtolower(trim($decision));
+    if (!in_array($decision, ['approve', 'reject'], true)) {
+        throw new RuntimeException('Unsupported decision.');
+    }
+
+    $request = approval_request_fetch($db, $requestId);
+    if ($request['status'] !== 'pending') {
+        throw new RuntimeException('Only pending requests can be actioned.');
+    }
+
+    $status = $decision === 'approve' ? 'approved' : 'rejected';
+    $payload = $request['payload'] ?? [];
+    $result = null;
+
+    $db->beginTransaction();
+    try {
+        switch ($request['type']) {
+            case 'profile_edit':
+                if ($decision === 'approve') {
+                    $updates = is_array($payload['updates'] ?? null) ? $payload['updates'] : [];
+                    admin_apply_profile_updates($db, $updates, (int) $request['requestedBy'], $actorId);
+                }
+                $result = admin_fetch_user($db, (int) $request['requestedBy']);
+                break;
+            case 'leave':
+                admin_record_leave($db, is_array($payload) ? $payload : [], (int) $request['requestedBy'], $actorId, $requestId, $status);
+                $result = employee_list_requests($db, (int) $request['requestedBy']);
+                break;
+            case 'expense':
+                admin_record_expense($db, is_array($payload) ? $payload : [], (int) $request['requestedBy'], $actorId, $requestId, $status);
+                $result = employee_list_requests($db, (int) $request['requestedBy']);
+                break;
+            case 'data_correction':
+                if ($decision === 'approve') {
+                    admin_apply_data_correction($db, is_array($payload) ? $payload : [], $actorId);
+                }
+                break;
+            case 'lead_conversion':
+                $proposalId = isset($payload['proposal_id']) ? (int) $payload['proposal_id'] : 0;
+                if ($proposalId <= 0) {
+                    throw new RuntimeException('Proposal reference missing.');
+                }
+                if ($decision === 'approve') {
+                    $result = admin_approve_lead_proposal($db, $proposalId, $actorId);
+                } else {
+                    $result = admin_reject_lead_proposal($db, $proposalId, $actorId, $note);
+                }
+                break;
+            case 'installation_commissioning':
+                $installationId = $request['targetId'] ?? ($payload['installation_id'] ?? 0);
+                $installationId = (int) $installationId;
+                if ($installationId <= 0) {
+                    throw new RuntimeException('Installation reference missing.');
+                }
+                if ($decision === 'approve') {
+                    $result = installation_approve_commissioning($db, $installationId, $actorId, $note);
+                } else {
+                    $result = installation_reject_commissioning_request($db, $installationId, $actorId, $note);
+                }
+                break;
+            case 'complaint_resolved':
+                $reference = (string) ($payload['reference'] ?? '');
+                if ($reference === '') {
+                    throw new RuntimeException('Complaint reference missing.');
+                }
+                if ($decision === 'approve') {
+                    $result = portal_admin_update_complaint_status($db, $reference, 'resolved', $actorId);
+                }
+                break;
+            case 'reminder_proposal':
+                $reminderId = $request['targetId'] ?? ($payload['reminder_id'] ?? 0);
+                $reminderId = (int) $reminderId;
+                if ($reminderId <= 0) {
+                    throw new RuntimeException('Reminder reference missing.');
+                }
+                if ($decision === 'approve') {
+                    $result = admin_update_reminder_status($db, $reminderId, 'active', $actorId);
+                } else {
+                    $result = admin_update_reminder_status($db, $reminderId, 'cancelled', $actorId, $note);
+                }
+                break;
+            default:
+                throw new RuntimeException('Unsupported request type.');
+        }
+
+        $updated = approval_request_finalize($db, $requestId, $status, $actorId, $note);
+        $db->commit();
+    } catch (Throwable $exception) {
+        $db->rollBack();
+        throw $exception;
+    }
+
+    return [
+        'request' => $updated,
+        'result' => $result,
+        'counts' => admin_overview_counts($db),
+    ];
+}
+
+function employee_bootstrap_payload(PDO $db, int $userId): array
+{
+    return [
+        'tasks' => portal_list_tasks($db, $userId),
+        'complaints' => portal_employee_complaints($db, $userId),
+        'documents' => portal_list_documents($db, 'employee', $userId),
+        'notifications' => portal_list_notifications($db, $userId, 'employee'),
+        'reminders' => employee_list_reminders($db, $userId),
+        'requests' => employee_list_requests($db, $userId),
+        'sync' => portal_latest_sync($db, $userId),
+    ];
+}
+
 function generate_complaint_reference(PDO $db): string
 {
     $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
@@ -3071,6 +3892,10 @@ function portal_admin_update_complaint_status(PDO $db, string $reference, string
         $status
     );
 
+    if ($status === 'resolved') {
+        approval_request_sync_by_target($db, 'complaint_resolved', 'complaint', (int) $row['id'], 'approved', $actorId, null);
+    }
+
     return portal_get_complaint($db, $reference);
 }
 
@@ -3458,6 +4283,21 @@ function installation_update_stage(
         $row['requested_stage'] = $targetStage;
         $row['requested_by'] = $actor['id'];
         $row['requested_at'] = $now;
+
+        $label = $row['project_reference'] ?: ($row['customer_name'] ?? ('Installation #' . $installationId));
+        approval_request_register(
+            $db,
+            'installation_commissioning',
+            $actor['id'],
+            'Commissioning approval for ' . $label,
+            [
+                'installation_id' => $installationId,
+                'requested_stage' => $targetStage,
+            ],
+            'installation',
+            $installationId,
+            $remarks
+        );
     } elseif ($targetStage !== $currentStage) {
         if (!installation_stage_transition_allowed($actorRole, $currentStage, $targetStage)) {
             throw new RuntimeException('Stage change is not permitted.');
@@ -3478,6 +4318,10 @@ function installation_update_stage(
         $row['requested_by'] = null;
         $row['requested_at'] = null;
         $entry['type'] = 'stage';
+
+        if ($targetStage === 'commissioned') {
+            approval_request_sync_by_target($db, 'installation_commissioning', 'installation', $installationId, 'approved', $actor['id'], $remarks);
+        }
     }
 
     if ($remarks !== '' || $photoLabel !== '' || $entry['type'] !== 'note') {
@@ -3496,6 +4340,45 @@ function installation_approve_commissioning(PDO $db, int $installationId, int $a
     }
 
     return installation_update_stage($db, $installationId, 'commissioned', $actorId, 'admin', $remarks);
+}
+
+function installation_reject_commissioning_request(PDO $db, int $installationId, int $actorId, string $remarks = ''): array
+{
+    $row = installation_fetch($db, $installationId);
+    $requestedStage = strtolower(trim((string) ($row['requested_stage'] ?? '')));
+    if ($requestedStage !== 'commissioned') {
+        throw new RuntimeException('No commissioning request is pending.');
+    }
+
+    $actor = installation_actor_details($db, $actorId);
+    $now = now_ist();
+
+    $db->prepare('UPDATE installations SET requested_stage = NULL, requested_by = NULL, requested_at = NULL, updated_at = :updated_at WHERE id = :id')->execute([
+        ':updated_at' => $now,
+        ':id' => $installationId,
+    ]);
+
+    $entry = [
+        'id' => bin2hex(random_bytes(8)),
+        'stage' => strtolower(trim((string) ($row['stage'] ?? 'structure'))),
+        'type' => 'note',
+        'remarks' => $remarks !== '' ? $remarks : 'Commissioning request rejected by Admin.',
+        'photo' => '',
+        'actorId' => $actor['id'],
+        'actorName' => $actor['name'],
+        'actorRole' => $actor['role'],
+        'timestamp' => $now,
+    ];
+
+    $row['requested_stage'] = null;
+    $row['requested_by'] = null;
+    $row['requested_at'] = null;
+    $row = installation_append_stage_entry($db, $row, $entry);
+
+    portal_log_action($db, $actorId, 'status_change', 'installation', $installationId, 'Commissioning request rejected');
+    approval_request_sync_by_target($db, 'installation_commissioning', 'installation', $installationId, 'rejected', $actorId, $remarks);
+
+    return $row;
 }
 
 function installation_toggle_amc(PDO $db, int $installationId, bool $committed, int $actorId): array
@@ -4582,10 +5465,28 @@ function employee_submit_lead_proposal(PDO $db, array $input, int $employeeId): 
         ':created_at' => now_ist(),
     ]);
 
+    $proposalId = (int) $db->lastInsertId();
     $db->prepare('UPDATE crm_leads SET updated_at = :updated_at WHERE id = :id')->execute([
         ':updated_at' => now_ist(),
         ':id' => $leadId,
     ]);
+
+    $leadName = $lead['name'] ?? ('Lead #' . $leadId);
+    approval_request_register(
+        $db,
+        'lead_conversion',
+        $employeeId,
+        'Conversion approval for ' . $leadName,
+        [
+            'lead_id' => $leadId,
+            'proposal_id' => $proposalId,
+            'summary' => $summary,
+            'estimate' => $estimate,
+        ],
+        'lead',
+        $leadId,
+        $summary
+    );
 
     return lead_fetch($db, $leadId);
 }
@@ -4612,6 +5513,8 @@ function admin_approve_lead_proposal(PDO $db, int $proposalId, int $actorId): ar
 
     $leadId = (int) $proposal['lead_id'];
     lead_change_stage($db, $leadId, 'converted', $actorId, 'admin', 'Proposal #' . $proposalId . ' approved');
+
+    approval_request_sync_by_target($db, 'lead_conversion', 'lead', $leadId, 'approved', $actorId, null);
 
     return lead_fetch($db, $leadId);
 }
@@ -4640,6 +5543,8 @@ function admin_reject_lead_proposal(PDO $db, int $proposalId, int $actorId, stri
         ':updated_at' => now_ist(),
         ':id' => $leadId,
     ]);
+
+    approval_request_sync_by_target($db, 'lead_conversion', 'lead', $leadId, 'rejected', $actorId, $note);
 
     return lead_fetch($db, $leadId);
 }
@@ -5346,6 +6251,25 @@ function employee_propose_reminder(PDO $db, array $input, int $employeeId): arra
         throw new RuntimeException('Reminder could not be created.');
     }
 
+    $linkedLabel = employee_resolve_reminder_label($db, $module, $linkedId);
+    approval_request_register(
+        $db,
+        'reminder_proposal',
+        $employeeId,
+        'Reminder approval for ' . $linkedLabel,
+        [
+            'reminder_id' => $reminderId,
+            'module' => $module,
+            'linked_id' => $linkedId,
+            'title' => $title,
+            'due_at' => $dueAt,
+            'notes' => $notes,
+        ],
+        'reminder',
+        $reminderId,
+        $notes
+    );
+
     return $created;
 }
 
@@ -5389,6 +6313,8 @@ function employee_cancel_reminder(PDO $db, int $reminderId, int $employeeId): ar
     if ($fullContext !== null) {
         portal_notify_reminder_status($db, $fullContext, 'cancelled');
     }
+
+    approval_request_sync_by_target($db, 'reminder_proposal', 'reminder', $reminderId, 'rejected', $employeeId, 'Withdrawn by proposer');
 
     return $updated;
 }
@@ -5709,6 +6635,7 @@ function admin_update_reminder_status(PDO $db, int $id, string $targetStatus, in
         ]);
 
         portal_log_action($db, $actorId, 'status_change', 'reminder', $id, 'Reminder approved');
+        approval_request_sync_by_target($db, 'reminder_proposal', 'reminder', $id, 'approved', $actorId, null);
     } elseif ($target === 'cancelled') {
         $reason = trim((string) $note);
         if ($currentStatus === 'proposed' && $reason === '') {
@@ -5732,6 +6659,7 @@ function admin_update_reminder_status(PDO $db, int $id, string $targetStatus, in
 
         $logMessage = $currentStatus === 'proposed' ? 'Reminder rejected' : 'Reminder cancelled';
         portal_log_action($db, $actorId, 'status_change', 'reminder', $id, $logMessage);
+        approval_request_sync_by_target($db, 'reminder_proposal', 'reminder', $id, 'rejected', $actorId, $decisionNote ?? '');
     } else { // completed
         if ($currentStatus !== 'active') {
             throw new RuntimeException('Only active reminders can be completed.');
@@ -5980,6 +6908,38 @@ function portal_update_complaint_status(PDO $db, string $reference, string $stat
     }
 
     $newStatus = $statusMap[$statusKey];
+
+    if ($newStatus === 'resolved') {
+        $complaintId = (int) ($row['id'] ?? 0);
+        approval_request_register(
+            $db,
+            'complaint_resolved',
+            $actorId,
+            'Resolve complaint ' . $reference,
+            [
+                'reference' => $reference,
+                'complaint_id' => $complaintId,
+            ],
+            'complaint',
+            $complaintId,
+            'Resolution requested by assignee'
+        );
+
+        portal_log_action($db, $actorId, 'status_change', 'complaint', $complaintId, 'Resolution requested for complaint');
+        portal_record_complaint_event(
+            $db,
+            $complaintId,
+            $actorId,
+            'status',
+            'Resolution requested',
+            null,
+            null,
+            $newStatus
+        );
+
+        return portal_normalize_complaint_row($db, $row);
+    }
+
     $stmtUpdate = $db->prepare('UPDATE complaints SET status = :status, updated_at = :updated_at, assigned_to = CASE WHEN :status = \'triage\' THEN NULL ELSE assigned_to END WHERE reference = :reference');
     $stmtUpdate->execute([
         ':status' => $newStatus,
