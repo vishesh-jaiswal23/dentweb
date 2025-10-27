@@ -680,6 +680,23 @@ $syncStatus = [
     'latency' => '0.3s',
 ];
 
+$geminiProfile = portal_gemini_profile($db);
+$permissionMatrix = [
+    'tasks' => ['view' => true, 'create' => false, 'update' => true, 'delete' => false, 'export' => false, 'approve' => false],
+    'complaints' => ['view' => true, 'create' => false, 'update' => true, 'delete' => false, 'export' => false, 'approve' => false],
+    'documents' => ['view' => true, 'upload' => false, 'delete' => false],
+    'notifications' => ['view' => true, 'update' => true],
+    'ai' => ['use' => $geminiProfile['enabled']],
+    'search' => ['use' => true],
+    'communication' => ['log' => true],
+    'profile' => ['update' => true],
+    'feedback' => ['create' => true],
+    'leads' => ['create' => true, 'update' => true],
+    'visits' => ['update' => true],
+    'warranty' => ['update' => true],
+    'subsidy' => ['update' => true],
+];
+
 $unreadNotificationCount = count(array_filter($notifications, static fn (array $notice): bool => empty($notice['isRead'])));
 
 $activeComplaintsCount = count(array_filter($tickets, static function (array $ticket): bool {
@@ -809,6 +826,29 @@ $attachmentIcon = static function (string $filename): string {
 <body data-dashboard-theme="light" data-current-view="<?= htmlspecialchars($currentView, ENT_QUOTES) ?>" data-user-status="<?= htmlspecialchars($employeeStatus, ENT_QUOTES) ?>">
   <main class="dashboard">
     <div class="container dashboard-shell">
+      <div class="dashboard-search-overlay" data-search-overlay hidden>
+        <div class="dashboard-search-backdrop" data-close-search aria-hidden="true"></div>
+        <div class="dashboard-search-panel" role="dialog" aria-modal="true" aria-labelledby="employee-search-title">
+          <div class="dashboard-search-panel__inner">
+            <h2 id="employee-search-title" class="sr-only">Universal search</h2>
+            <form class="dashboard-search-field" data-search-form role="search">
+              <label for="employee-search-input" class="sr-only">Search assignments</label>
+              <input
+                id="employee-search-input"
+                type="search"
+                placeholder="Search customers, leads, tickets, documents…"
+                autocomplete="off"
+                data-search-input
+              />
+              <span class="dashboard-search-hint">Press Esc to close · Ctrl + K</span>
+            </form>
+            <div class="dashboard-search-results" data-search-results hidden>
+              <p class="dashboard-search-empty">Start typing to surface customers, leads, tickets, and documents assigned to you.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="dashboard-auth-bar" role="banner">
         <div class="dashboard-auth-user">
           <i class="fa-solid fa-user-tie" aria-hidden="true"></i>
@@ -850,6 +890,10 @@ $attachmentIcon = static function (string $filename): string {
           Track open complaints, priority tasks, and follow-ups without exposing admin settings or other users' data.
         </p>
         <div class="employee-header-actions" role="toolbar" aria-label="Employee quick actions">
+          <button type="button" class="employee-header-button" data-open-search>
+            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+            <span>Search</span>
+          </button>
           <button type="button" class="employee-header-button" data-open-profile>
             <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
             <span>Profile</span>
@@ -1702,7 +1746,16 @@ $attachmentIcon = static function (string $filename): string {
             <div class="ai-layout">
               <article class="dashboard-panel">
                 <h3>Request suggestion</h3>
-                <form class="ai-form" data-ai-form>
+                <?php if (!$geminiProfile['enabled']): ?>
+                <div class="dashboard-inline-status dashboard-inline-status--warning" data-ai-disabled-banner>
+                  <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                  <div>
+                    <strong>Gemini assistant is offline</strong>
+                    <p>Admin has disabled Gemini usage. You can still prepare prompts, but generation is unavailable.</p>
+                  </div>
+                </div>
+                <?php endif; ?>
+                <form class="ai-form" data-ai-form data-ai-enabled="<?= $geminiProfile['enabled'] ? 'true' : 'false' ?>">
                   <label>
                     Choose tool
                     <select name="purpose" required>
@@ -1715,13 +1768,25 @@ $attachmentIcon = static function (string $filename): string {
                     Context / highlights
                     <textarea name="context" rows="3" placeholder="Describe the service outcome or request from Admin."></textarea>
                   </label>
-                  <button type="submit" class="btn btn-primary btn-sm">Generate with Gemini</button>
-                  <p class="text-xs text-muted mb-0">All prompts route through Admin-configured Gemini models (Text · Image · TTS).</p>
+                  <div class="ai-actions">
+                    <button type="submit" class="btn btn-primary btn-sm" data-ai-generate="text">Generate text</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-ai-generate-image>Cover image</button>
+                    <button type="button" class="btn btn-ghost btn-sm" data-ai-generate-audio>Audio note</button>
+                  </div>
+                  <p class="text-xs text-muted mb-0">All prompts route through Admin-configured Gemini models. Activity is logged for compliance.</p>
                 </form>
               </article>
               <article class="dashboard-panel ai-output-panel">
                 <h3>AI output</h3>
                 <div class="ai-output" data-ai-output aria-live="polite">Select a tool and provide optional context to begin.</div>
+                <figure class="ai-output-media" data-ai-image-wrapper hidden>
+                  <img src="" alt="" data-ai-image />
+                  <figcaption data-ai-image-caption></figcaption>
+                </figure>
+                <div class="ai-output-media" data-ai-audio-wrapper hidden>
+                  <audio controls data-ai-audio></audio>
+                  <p class="text-xs text-muted" data-ai-audio-caption></p>
+                </div>
               </article>
             </div>
           </section>
@@ -1866,12 +1931,31 @@ $attachmentIcon = static function (string $filename): string {
     </div>
   </main>
 
+  <template id="employee-search-group-template">
+    <div class="dashboard-search-group">
+      <h3></h3>
+      <ul></ul>
+    </div>
+  </template>
+
+  <template id="employee-search-item-template">
+    <li>
+      <button type="button">
+        <span></span>
+        <small></small>
+      </button>
+    </li>
+  </template>
+
   <script>
     window.DakshayaniEmployee = Object.freeze({
       csrfToken: <?= json_encode($_SESSION['csrf_token'] ?? '') ?>,
       apiBase: <?= json_encode($pathFor('api/employee.php')) ?>,
       currentUser: <?= json_encode(['id' => $employeeId, 'name' => $employeeName, 'status' => $employeeStatus]) ?>,
       sync: <?= json_encode(['lastSync' => $syncStatus['lastSync'] ?? null]) ?>,
+      gemini: <?= json_encode($geminiProfile) ?>,
+      permissions: <?= json_encode($permissionMatrix) ?>,
+      views: <?= json_encode($dashboardViews) ?>,
     });
   </script>
   <script src="employee-dashboard.js" defer></script>
