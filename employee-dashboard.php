@@ -136,6 +136,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('success', 'Reminder proposal withdrawn.');
                 $redirectView = 'reminders';
                 break;
+            case 'complete_reminder':
+                $reminderId = (int) ($_POST['reminder_id'] ?? 0);
+                if ($reminderId <= 0) {
+                    throw new RuntimeException('Reminder reference is required.');
+                }
+                employee_complete_reminder($db, $reminderId, $employeeId);
+                set_flash('success', 'Reminder marked as completed.');
+                $redirectView = 'reminders';
+                break;
             default:
                 set_flash('error', 'Unsupported action.');
                 break;
@@ -1785,12 +1794,13 @@ $attachmentIcon = static function (string $filename): string {
                       <th scope="col">Status</th>
                       <th scope="col">Linked item</th>
                       <th scope="col">Updated</th>
+                      <th scope="col" class="text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     <?php if (empty($employeeReminderList)): ?>
                     <tr>
-                      <td colspan="5" class="text-muted">No reminders match the selected filter.</td>
+                      <td colspan="6" class="text-muted">No reminders match the selected filter.</td>
                     </tr>
                     <?php else: ?>
                     <?php foreach ($employeeReminderList as $reminderRow): ?>
@@ -1817,6 +1827,9 @@ $attachmentIcon = static function (string $filename): string {
                             $updatedDisplay = $reminderRow['updatedAt'];
                         }
                     }
+                    if (isset($reminderRow['status']) && $reminderRow['status'] === 'completed' && !empty($reminderRow['completedDisplay'])) {
+                        $updatedDisplay = $reminderRow['completedDisplay'];
+                    }
                     ?>
                     <tr>
                       <td>
@@ -1835,6 +1848,19 @@ $attachmentIcon = static function (string $filename): string {
                       </td>
                       <td><?= htmlspecialchars($reminderRow['moduleLabel'], ENT_QUOTES) ?> · #<?= htmlspecialchars((string) $reminderRow['linkedId'], ENT_QUOTES) ?></td>
                       <td><?= htmlspecialchars($updatedDisplay, ENT_QUOTES) ?></td>
+                      <td class="text-right">
+                        <?php if (!empty($reminderRow['canComplete'])): ?>
+                        <form method="post" class="reminder-complete">
+                          <input type="hidden" name="action" value="complete_reminder" />
+                          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                          <input type="hidden" name="reminder_id" value="<?= (int) $reminderRow['id'] ?>" />
+                          <input type="hidden" name="redirect_view" value="reminders" />
+                          <button type="submit" class="btn btn-primary btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Mark done</button>
+                        </form>
+                        <?php else: ?>
+                        <span class="text-xs text-muted">—</span>
+                        <?php endif; ?>
+                      </td>
                     </tr>
                     <?php endforeach; ?>
                     <?php endif; ?>

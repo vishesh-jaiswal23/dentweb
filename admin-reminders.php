@@ -64,6 +64,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 admin_update_reminder_status($db, $reminderIdForRedirect, 'completed', $actorId, null);
                 set_flash('success', 'Reminder marked completed.');
                 break;
+            case 'cancel':
+                if ($reminderIdForRedirect <= 0) {
+                    throw new RuntimeException('Reminder reference missing.');
+                }
+                $reason = (string) ($_POST['reason'] ?? '');
+                admin_update_reminder_status($db, $reminderIdForRedirect, 'cancelled', $actorId, $reason);
+                set_flash('success', 'Reminder cancelled.');
+                break;
             default:
                 throw new RuntimeException('Unsupported action.');
         }
@@ -103,14 +111,36 @@ if ($toDate !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $toDate) !== 1) {
     $toDate = '';
 }
 
+$defaultPerPage = 15;
+$pageParam = isset($_GET['page']) ? (int) $_GET['page'] : 1;
+if ($pageParam < 1) {
+    $pageParam = 1;
+}
+$perPageParam = isset($_GET['per_page']) ? (int) $_GET['per_page'] : $defaultPerPage;
+if ($perPageParam <= 0) {
+    $perPageParam = $defaultPerPage;
+}
+$perPageParam = min($perPageParam, 50);
+
 $listFilters = [
     'status' => $statusFilter,
     'module' => $moduleFilter,
     'from' => $fromDate,
     'to' => $toDate,
+    'page' => $pageParam,
+    'per_page' => $perPageParam,
 ];
 
-$reminders = admin_list_reminders($db, $listFilters);
+$reminderResult = admin_list_reminders($db, $listFilters);
+$reminders = $reminderResult['items'] ?? [];
+$pagination = $reminderResult['pagination'] ?? [
+    'page' => $pageParam,
+    'perPage' => $perPageParam,
+    'pages' => 1,
+    'total' => count($reminders),
+];
+$pageParam = (int) ($pagination['page'] ?? $pageParam);
+$perPageParam = (int) ($pagination['perPage'] ?? $perPageParam);
 $pendingReminderRequests = admin_list_reminder_requests($db);
 
 $queryParams = [];
@@ -125,6 +155,12 @@ if ($fromDate !== '') {
 }
 if ($toDate !== '') {
     $queryParams['to'] = $toDate;
+}
+if ($pageParam > 1) {
+    $queryParams['page'] = (string) $pageParam;
+}
+if ($perPageParam !== $defaultPerPage) {
+    $queryParams['per_page'] = (string) $perPageParam;
 }
 
 $currentQueryString = http_build_query($queryParams);
@@ -180,6 +216,11 @@ function parse_reminder_due_input(string $value): string
     $parsed = DateTimeImmutable::createFromFormat('Y-m-d\TH:i', $value, $tz);
     if (!$parsed) {
         throw new RuntimeException('Invalid due date and time.');
+    }
+
+    $startOfToday = (new DateTimeImmutable('now', $tz))->setTime(0, 0, 0);
+    if ($parsed < $startOfToday) {
+        throw new RuntimeException('Due date must be today or later.');
     }
 
     return $parsed->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
@@ -461,6 +502,50 @@ function reminder_status_class(string $status): string
             <?php endforeach; ?>
           </tbody>
         </table>
+        <?php
+        $totalItems = (int) ($pagination['total'] ?? count($reminders));
+        $currentPage = (int) ($pagination['page'] ?? 1);
+        $totalPages = (int) ($pagination['pages'] ?? 1);
+        $perPageValue = (int) ($pagination['perPage'] ?? max(1, count($reminders)));
+        $pageStart = $totalItems > 0 ? (($currentPage - 1) * $perPageValue) + 1 : 0;
+        $pageEnd = $pageStart > 0 ? min($totalItems, $pageStart + count($reminders) - 1) : 0;
+        ?>
+        <?php if ($totalPages > 1): ?>
+        <nav class="admin-reminders__pagination" aria-label="Reminder pagination">
+          <span class="admin-reminders__pagination-summary">
+            Showing <?= number_format($pageStart) ?>–<?= number_format($pageEnd) ?> of <?= number_format($totalItems) ?>
+          </span>
+          <div class="admin-reminders__pagination-controls">
+            <?php if ($currentPage > 1): ?>
+            <?php
+            $prevParams = $queryParams;
+            if ($currentPage - 1 <= 1) {
+                unset($prevParams['page']);
+            } else {
+                $prevParams['page'] = (string) ($currentPage - 1);
+            }
+            $prevUrl = 'admin-reminders.php' . ($prevParams ? '?' . http_build_query($prevParams) : '');
+            ?>
+            <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($prevUrl, ENT_QUOTES) ?>">Previous</a>
+            <?php else: ?>
+            <span class="btn btn-secondary btn-sm" aria-disabled="true">Previous</span>
+            <?php endif; ?>
+
+            <span class="admin-reminders__pagination-page">Page <?= $currentPage ?> of <?= $totalPages ?></span>
+
+            <?php if ($currentPage < $totalPages): ?>
+            <?php
+            $nextParams = $queryParams;
+            $nextParams['page'] = (string) ($currentPage + 1);
+            $nextUrl = 'admin-reminders.php' . ($nextParams ? '?' . http_build_query($nextParams) : '');
+            ?>
+            <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($nextUrl, ENT_QUOTES) ?>">Next</a>
+            <?php else: ?>
+            <span class="btn btn-secondary btn-sm" aria-disabled="true">Next</span>
+            <?php endif; ?>
+          </div>
+        </nav>
+        <?php endif; ?>
         <?php endif; ?>
       </div>
 
@@ -547,13 +632,26 @@ function reminder_status_class(string $status): string
           </form>
         </div>
         <?php elseif ($selectedReminder['status'] === 'active'): ?>
-        <form method="post" class="admin-reminders__actions">
-          <input type="hidden" name="action" value="complete" />
-          <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($adminCsrfToken, ENT_QUOTES) ?>" />
-          <input type="hidden" name="reminder_id" value="<?= htmlspecialchars((string) $selectedReminder['id'], ENT_QUOTES) ?>" />
-          <input type="hidden" name="redirect_query" value="<?= htmlspecialchars($currentQueryString, ENT_QUOTES) ?>" />
-          <button type="submit" class="btn btn-primary">Mark as completed</button>
-        </form>
+        <div class="admin-reminders__actions admin-reminders__actions--stacked">
+          <form method="post">
+            <input type="hidden" name="action" value="complete" />
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($adminCsrfToken, ENT_QUOTES) ?>" />
+            <input type="hidden" name="reminder_id" value="<?= htmlspecialchars((string) $selectedReminder['id'], ENT_QUOTES) ?>" />
+            <input type="hidden" name="redirect_query" value="<?= htmlspecialchars($currentQueryString, ENT_QUOTES) ?>" />
+            <button type="submit" class="btn btn-primary">Mark as completed</button>
+          </form>
+          <form method="post" class="admin-reminders__cancel-form">
+            <input type="hidden" name="action" value="cancel" />
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($adminCsrfToken, ENT_QUOTES) ?>" />
+            <input type="hidden" name="reminder_id" value="<?= htmlspecialchars((string) $selectedReminder['id'], ENT_QUOTES) ?>" />
+            <input type="hidden" name="redirect_query" value="<?= htmlspecialchars($currentQueryString, ENT_QUOTES) ?>" />
+            <label>
+              Cancellation note (optional)
+              <textarea name="reason" rows="3" placeholder="Share why this reminder is being cancelled"></textarea>
+            </label>
+            <button type="submit" class="btn btn-secondary">Cancel reminder</button>
+          </form>
+        </div>
         <?php endif; ?>
         <?php endif; ?>
       </aside>

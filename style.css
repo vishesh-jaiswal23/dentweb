@@ -4381,11 +4381,46 @@ body.site-search-open {
   align-items: flex-end;
 }
 
+.admin-reminders__actions--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1.25rem;
+}
+
+.admin-reminders__actions--stacked form {
+  width: 100%;
+}
+
 .admin-reminders__reject-form {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   max-width: 360px;
+}
+
+.admin-reminders__cancel-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 360px;
+}
+
+.admin-reminders__cancel-form label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--base-600);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.admin-reminders__cancel-form textarea {
+  min-height: 100px;
+  padding: 0.6rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  font-size: 0.95rem;
+  resize: vertical;
 }
 
 .admin-reminders__reject-form label {
@@ -4404,6 +4439,60 @@ body.site-search-open {
   border: 1px solid rgba(148, 163, 184, 0.35);
   font-size: 0.95rem;
   resize: vertical;
+}
+
+.admin-reminders__pagination {
+  margin-top: 1.5rem;
+  padding: 0.85rem 1.1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-reminders__pagination-summary {
+  font-size: 0.9rem;
+  color: var(--base-600);
+}
+
+.admin-reminders__pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.admin-reminders__pagination-page {
+  font-size: 0.85rem;
+  color: var(--base-500);
+}
+
+.admin-reminders__pagination-controls [aria-disabled='true'] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.admin-reminders[data-theme='dark'] .admin-reminders__pagination {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.admin-reminders[data-theme='dark'] .admin-reminders__pagination-summary,
+.admin-reminders[data-theme='dark'] .admin-reminders__pagination-page {
+  color: var(--base-300);
+}
+
+.admin-reminders[data-theme='dark'] .admin-reminders__cancel-form label {
+  color: var(--base-300);
+}
+
+.admin-reminders[data-theme='dark'] .admin-reminders__cancel-form textarea {
+  background: rgba(15, 23, 42, 0.6);
+  color: var(--base-100);
+  border-color: rgba(148, 163, 184, 0.45);
 }
 
 .admin-reminders__empty,
