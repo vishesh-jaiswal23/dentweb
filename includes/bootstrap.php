@@ -465,7 +465,16 @@ function ensure_default_user(PDO $db, array $account): void
     }
 
     $existingHash = (string) ($existing['password_hash'] ?? '');
-    if ($defaultPassword !== '' && ($existingHash === '' || !password_verify($defaultPassword, $existingHash))) {
+    $shouldSetDefaultPassword = false;
+    if ($defaultPassword !== '') {
+        if ($existingHash === '') {
+            $shouldSetDefaultPassword = true;
+        } elseif (password_verify($defaultPassword, $existingHash) && password_needs_rehash($existingHash, PASSWORD_DEFAULT)) {
+            $shouldSetDefaultPassword = true;
+        }
+    }
+
+    if ($shouldSetDefaultPassword) {
         if ($nowPasswordHash === null) {
             $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
         }
