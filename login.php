@@ -63,6 +63,11 @@ $success = '';
 $selectedRole = $_POST['role'] ?? 'admin';
 $emailValue = $_POST['email'] ?? '';
 
+if (!empty($_SESSION['offline_session_invalidated'])) {
+    $error = 'Your emergency administrator session ended because the secure database is available again. Please sign in using your standard credentials.';
+    unset($_SESSION['offline_session_invalidated']);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($bootstrapError !== '') {
         $error = $bootstrapError;
@@ -93,6 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'email' => $user['email'],
                         'username' => $user['username'] ?? $user['email'],
                         'role_name' => $user['role_name'],
+                        'offline_mode' => !empty($user['offline_mode']),
                     ];
                     $success = 'Login successful. Redirecting…';
                     header('Location: ' . $roleRoutes[$selectedRole]);

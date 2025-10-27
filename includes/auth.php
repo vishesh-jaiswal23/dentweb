@@ -44,9 +44,41 @@ function start_session(): void
     }
 }
 
+function is_database_accessible(): bool
+{
+    try {
+        get_db();
+        return true;
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
+function enforce_offline_session_validity(): void
+{
+    start_session();
+
+    $user = $_SESSION['user'] ?? null;
+    if (!is_array($user) || empty($user['offline_mode'])) {
+        return;
+    }
+
+    if (!is_database_accessible()) {
+        return;
+    }
+
+    unset($_SESSION['user']);
+    $_SESSION['offline_session_invalidated'] = true;
+    session_regenerate_id(true);
+
+    header('Location: login.php');
+    exit;
+}
+
 function require_login(): void
 {
     start_session();
+    enforce_offline_session_validity();
     if (empty($_SESSION['user'])) {
         header('Location: login.php');
         exit;
@@ -79,6 +111,7 @@ function verify_csrf_token(?string $token): bool
 function ensure_api_access(string $requiredRole = 'admin'): void
 {
     start_session();
+    enforce_offline_session_validity();
     if (empty($_SESSION['user'])) {
         http_response_code(401);
         echo json_encode(['error' => 'Authentication required']);
