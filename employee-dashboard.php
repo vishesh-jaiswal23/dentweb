@@ -13,11 +13,25 @@ if (!empty($user['id'])) {
     $employeeRecord = portal_find_user($db, (int) $user['id']);
 }
 $employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
+$tasks = portal_list_tasks($db, $employeeId);
+$complaints = portal_employee_complaints($db, $employeeId);
+$documentsRaw = portal_list_documents($db, 'employee', $employeeId);
+$notificationsRaw = portal_list_notifications($db, $employeeId, 'employee');
 
 $employeeName = trim((string) ($employeeRecord['full_name'] ?? $user['full_name'] ?? ''));
 if ($employeeName === '') {
     $employeeName = 'Employee';
 }
+
+$employeeStatus = strtolower((string) ($employeeRecord['status'] ?? $user['status'] ?? 'active'));
+if (!in_array($employeeStatus, ['active', 'inactive', 'pending'], true)) {
+    $employeeStatus = 'active';
+}
+$employeeStatusLabel = match ($employeeStatus) {
+    'inactive' => 'Inactive',
+    'pending' => 'Pending approval',
+    default => 'Active',
+};
 
 $employeeRole = 'Employee';
 $employeeAccess = trim((string) ($employeeRecord['permissions_note'] ?? ''));
@@ -284,20 +298,43 @@ $overallCsatBucket = ['closed' => 0, 'escalated' => 0, 'awaiting' => 0, 'total' 
 foreach ($complaints as $complaint) {
     $map = $complaintStatusMap[$complaint['status']] ?? $complaintStatusMap['intake'];
     $timeline = [];
-    if (!empty($complaint['createdAt'])) {
+    $timelineEntries = $complaint['timeline'] ?? [];
+    foreach ($timelineEntries as $entry) {
+        $label = match ($entry['type'] ?? 'note') {
+            'status' => 'Status change',
+            'document' => 'Document',
+            'assignment' => 'Assignment',
+            default => 'Note',
+        };
+        $messageParts = [htmlspecialchars($entry['summary'] ?? '', ENT_QUOTES)];
+        if (!empty($entry['details'])) {
+            $messageParts[] = htmlspecialchars($entry['details'], ENT_QUOTES);
+        }
+        if (!empty($entry['actor'])) {
+            $messageParts[] = '— ' . htmlspecialchars($entry['actor'], ENT_QUOTES);
+        }
+        $message = implode(' ', array_filter($messageParts));
         $timeline[] = [
-            'time' => (new DateTime($complaint['createdAt']))->format(DATE_ATOM),
-            'label' => 'Created',
-            'message' => 'Ticket opened from Admin portal.',
+            'time' => !empty($entry['time']) ? (new DateTime($entry['time']))->format(DATE_ATOM) : '',
+            'label' => $label,
+            'message' => $message,
         ];
     }
-    if (!empty($complaint['updatedAt']) && $complaint['updatedAt'] !== $complaint['createdAt']) {
-        $timeline[] = [
-            'time' => (new DateTime($complaint['updatedAt']))->format(DATE_ATOM),
-            'label' => 'Last update',
-            'message' => sprintf('Status updated to %s.', strtolower($map['label'])),
-        ];
-    }
+    $slaStatus = $complaint['slaStatus'] ?? 'unset';
+    $slaBadgeLabel = match ($slaStatus) {
+        'overdue' => 'Overdue',
+        'due_soon' => 'Due soon',
+        'on_track' => 'On track',
+        default => 'Not set',
+    };
+    $slaTone = match ($slaStatus) {
+        'overdue' => 'attention',
+        'due_soon' => 'waiting',
+        'on_track' => 'progress',
+        default => 'muted',
+    };
+    $ageLabel = $complaint['ageDays'] !== null ? sprintf('%d day%s open', (int) $complaint['ageDays'], ((int) $complaint['ageDays']) === 1 ? '' : 's') : '—';
+
     $tickets[] = [
         'id' => $complaint['reference'],
         'title' => $complaint['title'],
@@ -307,6 +344,9 @@ foreach ($complaints as $complaint) {
         'statusTone' => $map['tone'],
         'assignedBy' => 'Admin Control Center',
         'sla' => $complaint['slaDue'] !== '' ? date('d M Y', strtotime($complaint['slaDue'])) : 'Not set',
+        'slaBadgeLabel' => $slaBadgeLabel,
+        'slaBadgeTone' => $slaTone,
+        'age' => $ageLabel,
         'contact' => 'Shared via Admin',
         'noteIcon' => 'fa-solid fa-pen-to-square',
         'noteLabel' => 'Add note',
@@ -766,7 +806,7 @@ $attachmentIcon = static function (string $filename): string {
     referrerpolicy="no-referrer"
   />
 </head>
-<body data-dashboard-theme="light" data-current-view="<?= htmlspecialchars($currentView, ENT_QUOTES) ?>">
+<body data-dashboard-theme="light" data-current-view="<?= htmlspecialchars($currentView, ENT_QUOTES) ?>" data-user-status="<?= htmlspecialchars($employeeStatus, ENT_QUOTES) ?>">
   <main class="dashboard">
     <div class="container dashboard-shell">
       <div class="dashboard-auth-bar" role="banner">
@@ -776,6 +816,10 @@ $attachmentIcon = static function (string $filename): string {
             <small>Signed in as</small>
             <strong><?= htmlspecialchars($employeeName, ENT_QUOTES) ?> · <?= htmlspecialchars($employeeRole, ENT_QUOTES) ?></strong>
             <p class="text-xs text-muted mb-0">Access: <?= htmlspecialchars($employeeAccess, ENT_QUOTES) ?></p>
+            <span class="badge badge-soft">Status: <?= htmlspecialchars($employeeStatusLabel, ENT_QUOTES) ?></span>
+            <?php if ($employeeStatus !== 'active'): ?>
+            <p class="text-xs text-warning mb-0">Workspace actions are read-only until Admin reactivates your account.</p>
+            <?php endif; ?>
           </div>
         </div>
         <div class="dashboard-auth-actions">
@@ -968,24 +1012,38 @@ $attachmentIcon = static function (string $filename): string {
                     <dd><?= htmlspecialchars($ticket['sla'], ENT_QUOTES) ?></dd>
                   </div>
                   <div>
+                    <dt>SLA health</dt>
+                    <dd>
+                      <?php if ($ticket['slaBadgeTone'] === 'muted'): ?>
+                      <span><?= htmlspecialchars($ticket['slaBadgeLabel'], ENT_QUOTES) ?></span>
+                      <?php else: ?>
+                      <span class="dashboard-status dashboard-status--<?= htmlspecialchars($ticket['slaBadgeTone'], ENT_QUOTES) ?>"><?= htmlspecialchars($ticket['slaBadgeLabel'], ENT_QUOTES) ?></span>
+                      <?php endif; ?>
+                    </dd>
+                  </div>
+                  <div>
                     <dt>Contact</dt>
                     <dd><?= htmlspecialchars($ticket['contact'], ENT_QUOTES) ?></dd>
+                  </div>
+                  <div>
+                    <dt>Age</dt>
+                    <dd><?= htmlspecialchars($ticket['age'], ENT_QUOTES) ?></dd>
                   </div>
                 </dl>
                 <div class="ticket-actions">
                   <label class="ticket-actions__field">
                     <span>Status</span>
-                    <select data-ticket-status>
+                    <select data-ticket-status <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
                       <?php foreach ($statusOptions as $value => $label): ?>
                       <option value="<?= htmlspecialchars($value, ENT_QUOTES) ?>"<?= $ticket['status'] === $value ? ' selected' : '' ?>><?= htmlspecialchars($label, ENT_QUOTES) ?></option>
                       <?php endforeach; ?>
                     </select>
                   </label>
-                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note>
+                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
                     <i class="<?= htmlspecialchars($ticket['noteIcon'], ENT_QUOTES) ?>" aria-hidden="true"></i>
                     <?= htmlspecialchars($ticket['noteLabel'], ENT_QUOTES) ?>
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate>
+                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
                     <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
                     Return to Admin
                   </button>
@@ -1047,7 +1105,7 @@ $attachmentIcon = static function (string $filename): string {
                     <p class="task-card-meta"><i class="fa-solid fa-clock" aria-hidden="true"></i> <?= htmlspecialchars($item['deadline'], ENT_QUOTES) ?></p>
                     <p class="task-card-link"><?= $item['link'] ?></p>
                     <?php if (!empty($item['action'])): ?>
-                    <button type="button" class="task-card-action" <?= $item['action']['attr'] ?>><?= htmlspecialchars($item['action']['label'], ENT_QUOTES) ?></button>
+                    <button type="button" class="task-card-action" <?= $item['action']['attr'] ?> <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>><?= htmlspecialchars($item['action']['label'], ENT_QUOTES) ?></button>
                     <?php endif; ?>
                   </article>
                   <?php endforeach; ?>
@@ -1812,7 +1870,7 @@ $attachmentIcon = static function (string $filename): string {
     window.DakshayaniEmployee = Object.freeze({
       csrfToken: <?= json_encode($_SESSION['csrf_token'] ?? '') ?>,
       apiBase: <?= json_encode($pathFor('api/employee.php')) ?>,
-      currentUser: <?= json_encode(['id' => $employeeId, 'name' => $employeeName]) ?>,
+      currentUser: <?= json_encode(['id' => $employeeId, 'name' => $employeeName, 'status' => $employeeStatus]) ?>,
       sync: <?= json_encode(['lastSync' => $syncStatus['lastSync'] ?? null]) ?>,
     });
   </script>
