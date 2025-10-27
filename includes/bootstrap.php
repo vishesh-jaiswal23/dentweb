@@ -4588,6 +4588,251 @@ function reminder_module_label(string $module): string
     return $options[$normalized] ?? ucfirst($normalized ?: 'Item');
 }
 
+function employee_parse_reminder_due(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        throw new RuntimeException('Due date and time is required.');
+    }
+
+    $tz = new DateTimeZone('Asia/Kolkata');
+    $parsed = DateTimeImmutable::createFromFormat('Y-m-d\TH:i', $value, $tz);
+    if (!$parsed instanceof DateTimeImmutable) {
+        try {
+            $parsed = new DateTimeImmutable($value, $tz);
+        } catch (Throwable $exception) {
+            throw new RuntimeException('Invalid due date and time.');
+        }
+    }
+
+    return $parsed->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+}
+
+function employee_resolve_reminder_label(PDO $db, string $module, int $linkedId): string
+{
+    $normalized = strtolower(trim($module));
+
+    try {
+        if ($normalized === 'lead') {
+            $lead = lead_fetch($db, $linkedId);
+            $name = trim((string) ($lead['name'] ?? ''));
+            return sprintf('Lead #%d%s', $linkedId, $name !== '' ? ' · ' . $name : '');
+        }
+        if ($normalized === 'installation') {
+            $installation = installation_fetch($db, $linkedId);
+            $labelParts = [];
+            if (!empty($installation['customer_name'])) {
+                $labelParts[] = $installation['customer_name'];
+            }
+            if (!empty($installation['project_reference'])) {
+                $labelParts[] = $installation['project_reference'];
+            }
+            $suffix = $labelParts ? ' · ' . implode(' · ', $labelParts) : '';
+            return sprintf('Installation #%d%s', $linkedId, $suffix);
+        }
+        if ($normalized === 'complaint') {
+            $complaint = complaint_fetch($db, $linkedId);
+            $reference = (string) ($complaint['reference'] ?? '');
+            $title = trim((string) ($complaint['title'] ?? ''));
+            $suffix = $title !== '' ? ' · ' . $title : '';
+            if ($reference !== '') {
+                return sprintf('Complaint %s%s', $reference, $suffix);
+            }
+
+            return sprintf('Complaint #%d%s', $linkedId, $suffix);
+        }
+    } catch (Throwable $exception) {
+        // Ignore lookup errors and fall back to a generic label.
+    }
+
+    return sprintf('%s #%d', ucfirst($normalized ?: 'Item'), $linkedId);
+}
+
+function employee_normalize_reminder_row(PDO $db, array $row): array
+{
+    $dueValue = $row['due_at'] ?? null;
+    $dueDisplay = '—';
+    $dueIso = '';
+    if ($dueValue) {
+        $due = null;
+        try {
+            $due = new DateTimeImmutable((string) $dueValue, new DateTimeZone('UTC'));
+        } catch (Throwable $exception) {
+            try {
+                $due = new DateTimeImmutable((string) $dueValue);
+            } catch (Throwable $inner) {
+                $due = null;
+            }
+        }
+        if ($due instanceof DateTimeImmutable) {
+            $dueIst = $due->setTimezone(new DateTimeZone('Asia/Kolkata'));
+            $dueDisplay = $dueIst->format('d M Y · h:i A');
+            $dueIso = $dueIst->format(DateTimeInterface::ATOM);
+        } else {
+            $dueDisplay = (string) $dueValue;
+        }
+    }
+
+    $status = strtolower((string) ($row['status'] ?? 'proposed'));
+
+    return [
+        'id' => (int) ($row['id'] ?? 0),
+        'title' => (string) ($row['title'] ?? ''),
+        'module' => (string) ($row['module'] ?? ''),
+        'moduleLabel' => reminder_module_label($row['module'] ?? ''),
+        'linkedId' => isset($row['linked_id']) ? (int) $row['linked_id'] : 0,
+        'linkedLabel' => employee_resolve_reminder_label($db, (string) ($row['module'] ?? ''), (int) ($row['linked_id'] ?? 0)),
+        'status' => $status,
+        'statusLabel' => reminder_status_label($row['status'] ?? ''),
+        'dueDisplay' => $dueDisplay,
+        'dueIso' => $dueIso,
+        'notes' => (string) ($row['notes'] ?? ''),
+        'decisionNote' => (string) ($row['decision_note'] ?? ''),
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+        'canWithdraw' => $status === 'proposed',
+    ];
+}
+
+function employee_find_reminder(PDO $db, int $id, int $employeeId): ?array
+{
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id AND proposer_id = :proposer LIMIT 1');
+    $stmt->execute([
+        ':id' => $id,
+        ':proposer' => $employeeId,
+    ]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return null;
+    }
+
+    return employee_normalize_reminder_row($db, $row);
+}
+
+function employee_list_reminders(PDO $db, int $employeeId): array
+{
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE proposer_id = :proposer ORDER BY due_at ASC, id ASC');
+    $stmt->execute([':proposer' => $employeeId]);
+
+    $reminders = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $reminders[] = employee_normalize_reminder_row($db, $row);
+    }
+
+    return $reminders;
+}
+
+function employee_validate_reminder_target(PDO $db, string $module, int $linkedId, int $employeeId): void
+{
+    $normalized = strtolower(trim($module));
+    if (!in_array($normalized, ['lead', 'installation', 'complaint'], true)) {
+        throw new RuntimeException('Unsupported reminder module.');
+    }
+
+    if ($linkedId <= 0) {
+        throw new RuntimeException('Linked record is required.');
+    }
+
+    if ($normalized === 'lead') {
+        $lead = lead_fetch($db, $linkedId);
+        if ((int) ($lead['assigned_to'] ?? 0) !== $employeeId) {
+            throw new RuntimeException('You are not assigned to this lead.');
+        }
+        return;
+    }
+
+    if ($normalized === 'installation') {
+        $installation = installation_fetch($db, $linkedId);
+        if ((int) ($installation['assigned_to'] ?? 0) !== $employeeId) {
+            throw new RuntimeException('You are not assigned to this installation.');
+        }
+        return;
+    }
+
+    $complaint = complaint_fetch($db, $linkedId);
+    if ((int) ($complaint['assigned_to'] ?? 0) !== $employeeId) {
+        throw new RuntimeException('You are not assigned to this complaint.');
+    }
+}
+
+function employee_propose_reminder(PDO $db, array $input, int $employeeId): array
+{
+    $title = trim((string) ($input['title'] ?? ''));
+    if ($title === '') {
+        throw new RuntimeException('Reminder title is required.');
+    }
+
+    $module = strtolower(trim((string) ($input['module'] ?? '')));
+    $linkedId = (int) ($input['linked_id'] ?? 0);
+    employee_validate_reminder_target($db, $module, $linkedId, $employeeId);
+
+    $dueAt = employee_parse_reminder_due((string) ($input['due_at'] ?? ''));
+    $notes = trim((string) ($input['notes'] ?? ''));
+    $now = now_ist();
+
+    $stmt = $db->prepare('INSERT INTO reminders(title, module, linked_id, due_at, status, notes, decision_note, proposer_id, approver_id, completed_at, created_at, updated_at) VALUES(:title, :module, :linked_id, :due_at, :status, :notes, NULL, :proposer_id, NULL, NULL, :created_at, :updated_at)');
+    $stmt->execute([
+        ':title' => $title,
+        ':module' => $module,
+        ':linked_id' => $linkedId,
+        ':due_at' => $dueAt,
+        ':status' => 'proposed',
+        ':notes' => $notes !== '' ? $notes : null,
+        ':proposer_id' => $employeeId,
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+
+    $reminderId = (int) $db->lastInsertId();
+    portal_log_action($db, $employeeId, 'create', 'reminder', $reminderId, 'Reminder proposed via employee portal');
+
+    $created = employee_find_reminder($db, $reminderId, $employeeId);
+    if ($created === null) {
+        throw new RuntimeException('Reminder could not be created.');
+    }
+
+    return $created;
+}
+
+function employee_cancel_reminder(PDO $db, int $reminderId, int $employeeId): array
+{
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id AND proposer_id = :proposer LIMIT 1');
+    $stmt->execute([
+        ':id' => $reminderId,
+        ':proposer' => $employeeId,
+    ]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('Reminder not found.');
+    }
+
+    $status = strtolower((string) ($row['status'] ?? ''));
+    if ($status !== 'proposed') {
+        throw new RuntimeException('Reminder cannot be withdrawn after admin review.');
+    }
+
+    $now = now_ist();
+    $timestamp = (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))->format('d M Y · h:i A');
+    $systemNote = sprintf('Withdrawn by proposer on %s', $timestamp);
+
+    $update = $db->prepare('UPDATE reminders SET status = :status, decision_note = :decision_note, updated_at = :updated_at WHERE id = :id');
+    $update->execute([
+        ':status' => 'cancelled',
+        ':decision_note' => $systemNote,
+        ':updated_at' => $now,
+        ':id' => $reminderId,
+    ]);
+
+    portal_log_action($db, $employeeId, 'status_change', 'reminder', $reminderId, 'Reminder withdrawn by proposer');
+
+    $updated = employee_find_reminder($db, $reminderId, $employeeId);
+    if ($updated === null) {
+        throw new RuntimeException('Reminder could not be updated.');
+    }
+
+    return $updated;
+}
+
 function admin_normalize_reminder_row(array $row): array
 {
     $dueValue = $row['due_at'] ?? null;
@@ -5041,6 +5286,18 @@ function portal_fetch_complaint_row(PDO $db, string $reference): array
     $stmt = $db->prepare('SELECT complaints.*, users.full_name AS assigned_to_name, roles.name AS assigned_role FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id LEFT JOIN roles ON users.role_id = roles.id WHERE complaints.reference = :reference LIMIT 1');
     $stmt->execute([':reference' => $reference]);
     $row = $stmt->fetch();
+    if (!$row) {
+        throw new RuntimeException('Complaint not found.');
+    }
+
+    return $row;
+}
+
+function complaint_fetch(PDO $db, int $id): array
+{
+    $stmt = $db->prepare('SELECT * FROM complaints WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) {
         throw new RuntimeException('Complaint not found.');
     }

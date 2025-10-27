@@ -176,6 +176,7 @@ function employee_bootstrap_payload(PDO $db, int $userId): array
         'complaints' => portal_employee_complaints($db, $userId),
         'documents' => portal_list_documents($db, 'employee', $userId),
         'notifications' => portal_list_notifications($db, $userId, 'employee'),
+        'reminders' => employee_list_reminders($db, $userId),
         'sync' => portal_latest_sync($db, $userId),
     ];
 }
