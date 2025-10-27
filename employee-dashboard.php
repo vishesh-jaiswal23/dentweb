@@ -60,6 +60,13 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
+$bootstrapData = employee_bootstrap_payload($db, $employeeId);
+$tasks = $bootstrapData['tasks'] ?? [];
+$complaints = $bootstrapData['complaints'] ?? [];
+$documentsRaw = $bootstrapData['documents'] ?? [];
+$notificationsRaw = $bootstrapData['notifications'] ?? [];
+$syncSnapshot = $bootstrapData['sync'] ?? null;
+
 $viewDefinitions = [
     'overview' => [
         'label' => 'Overview',
@@ -298,42 +305,73 @@ $overallCsatBucket = ['closed' => 0, 'escalated' => 0, 'awaiting' => 0, 'total' 
 foreach ($complaints as $complaint) {
     $map = $complaintStatusMap[$complaint['status']] ?? $complaintStatusMap['intake'];
     $timeline = [];
-    $timelineEntries = $complaint['timeline'] ?? [];
-    foreach ($timelineEntries as $entry) {
-        $label = match ($entry['type'] ?? 'note') {
-            'status' => 'Status change',
-            'document' => 'Document',
-            'assignment' => 'Assignment',
-            default => 'Note',
-        };
-        $messageParts = [htmlspecialchars($entry['summary'] ?? '', ENT_QUOTES)];
-        if (!empty($entry['details'])) {
-            $messageParts[] = htmlspecialchars($entry['details'], ENT_QUOTES);
-        }
-        if (!empty($entry['actor'])) {
-            $messageParts[] = '— ' . htmlspecialchars($entry['actor'], ENT_QUOTES);
-        }
-        $message = implode(' ', array_filter($messageParts));
+    if (!empty($complaint['createdAt'])) {
+        $createdAt = new DateTime($complaint['createdAt']);
         $timeline[] = [
-            'time' => !empty($entry['time']) ? (new DateTime($entry['time']))->format(DATE_ATOM) : '',
-            'label' => $label,
-            'message' => $message,
+            'time' => $createdAt->format(DATE_ATOM),
+            'label' => 'Created',
+            'message' => 'Ticket opened from Admin portal.',
         ];
     }
-    $slaStatus = $complaint['slaStatus'] ?? 'unset';
-    $slaBadgeLabel = match ($slaStatus) {
-        'overdue' => 'Overdue',
-        'due_soon' => 'Due soon',
-        'on_track' => 'On track',
-        default => 'Not set',
-    };
-    $slaTone = match ($slaStatus) {
-        'overdue' => 'attention',
-        'due_soon' => 'waiting',
-        'on_track' => 'progress',
-        default => 'muted',
-    };
-    $ageLabel = $complaint['ageDays'] !== null ? sprintf('%d day%s open', (int) $complaint['ageDays'], ((int) $complaint['ageDays']) === 1 ? '' : 's') : '—';
+    if (!empty($complaint['updatedAt']) && $complaint['updatedAt'] !== $complaint['createdAt']) {
+        $updatedAt = new DateTime($complaint['updatedAt']);
+        $timeline[] = [
+            'time' => $updatedAt->format(DATE_ATOM),
+            'label' => 'Last update',
+            'message' => sprintf('Status updated to %s.', strtolower($map['label'])),
+        ];
+    }
+    foreach ($complaint['notes'] ?? [] as $note) {
+        if (!is_array($note)) {
+            continue;
+        }
+        $noteTime = !empty($note['createdAt']) ? new DateTime($note['createdAt']) : null;
+        if ($noteTime instanceof DateTime) {
+            $timeline[] = [
+                'time' => $noteTime->format(DATE_ATOM),
+                'label' => 'Note added',
+                'message' => sprintf(
+                    '<strong>%s:</strong> %s',
+                    htmlspecialchars($note['authorName'] ?? 'Team', ENT_QUOTES),
+                    nl2br(htmlspecialchars($note['body'] ?? '', ENT_QUOTES))
+                ),
+            ];
+        }
+    }
+    $attachments = [];
+    foreach ($complaint['attachments'] ?? [] as $attachment) {
+        if (!is_array($attachment)) {
+            continue;
+        }
+        $visibility = $attachment['visibility'] ?? 'both';
+        if ($visibility === 'admin') {
+            continue;
+        }
+        $uploadedAt = !empty($attachment['uploadedAt']) ? new DateTime($attachment['uploadedAt']) : null;
+        if ($uploadedAt instanceof DateTime) {
+            $timeline[] = [
+                'time' => $uploadedAt->format(DATE_ATOM),
+                'label' => 'Attachment uploaded',
+                'message' => sprintf(
+                    '%s uploaded <strong>%s</strong>.',
+                    htmlspecialchars($attachment['uploadedBy'] ?? 'Team', ENT_QUOTES),
+                    htmlspecialchars($attachment['label'] ?? ($attachment['filename'] ?? 'Attachment'), ENT_QUOTES)
+                ),
+            ];
+        }
+        $token = $attachment['downloadToken'] ?? '';
+        $downloadUrl = $token !== ''
+            ? $pathFor('download.php') . '?complaint=' . rawurlencode($complaint['reference']) . '&token=' . rawurlencode($token)
+            : '';
+        $attachments[] = [
+            'label' => $attachment['label'] ?? ($attachment['filename'] ?? 'Attachment'),
+            'filename' => $attachment['filename'] ?? '',
+            'url' => $downloadUrl,
+        ];
+    }
+    usort($timeline, static function (array $a, array $b): int {
+        return strcmp($b['time'], $a['time']);
+    });
 
     $tickets[] = [
         'id' => $complaint['reference'],
@@ -350,7 +388,7 @@ foreach ($complaints as $complaint) {
         'contact' => 'Shared via Admin',
         'noteIcon' => 'fa-solid fa-pen-to-square',
         'noteLabel' => 'Add note',
-        'attachments' => [],
+        'attachments' => $attachments,
         'timeline' => $timeline,
     ];
 
@@ -668,7 +706,7 @@ $employeeProfile = [
     'lastUpdated' => $nowIst->format(DATE_ATOM),
 ];
 
-$lastSyncRaw = portal_latest_sync($db, $employeeId);
+$lastSyncRaw = is_string($syncSnapshot) ? $syncSnapshot : portal_latest_sync($db, $employeeId);
 if ($lastSyncRaw) {
     $lastSyncTime = (new DateTime($lastSyncRaw, new DateTimeZone('Asia/Kolkata')))->format(DATE_ATOM);
 } else {
@@ -1049,11 +1087,11 @@ $attachmentIcon = static function (string $filename): string {
                 <dl class="ticket-details">
                   <div>
                     <dt>Assigned by</dt>
-                    <dd><?= htmlspecialchars($ticket['assignedBy'], ENT_QUOTES) ?></dd>
+                    <dd data-ticket-assigned-by><?= htmlspecialchars($ticket['assignedBy'], ENT_QUOTES) ?></dd>
                   </div>
                   <div>
                     <dt>SLA target</dt>
-                    <dd><?= htmlspecialchars($ticket['sla'], ENT_QUOTES) ?></dd>
+                    <dd data-ticket-sla><?= htmlspecialchars($ticket['sla'], ENT_QUOTES) ?></dd>
                   </div>
                   <div>
                     <dt>SLA health</dt>
@@ -1067,7 +1105,7 @@ $attachmentIcon = static function (string $filename): string {
                   </div>
                   <div>
                     <dt>Contact</dt>
-                    <dd><?= htmlspecialchars($ticket['contact'], ENT_QUOTES) ?></dd>
+                    <dd data-ticket-contact><?= htmlspecialchars($ticket['contact'], ENT_QUOTES) ?></dd>
                   </div>
                   <div>
                     <dt>Age</dt>
@@ -1097,7 +1135,20 @@ $attachmentIcon = static function (string $filename): string {
                   <h4>Attachments</h4>
                   <ul>
                     <?php foreach ($ticket['attachments'] as $attachment): ?>
-                    <li><i class="<?= htmlspecialchars($attachmentIcon($attachment), ENT_QUOTES) ?>" aria-hidden="true"></i> <?= htmlspecialchars($attachment, ENT_QUOTES) ?></li>
+                    <?php $iconClass = $attachmentIcon($attachment['filename'] ?? ''); ?>
+                    <li>
+                      <i class="<?= htmlspecialchars($iconClass, ENT_QUOTES) ?>" aria-hidden="true"></i>
+                      <?php if (!empty($attachment['url'])): ?>
+                      <a href="<?= htmlspecialchars($attachment['url'], ENT_QUOTES) ?>" class="ticket-attachment-link" target="_blank" rel="noopener">
+                        <?= htmlspecialchars($attachment['label'], ENT_QUOTES) ?>
+                      </a>
+                      <?php else: ?>
+                      <span><?= htmlspecialchars($attachment['label'], ENT_QUOTES) ?></span>
+                      <?php endif; ?>
+                      <?php if (!empty($attachment['filename']) && $attachment['filename'] !== $attachment['label']): ?>
+                      <span class="text-xs text-muted d-block"><?= htmlspecialchars($attachment['filename'], ENT_QUOTES) ?></span>
+                      <?php endif; ?>
+                    </li>
                     <?php endforeach; ?>
                   </ul>
                 </div>

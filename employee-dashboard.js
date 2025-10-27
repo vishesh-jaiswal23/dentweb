@@ -525,6 +525,227 @@
     updateComplianceCount();
   }
 
+  function escapeSelectorValue(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+      return window.CSS.escape(value);
+    }
+    return String(value).replace(/["\\]/g, '\\$&');
+  }
+
+  function complaintStatusKey(status) {
+    switch (status) {
+      case 'resolution':
+        return 'awaiting_response';
+      case 'closed':
+        return 'resolved';
+      case 'triage':
+      case 'work':
+      case 'intake':
+      default:
+        return 'in_progress';
+    }
+  }
+
+  function buildComplaintTimelineEntries(complaint) {
+    const entries = [];
+    if (complaint.createdAt) {
+      entries.push({
+        time: new Date(complaint.createdAt).toISOString(),
+        label: 'Created',
+        message: 'Ticket opened from Admin portal.',
+      });
+    }
+    if (complaint.updatedAt && complaint.updatedAt !== complaint.createdAt) {
+      const statusLabel = STATUS_LABELS[complaintStatusKey(complaint.status)]?.label || 'Updated';
+      entries.push({
+        time: new Date(complaint.updatedAt).toISOString(),
+        label: 'Last update',
+        message: `Status updated to ${statusLabel}.`,
+      });
+    }
+    (complaint.notes || []).forEach((note) => {
+      if (!note.createdAt) return;
+      entries.push({
+        time: new Date(note.createdAt).toISOString(),
+        label: 'Note added',
+        message: `${note.authorName || 'Team'}: ${note.body || ''}`,
+      });
+    });
+    (complaint.attachments || []).forEach((attachment) => {
+      if (!attachment.uploadedAt) return;
+      if (attachment.visibility === 'admin') return;
+      entries.push({
+        time: new Date(attachment.uploadedAt).toISOString(),
+        label: 'Attachment uploaded',
+        message: `${attachment.uploadedBy || 'Team'} uploaded ${attachment.label || attachment.filename || 'Attachment'}.`,
+      });
+    });
+    entries.sort((a, b) => (a.time < b.time ? 1 : -1));
+    return entries;
+  }
+
+  function renderCardAttachments(card, complaint) {
+    let attachmentsContainer = card.querySelector('.ticket-attachments');
+    const attachments = (complaint.attachments || []).filter((item) => item.visibility !== 'admin');
+    let list = attachmentsContainer?.querySelector('ul') || null;
+    if (!attachments.length) {
+      if (attachmentsContainer && list) {
+        list.innerHTML = '';
+        const empty = document.createElement('li');
+        empty.textContent = 'No attachments available.';
+        list.appendChild(empty);
+      }
+      return;
+    }
+    if (!attachmentsContainer) {
+      attachmentsContainer = document.createElement('div');
+      attachmentsContainer.className = 'ticket-attachments';
+      const heading = document.createElement('h4');
+      heading.textContent = 'Attachments';
+      attachmentsContainer.appendChild(heading);
+      list = document.createElement('ul');
+      attachmentsContainer.appendChild(list);
+      const timeline = card.querySelector('.ticket-timeline');
+      if (timeline) {
+        card.insertBefore(attachmentsContainer, timeline);
+      } else {
+        card.appendChild(attachmentsContainer);
+      }
+    }
+    if (!list) {
+      list = document.createElement('ul');
+      attachmentsContainer.appendChild(list);
+    }
+    list.innerHTML = '';
+    attachments.forEach((attachment) => {
+      const li = document.createElement('li');
+      const icon = attachmentIcon(attachment.filename || '');
+      const iconEl = document.createElement('i');
+      iconEl.className = icon;
+      iconEl.setAttribute('aria-hidden', 'true');
+      li.appendChild(iconEl);
+      if (attachment.downloadToken) {
+        const link = document.createElement('a');
+        link.href = `download.php?complaint=${encodeURIComponent(complaint.reference)}&token=${encodeURIComponent(attachment.downloadToken)}`;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = attachment.label || attachment.filename || 'Attachment';
+        li.appendChild(link);
+      } else {
+        const span = document.createElement('span');
+        span.textContent = attachment.label || attachment.filename || 'Attachment';
+        li.appendChild(span);
+      }
+      if (attachment.filename && attachment.filename !== attachment.label) {
+        const detail = document.createElement('span');
+        detail.className = 'text-xs text-muted d-block';
+        detail.textContent = attachment.filename;
+        li.appendChild(detail);
+      }
+      list.appendChild(li);
+    });
+  }
+
+  function renderCardTimeline(card, complaint) {
+    const timelineNode = card.querySelector('[data-ticket-timeline]');
+    if (!timelineNode) return;
+    timelineNode.innerHTML = '';
+    const entries = buildComplaintTimelineEntries(complaint);
+    entries.forEach((entry) => {
+      const li = document.createElement('li');
+      const timeEl = document.createElement('time');
+      timeEl.dateTime = entry.time;
+      timeEl.textContent = new Date(entry.time).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const message = document.createElement('p');
+      message.textContent = entry.message;
+      li.appendChild(timeEl);
+      li.appendChild(message);
+      timelineNode.appendChild(li);
+    });
+  }
+
+  function applyComplaintUpdate(complaint) {
+    if (!complaint || !complaint.reference) return;
+    const card = document.querySelector(`[data-ticket-id="${escapeSelectorValue(complaint.reference)}"]`);
+    if (!card) return;
+    const statusKey = complaintStatusKey(complaint.status);
+    card.dataset.status = statusKey;
+    const statusConfig = STATUS_LABELS[statusKey] || STATUS_LABELS.in_progress;
+    const statusLabelNode = card.querySelector('[data-ticket-status-label]');
+    if (statusLabelNode) {
+      statusLabelNode.textContent = statusConfig.label;
+      statusLabelNode.className = `dashboard-status dashboard-status--${statusConfig.tone}`;
+    }
+    const statusSelect = card.querySelector('[data-ticket-status]');
+    if (statusSelect) {
+      statusSelect.value = statusKey;
+    }
+    const slaNode = card.querySelector('[data-ticket-sla]');
+    if (slaNode) {
+      const slaSource = complaint.slaDue || complaint.sla_due_at || complaint.sla_due || '';
+      slaNode.textContent = slaSource
+        ? new Date(slaSource).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+        : 'Not set';
+    }
+    renderCardAttachments(card, complaint);
+    renderCardTimeline(card, complaint);
+    syncTicketSummary();
+  }
+
+  function prependDocumentRow(documentData, sizeMb) {
+    if (!documentList) return;
+    const placeholder = documentList.querySelector('.text-muted');
+    if (placeholder && placeholder.parentElement?.children.length === 1) {
+      placeholder.parentElement.removeChild(placeholder);
+    }
+    const row = document.createElement('tr');
+
+    const docCell = document.createElement('td');
+    const typeEl = document.createElement('strong');
+    typeEl.textContent = documentData.name || 'Document';
+    docCell.appendChild(typeEl);
+    if (documentData.reference) {
+      const fileEl = document.createElement('span');
+      fileEl.className = 'text-xs text-muted d-block';
+      fileEl.textContent = documentData.reference;
+      docCell.appendChild(fileEl);
+    }
+    if (Number.isFinite(sizeMb)) {
+      const sizeEl = document.createElement('span');
+      sizeEl.className = 'text-xs text-muted d-block';
+      sizeEl.textContent = `${sizeMb.toFixed(1)} MB`;
+      docCell.appendChild(sizeEl);
+    }
+    row.appendChild(docCell);
+
+    const customerCell = document.createElement('td');
+    const linked = documentData.linkedTo || '';
+    customerCell.textContent = linked.includes(':') ? linked.split(':').pop() : linked;
+    row.appendChild(customerCell);
+
+    const statusCell = document.createElement('td');
+    const badge = document.createElement('span');
+    const visibility = documentData.visibility || 'employee';
+    badge.className = `dashboard-status dashboard-status--${visibility === 'both' ? 'resolved' : 'waiting'}`;
+    badge.textContent = visibility === 'both' ? 'Shared with Admin' : 'Employee only';
+    statusCell.appendChild(badge);
+    row.appendChild(statusCell);
+
+    const uploadedCell = document.createElement('td');
+    const updatedAt = documentData.updatedAt ? new Date(documentData.updatedAt) : new Date();
+    const timeEl = document.createElement('time');
+    timeEl.dateTime = updatedAt.toISOString();
+    timeEl.textContent = formatDateTime(updatedAt);
+    uploadedCell.appendChild(timeEl);
+    const byEl = document.createElement('span');
+    byEl.className = 'text-xs text-muted d-block';
+    byEl.textContent = `by ${documentData.uploadedBy || 'You'}`;
+    uploadedCell.appendChild(byEl);
+    row.appendChild(uploadedCell);
+
+    documentList.prepend(row);
+  }
+
   function showFieldError(field, message) {
     if (!field) return;
     const wrapper = field.closest('label') || field.parentElement;
@@ -1163,7 +1384,12 @@
         method: 'POST',
         body: { reference, status: statusKey },
       })
-        .then(() => refreshSyncIndicator(`Ticket ${reference}`))
+        .then((data) => {
+          refreshSyncIndicator(`Ticket ${reference}`);
+          if (data.complaint) {
+            applyComplaintUpdate(data.complaint);
+          }
+        })
         .catch((error) => {
           console.error(error);
           window.alert('Unable to sync ticket update with Admin. Please retry.');
@@ -1214,17 +1440,26 @@
 
     const noteButton = card.querySelector('[data-ticket-note]');
     if (noteButton) {
-      if (!canUpdateComplaints) {
-        noteButton.disabled = true;
-        noteButton.setAttribute('aria-disabled', 'true');
-      } else {
-        noteButton.addEventListener('click', () => {
-          const note = window.prompt('Add an internal note for this ticket:');
-          if (!note) return;
-          logTicketTimeline(card, `Note added by you: ${note.replace(/</g, '&lt;')}`);
-          recordAuditEvent('Ticket note added', `${ticketLabel} · ${note}`);
-        });
-      }
+      noteButton.addEventListener('click', () => {
+        const note = window.prompt('Add an internal note for this ticket:');
+        if (!note) return;
+        api('add-complaint-note', {
+          method: 'POST',
+          body: { reference: card.dataset.ticketId, note },
+        })
+          .then((data) => {
+            if (data.complaint) {
+              applyComplaintUpdate(data.complaint);
+            }
+            refreshSyncIndicator(`Ticket ${card.dataset.ticketId}`);
+            recordAuditEvent('Ticket note added', `${ticketLabel} · ${note}`);
+            logCommunicationEntry('system', `Note added to ${ticketLabel}`, note, 'You');
+          })
+          .catch((error) => {
+            console.error(error);
+            window.alert('Unable to sync note with Admin. Please retry.');
+          });
+      });
     }
 
     const escalateButton = card.querySelector('[data-ticket-escalate]');
@@ -1314,104 +1549,50 @@
 
   // Document vault ----------------------------------------------------------
   if (documentForm && documentList) {
-    const appendDocumentRow = (doc) => {
-      const row = document.createElement('tr');
-
-      const docCell = document.createElement('td');
-      const typeEl = document.createElement('strong');
-      typeEl.textContent = doc.name || 'Document';
-      docCell.appendChild(typeEl);
-      const fileEl = document.createElement('span');
-      fileEl.className = 'text-xs text-muted d-block';
-      fileEl.textContent = doc.reference || doc.linkedTo || 'Shared';
-      docCell.appendChild(fileEl);
-      if (Array.isArray(doc.tags)) {
-        doc.tags.forEach((tag) => {
-          const tagEl = document.createElement('span');
-          tagEl.className = 'text-xs text-muted d-block';
-          tagEl.textContent = tag;
-          docCell.appendChild(tagEl);
-        });
-      }
-      row.appendChild(docCell);
-
-      const customerCell = document.createElement('td');
-      customerCell.textContent = doc.reference || 'Shared';
-      row.appendChild(customerCell);
-
-      const statusCell = document.createElement('td');
-      const badge = document.createElement('span');
-      const shared = doc.visibility === 'both';
-      badge.className = `dashboard-status dashboard-status--${shared ? 'resolved' : 'progress'}`;
-      badge.textContent = shared ? 'Shared with Admin' : 'Pending Admin review';
-      statusCell.appendChild(badge);
-      row.appendChild(statusCell);
-
-      const uploadedCell = document.createElement('td');
-      if (doc.updatedAt) {
-        const uploadedDate = new Date((doc.updatedAt || '').replace(' ', 'T'));
-        if (!Number.isNaN(uploadedDate.getTime())) {
-          const timeEl = document.createElement('time');
-          timeEl.dateTime = uploadedDate.toISOString();
-          timeEl.textContent = formatDateTime(uploadedDate);
-          uploadedCell.appendChild(timeEl);
-        }
-      }
-      const byEl = document.createElement('span');
-      byEl.className = 'text-xs text-muted d-block';
-      byEl.textContent = `by ${doc.uploadedBy || 'You'}`;
-      uploadedCell.appendChild(byEl);
-      row.appendChild(uploadedCell);
-
-      const emptyState = documentList.querySelector('.text-muted');
-      if (emptyState && emptyState.closest('tr')) {
-        emptyState.closest('tr').remove();
-      }
-
-      documentList.prepend(row);
-    };
-
     documentForm.addEventListener('submit', (event) => {
       if (event.defaultPrevented) return;
       event.preventDefault();
-      if (!isActive) {
-        window.alert('Your account is inactive. Contact Admin to upload documents.');
-        return;
-      }
-
       const data = new FormData(documentForm);
       const customer = String(data.get('customer') || '').trim();
       const type = String(data.get('type') || '').trim();
       const filename = String(data.get('filename') || '').trim();
       const note = String(data.get('note') || '').trim();
       const sizeValue = String(data.get('file_size') || '').trim();
-
+      const sizeNumber = sizeValue ? Number.parseFloat(sizeValue) : null;
       if (!customer || !type || !filename) {
         window.alert('Please provide the customer, document type, and file name.');
         return;
       }
-
       api('upload-document', {
         method: 'POST',
         body: {
-          customer,
+          reference: customer,
           type,
           filename,
           note,
-          fileSize: sizeValue,
+          file_size: sizeValue,
         },
       })
-        .then(({ document }) => {
-          appendDocumentRow(document);
+        .then((data) => {
           documentForm.reset();
+          if (data.document) {
+            prependDocumentRow(data.document, sizeNumber);
+          }
+          if (data.complaint) {
+            applyComplaintUpdate(data.complaint);
+          }
           const metaText = [customer, note || filename].filter(Boolean).join(' · ');
-          logCommunicationEntry('system', `${type} uploaded to document vault`, metaText, 'System');
-          recordAuditEvent('Document uploaded', `${type} · ${customer}`);
-          refreshSyncIndicator('Document upload');
+          logCommunicationEntry('system', `${type} uploaded to document vault`, metaText, 'You');
+          const auditDetailParts = [type, customer];
+          if (Number.isFinite(sizeNumber)) {
+            auditDetailParts.push(`${sizeNumber.toFixed(1)} MB`);
+          }
+          recordAuditEvent('Document uploaded', auditDetailParts.join(' · '));
+          refreshSyncIndicator(`Ticket ${customer}`);
         })
         .catch((error) => {
           console.error(error);
-          window.alert(error.message || 'Unable to upload document right now.');
+          window.alert('Unable to upload document to Admin. Please retry.');
         });
     });
   }

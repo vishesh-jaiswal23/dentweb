@@ -78,29 +78,25 @@ try {
             require_method('POST');
             $payload = read_json();
             $reference = (string) ($payload['reference'] ?? '');
-            if ($reference === '') {
-                throw new RuntimeException('Complaint reference is required.');
-            }
+            $note = (string) ($payload['note'] ?? '');
             enforce_complaint_access($db, $reference, $userId);
-            $complaint = portal_add_complaint_note($db, $payload, $userId);
+            $complaint = portal_add_complaint_note($db, $reference, $note, $userId);
             respond_success([
                 'complaint' => $complaint,
                 'complaints' => portal_employee_complaints($db, $userId),
             ]);
             break;
-        case 'complaint-timeline':
-            require_method('GET');
-            $reference = (string) ($_GET['reference'] ?? '');
+        case 'upload-document':
+            require_method('POST');
+            $payload = read_json();
+            $reference = (string) ($payload['reference'] ?? '');
             if ($reference === '') {
-                throw new RuntimeException('Complaint reference is required.');
+                throw new RuntimeException('Complaint reference is required for uploads.');
             }
-            enforce_complaint_access($db, $reference, $userId);
-            $complaintId = portal_find_complaint_id($db, $reference);
-            if ($complaintId === null) {
-                throw new RuntimeException('Complaint not found.');
-            }
-            $timeline = portal_fetch_complaint_updates($db, [$complaintId]);
-            respond_success(['timeline' => $timeline[$complaintId] ?? []]);
+            $result = portal_employee_submit_document($db, $userId, $reference, $payload);
+            respond_success($result + [
+                'complaints' => portal_employee_complaints($db, $userId),
+            ]);
             break;
         case 'mark-notification':
             require_method('POST');
