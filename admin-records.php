@@ -126,9 +126,10 @@ $modules = [
         'description' => 'Review the pipeline for PM Surya Ghar and other subsidy applications.',
         'defaultFilter' => 'pending',
         'filters' => [
-            'pending' => 'Pending / Submitted',
+            'pending' => 'Pending (Not Disbursed)',
+            'applied' => 'Applied',
+            'under_review' => 'Under Review',
             'approved' => 'Approved',
-            'rejected' => 'Rejected',
             'disbursed' => 'Disbursed',
             'all' => 'All applications',
         ],

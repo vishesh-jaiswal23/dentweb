@@ -69,7 +69,7 @@ $cardConfigs = [
         'value' => $counts['subsidy'],
         'icon' => 'fa-indian-rupee-sign',
         'description' => 'Applications awaiting approval or disbursal.',
-        'link' => 'admin-records.php?module=subsidy&filter=pending',
+        'link' => 'admin-subsidy-tracker.php?stage=pending',
     ],
 ];
 

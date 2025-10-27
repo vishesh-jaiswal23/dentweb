@@ -276,6 +276,26 @@ SQL
     $db->exec('CREATE INDEX IF NOT EXISTS idx_subsidy_applications_updated_at ON subsidy_applications(updated_at DESC)');
 
     $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS subsidy_tracker (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    application_reference TEXT NOT NULL,
+    lead_id INTEGER,
+    installation_id INTEGER,
+    stage TEXT NOT NULL CHECK(stage IN ('applied','under_review','approved','disbursed')),
+    stage_date TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE SET NULL,
+    FOREIGN KEY(installation_id) REFERENCES installations(id) ON DELETE SET NULL
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_subsidy_tracker_reference ON subsidy_tracker(application_reference)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_subsidy_tracker_stage_date ON subsidy_tracker(stage_date DESC)');
+
+    $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -2933,7 +2953,22 @@ function admin_overview_counts(PDO $db): array
     $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
     $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
-    $pendingSubsidy = (int) $db->query("SELECT COUNT(*) FROM subsidy_applications WHERE status IN ('pending','submitted')")->fetchColumn();
+
+    $pendingStmt = $db->query(<<<'SQL'
+WITH ranked AS (
+    SELECT
+        application_reference,
+        stage,
+        stage_date,
+        id,
+        ROW_NUMBER() OVER (PARTITION BY application_reference ORDER BY stage_date DESC, id DESC) AS rn
+    FROM subsidy_tracker
+)
+SELECT COUNT(*) FROM ranked WHERE rn = 1 AND stage != 'disbursed'
+SQL
+    );
+    $pendingValue = $pendingStmt ? $pendingStmt->fetchColumn() : 0;
+    $pendingSubsidy = (int) ($pendingValue !== false ? $pendingValue : 0);
 
     return [
         'employees' => $activeEmployees,
@@ -3004,14 +3039,14 @@ function admin_today_highlights(PDO $db, int $limit = 12): array
         ]);
     }
 
-    $subsidyStmt = $db->query('SELECT id, application_number, customer_name, status, updated_at, created_at FROM subsidy_applications ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    $subsidyStmt = $db->query('SELECT application_reference, stage, stage_date FROM subsidy_tracker ORDER BY stage_date DESC, id DESC LIMIT 25');
     foreach ($subsidyStmt->fetchAll() as $row) {
-        $status = subsidy_status_label($row['status'] ?? '');
-        $label = $row['application_number'] ?: $row['customer_name'];
-        $title = sprintf('Subsidy %s marked %s', $label, strtolower($status));
-        $addEntry($row['updated_at'] ?: $row['created_at'], 'subsidy', $title, [
-            'id' => (int) $row['id'],
-            'status' => $status,
+        $stage = subsidy_stage_label($row['stage'] ?? '');
+        $label = $row['application_reference'] ?: 'Application';
+        $title = sprintf('Subsidy %s moved to %s', $label, strtolower($stage));
+        $addEntry($row['stage_date'] ?? null, 'subsidy', $title, [
+            'reference' => $label,
+            'stage' => $stage,
         ]);
     }
 
@@ -4203,11 +4238,296 @@ function subsidy_status_label(string $status): string
         'approved' => 'Approved',
         'rejected' => 'Rejected',
         'disbursed' => 'Disbursed',
+        'applied' => 'Applied',
+        'under_review' => 'Under Review',
     ];
 
     $normalized = strtolower(trim($status));
 
     return $map[$normalized] ?? ucfirst($normalized ?: 'pending');
+}
+
+function subsidy_stage_label(string $stage): string
+{
+    $map = [
+        'applied' => 'Applied',
+        'under_review' => 'Under Review',
+        'approved' => 'Approved',
+        'disbursed' => 'Disbursed',
+    ];
+
+    $normalized = strtolower(trim($stage));
+
+    return $map[$normalized] ?? ucfirst(str_replace('_', ' ', $normalized ?: 'applied'));
+}
+
+function subsidy_stage_order(string $stage): int
+{
+    static $order = [
+        'applied' => 1,
+        'under_review' => 2,
+        'approved' => 3,
+        'disbursed' => 4,
+    ];
+
+    $normalized = strtolower(trim($stage));
+
+    return $order[$normalized] ?? 99;
+}
+
+function subsidy_stage_options(): array
+{
+    return [
+        'applied' => 'Applied',
+        'under_review' => 'Under Review',
+        'approved' => 'Approved',
+        'disbursed' => 'Disbursed',
+    ];
+}
+
+function normalize_subsidy_stage_date(?string $value): string
+{
+    $candidate = trim((string) $value);
+    if ($candidate === '') {
+        return now_ist();
+    }
+
+    try {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $candidate) === 1) {
+            $dt = DateTimeImmutable::createFromFormat('Y-m-d', $candidate, new DateTimeZone('Asia/Kolkata'));
+            if ($dt instanceof DateTimeImmutable) {
+                return $dt->setTime(0, 0)->format('Y-m-d H:i:s');
+            }
+        }
+
+        $dt = new DateTimeImmutable($candidate, new DateTimeZone('Asia/Kolkata'));
+        return $dt->format('Y-m-d H:i:s');
+    } catch (Throwable $exception) {
+        return now_ist();
+    }
+}
+
+function admin_subsidy_tracker_record_stage(PDO $db, array $input): void
+{
+    $reference = trim((string) ($input['reference'] ?? ''));
+    if ($reference === '') {
+        throw new InvalidArgumentException('Application reference is required.');
+    }
+
+    $stage = strtolower(trim((string) ($input['stage'] ?? '')));
+    $validStages = array_keys(subsidy_stage_options());
+    if (!in_array($stage, $validStages, true)) {
+        throw new InvalidArgumentException('Select a valid stage.');
+    }
+
+    $leadId = isset($input['lead_id']) && $input['lead_id'] !== '' ? (int) $input['lead_id'] : null;
+    $installationId = isset($input['installation_id']) && $input['installation_id'] !== '' ? (int) $input['installation_id'] : null;
+
+    if ($leadId === null && $installationId === null) {
+        throw new InvalidArgumentException('Link the update to a lead or installation.');
+    }
+
+    if ($leadId !== null) {
+        $leadStmt = $db->prepare('SELECT COUNT(*) FROM crm_leads WHERE id = :id');
+        $leadStmt->execute([':id' => $leadId]);
+        if ((int) $leadStmt->fetchColumn() === 0) {
+            throw new InvalidArgumentException('Lead not found.');
+        }
+    }
+
+    if ($installationId !== null) {
+        $installationStmt = $db->prepare('SELECT COUNT(*) FROM installations WHERE id = :id');
+        $installationStmt->execute([':id' => $installationId]);
+        if ((int) $installationStmt->fetchColumn() === 0) {
+            throw new InvalidArgumentException('Installation not found.');
+        }
+    }
+
+    $stageDate = normalize_subsidy_stage_date($input['stage_date'] ?? '');
+    $note = trim((string) ($input['note'] ?? ''));
+    $now = now_ist();
+
+    $stmt = $db->prepare('INSERT INTO subsidy_tracker (application_reference, lead_id, installation_id, stage, stage_date, notes, created_at, updated_at) VALUES (:reference, :lead_id, :installation_id, :stage, :stage_date, :notes, :now, :now)');
+    $stmt->execute([
+        ':reference' => $reference,
+        ':lead_id' => $leadId,
+        ':installation_id' => $installationId,
+        ':stage' => $stage,
+        ':stage_date' => $stageDate,
+        ':notes' => $note === '' ? null : $note,
+        ':now' => $now,
+    ]);
+}
+
+function admin_subsidy_tracker_summary(PDO $db, ?string $stageFilter = null, ?string $fromDate = null, ?string $toDate = null): array
+{
+    $stmt = $db->query('SELECT st.id, st.application_reference, st.stage, st.stage_date, st.notes, st.lead_id, st.installation_id, leads.name AS lead_name, leads.phone AS lead_phone, inst.customer_name AS installation_customer, inst.project_reference FROM subsidy_tracker st LEFT JOIN crm_leads leads ON leads.id = st.lead_id LEFT JOIN installations inst ON inst.id = st.installation_id ORDER BY st.application_reference COLLATE NOCASE, st.stage_date ASC, st.id ASC');
+    $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
+    $cases = [];
+    foreach ($rows as $row) {
+        $reference = (string) ($row['application_reference'] ?? '');
+        if ($reference === '') {
+            continue;
+        }
+
+        $stage = strtolower((string) ($row['stage'] ?? ''));
+        if ($stage === '') {
+            continue;
+        }
+
+        if (!isset($cases[$reference])) {
+            $cases[$reference] = [
+                'reference' => $reference,
+                'lead' => [
+                    'id' => $row['lead_id'] !== null ? (int) $row['lead_id'] : null,
+                    'name' => $row['lead_name'] ?? '',
+                    'phone' => $row['lead_phone'] ?? '',
+                ],
+                'installation' => [
+                    'id' => $row['installation_id'] !== null ? (int) $row['installation_id'] : null,
+                    'name' => $row['installation_customer'] ?: ($row['project_reference'] ?? ''),
+                ],
+                'stages' => [
+                    'applied' => null,
+                    'under_review' => null,
+                    'approved' => null,
+                    'disbursed' => null,
+                ],
+                'latest_stage' => $stage,
+                'latest_date' => $row['stage_date'] ?? null,
+                'latest_note' => $row['notes'] ?? '',
+            ];
+        }
+
+        $stageData = [
+            'date' => $row['stage_date'] ?? null,
+            'note' => $row['notes'] ?? '',
+        ];
+        $existingStage = $cases[$reference]['stages'][$stage] ?? null;
+        if ($existingStage === null || ($stageData['date'] !== null && ($existingStage['date'] === null || strcmp($stageData['date'], $existingStage['date']) >= 0))) {
+            $cases[$reference]['stages'][$stage] = $stageData;
+        }
+
+        $currentLatestDate = $cases[$reference]['latest_date'];
+        $newDate = $row['stage_date'] ?? null;
+        $shouldUpdateLatest = false;
+
+        if ($newDate === null) {
+            $shouldUpdateLatest = $currentLatestDate === null;
+        } elseif ($currentLatestDate === null) {
+            $shouldUpdateLatest = true;
+        } else {
+            $comparison = strcmp($newDate, $currentLatestDate);
+            if ($comparison > 0) {
+                $shouldUpdateLatest = true;
+            } elseif ($comparison === 0) {
+                $shouldUpdateLatest = subsidy_stage_order($stage) >= subsidy_stage_order($cases[$reference]['latest_stage']);
+            }
+        }
+
+        if ($shouldUpdateLatest) {
+            $cases[$reference]['latest_stage'] = $stage;
+            $cases[$reference]['latest_date'] = $newDate;
+            $cases[$reference]['latest_note'] = $row['notes'] ?? '';
+        }
+    }
+
+    $stageKeys = array_keys(subsidy_stage_options());
+    $overallTotals = array_fill_keys($stageKeys, 0);
+    $overallPending = 0;
+    foreach ($cases as $case) {
+        $latestStage = $case['latest_stage'] ?? 'applied';
+        if (!isset($overallTotals[$latestStage])) {
+            $overallTotals[$latestStage] = 0;
+        }
+        $overallTotals[$latestStage]++;
+        if ($latestStage !== 'disbursed') {
+            $overallPending++;
+        }
+    }
+
+    $stageFilter = $stageFilter !== null ? strtolower(trim($stageFilter)) : null;
+    $fromBound = null;
+    if ($fromDate) {
+        $fromDate = trim($fromDate);
+        if ($fromDate !== '') {
+            $fromBound = preg_match('/^\d{4}-\d{2}-\d{2}$/', $fromDate) === 1 ? $fromDate . ' 00:00:00' : $fromDate;
+        }
+    }
+    $toBound = null;
+    if ($toDate) {
+        $toDate = trim($toDate);
+        if ($toDate !== '') {
+            $toBound = preg_match('/^\d{4}-\d{2}-\d{2}$/', $toDate) === 1 ? $toDate . ' 23:59:59' : $toDate;
+        }
+    }
+
+    $filtered = [];
+    foreach ($cases as $case) {
+        $latestStage = $case['latest_stage'] ?? 'applied';
+        if ($stageFilter !== null && $stageFilter !== '' && $stageFilter !== 'all') {
+            if ($stageFilter === 'pending') {
+                if ($latestStage === 'disbursed') {
+                    continue;
+                }
+            } elseif ($latestStage !== $stageFilter) {
+                continue;
+            }
+        }
+
+        $latestDate = $case['latest_date'];
+        if ($fromBound !== null) {
+            if ($latestDate === null || strcmp($latestDate, $fromBound) < 0) {
+                continue;
+            }
+        }
+
+        if ($toBound !== null) {
+            if ($latestDate === null || strcmp($latestDate, $toBound) > 0) {
+                continue;
+            }
+        }
+
+        $filtered[] = $case;
+    }
+
+    usort($filtered, static function (array $left, array $right): int {
+        $dateLeft = $left['latest_date'] ?? '';
+        $dateRight = $right['latest_date'] ?? '';
+        $compare = strcmp((string) $dateRight, (string) $dateLeft);
+        if ($compare !== 0) {
+            return $compare;
+        }
+
+        $stageCompare = subsidy_stage_order($right['latest_stage'] ?? '') <=> subsidy_stage_order($left['latest_stage'] ?? '');
+        if ($stageCompare !== 0) {
+            return $stageCompare;
+        }
+
+        return strcmp((string) ($left['reference'] ?? ''), (string) ($right['reference'] ?? ''));
+    });
+
+    $visibleTotals = array_fill_keys($stageKeys, 0);
+    $visiblePending = 0;
+    foreach ($filtered as $case) {
+        $latestStage = $case['latest_stage'] ?? 'applied';
+        if (!isset($visibleTotals[$latestStage])) {
+            $visibleTotals[$latestStage] = 0;
+        }
+        $visibleTotals[$latestStage]++;
+        if ($latestStage !== 'disbursed') {
+            $visiblePending++;
+        }
+    }
+
+    return [
+        'cases' => $filtered,
+        'totals' => $overallTotals,
+        'pendingTotal' => $overallPending,
+        'visibleTotals' => $visibleTotals,
+        'visiblePending' => $visiblePending,
+    ];
 }
 
 function reminder_status_label(string $status): string
@@ -4286,24 +4606,37 @@ function admin_list_complaints(PDO $db, string $status = 'open'): array
 function admin_list_subsidy(PDO $db, string $status = 'pending'): array
 {
     $status = strtolower(trim($status));
-    if ($status === 'all') {
-        $stmt = $db->query('SELECT customer_name, application_number, status, amount, submitted_on, created_at, updated_at FROM subsidy_applications ORDER BY COALESCE(updated_at, created_at) DESC');
-        return $stmt->fetchAll();
+
+    if ($status === 'rejected') {
+        return [];
     }
 
-    $valid = [
-        'pending' => ['pending', 'submitted'],
-        'approved' => ['approved'],
-        'rejected' => ['rejected'],
-        'disbursed' => ['disbursed'],
-    ];
+    $stageFilter = null;
+    if ($status === 'pending') {
+        $stageFilter = 'pending';
+    } elseif ($status === 'all') {
+        $stageFilter = null;
+    } else {
+        $stageFilter = $status;
+    }
 
-    $statuses = $valid[$status] ?? [$status];
-    $placeholders = implode(',', array_fill(0, count($statuses), '?'));
-    $stmt = $db->prepare("SELECT customer_name, application_number, status, amount, submitted_on, created_at, updated_at FROM subsidy_applications WHERE status IN ($placeholders) ORDER BY COALESCE(updated_at, created_at) DESC");
-    $stmt->execute($statuses);
+    $summary = admin_subsidy_tracker_summary($db, $stageFilter, null, null);
 
-    return $stmt->fetchAll();
+    $rows = [];
+    foreach ($summary['cases'] as $case) {
+        $stages = $case['stages'];
+        $rows[] = [
+            'customer_name' => $case['installation']['name'] ?: $case['lead']['name'],
+            'application_number' => $case['reference'],
+            'status' => $case['latest_stage'],
+            'amount' => null,
+            'submitted_on' => $stages['applied']['date'] ?? null,
+            'created_at' => $stages['applied']['date'] ?? $case['latest_date'],
+            'updated_at' => $case['latest_date'],
+        ];
+    }
+
+    return $rows;
 }
 
 function portal_find_complaint_id(PDO $db, string $reference): ?int
