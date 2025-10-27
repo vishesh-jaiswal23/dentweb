@@ -47,6 +47,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    $redirectView = strtolower(trim((string) ($_POST['redirect_view'] ?? 'leads')));
+
     try {
         switch ($action) {
             case 'add_visit':
@@ -57,12 +59,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
                 employee_add_lead_visit($db, $payload, $employeeId);
                 set_flash('success', 'Visit logged successfully.');
+                $redirectView = 'leads';
                 break;
             case 'advance_stage':
                 $leadId = (int) ($_POST['lead_id'] ?? 0);
                 $targetStage = (string) ($_POST['target_stage'] ?? '');
                 employee_progress_lead($db, $leadId, $targetStage, $employeeId);
                 set_flash('success', 'Lead stage updated.');
+                $redirectView = 'leads';
                 break;
             case 'submit_proposal':
                 $payload = [
@@ -73,6 +77,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
                 employee_submit_lead_proposal($db, $payload, $employeeId);
                 set_flash('success', 'Proposal submitted for admin approval.');
+                $redirectView = 'leads';
+                break;
+            case 'update_installation_stage':
+                $installationId = (int) ($_POST['installation_id'] ?? 0);
+                $targetStage = (string) ($_POST['target_stage'] ?? '');
+                $remarks = trim((string) ($_POST['remarks'] ?? ''));
+                $photo = trim((string) ($_POST['photo_label'] ?? ''));
+                installation_update_stage($db, $installationId, $targetStage, $employeeId, 'employee', $remarks, $photo);
+                $message = strtolower($targetStage) === 'commissioned'
+                    ? 'Commissioning request sent to Admin.'
+                    : 'Installation update saved.';
+                set_flash('success', $message);
+                $redirectView = 'installations';
+                break;
+            case 'toggle_installation_amc':
+                $installationId = (int) ($_POST['installation_id'] ?? 0);
+                $targetAmc = isset($_POST['target_amc']) && $_POST['target_amc'] === '1';
+                installation_toggle_amc($db, $installationId, $targetAmc, $employeeId);
+                set_flash('success', $targetAmc ? 'AMC commitment recorded.' : 'AMC commitment removed.');
+                $redirectView = 'installations';
                 break;
             default:
                 set_flash('error', 'Unsupported action.');
@@ -80,9 +104,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } catch (Throwable $exception) {
         set_flash('error', $exception->getMessage());
+        $redirectView = 'installations';
     }
 
-    header('Location: employee-dashboard.php?view=leads');
+    header('Location: employee-dashboard.php?view=' . urlencode($redirectView));
     exit;
 }
 
@@ -727,10 +752,21 @@ function employee_format_datetime(?string $value): string
     }
 }
 
+function employee_format_date(?string $value): string
+{
+    if (!$value) {
+        return '—';
+    }
+    try {
+        $dt = new DateTimeImmutable($value);
+        return $dt->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M Y');
+    } catch (Throwable $exception) {
+        return $value;
+    }
+}
 
-$siteVisits = [];
 
-$visitActivity = [];
+$installations = installation_list_for_role($db, 'employee', $employeeId);
 
 $subsidyCases = [];
 
@@ -810,8 +846,8 @@ foreach ($taskColumns as $columnKey => $column) {
     $pendingTasksCount += count($column['items']);
 }
 
-$scheduledVisitCount = count(array_filter($siteVisits, static function (array $visit): bool {
-    return ($visit['status'] ?? '') !== 'completed';
+$scheduledVisitCount = count(array_filter($installations, static function (array $installation): bool {
+    return ($installation['stage'] ?? '') !== 'commissioned';
 }));
 
 $leadsHandledCount = count($employeeLeads);
@@ -1161,86 +1197,101 @@ $attachmentIcon = static function (string $filename): string {
             <p class="dashboard-section-sub">
               Review every scheduled installation or maintenance visit, capture geo-tags when available, and close assignments so Admin can review commissioning evidence before locking tickets.
             </p>
-            <div class="visit-layout">
-              <div class="visit-grid">
-                <?php if (empty($siteVisits)): ?>
-                <p class="empty-state">No field visits scheduled. Admin-assigned visits will display here immediately.</p>
-                <?php else: ?>
-                <?php foreach ($siteVisits as $visit): ?>
-                <article
-                  class="visit-card dashboard-panel"
-                  data-visit-card
-                  data-visit-id="<?= htmlspecialchars($visit['id'], ENT_QUOTES) ?>"
-                  data-visit-status="<?= htmlspecialchars($visit['status'], ENT_QUOTES) ?>"
-                  data-visit-customer="<?= htmlspecialchars($visit['customer'], ENT_QUOTES) ?>"
-                >
-                  <header class="visit-card-header">
+            <div class="installation-layout">
+              <?php if (empty($installations)): ?>
+              <p class="empty-state">No installations assigned yet. Admin will share projects as soon as they are scheduled.</p>
+              <?php else: ?>
+              <div class="installation-grid">
+                <?php foreach ($installations as $installation): ?>
+                <?php $stageLabel = $installation['requestedStage'] === 'commissioned' ? 'Commissioning Pending' : $installation['stageLabel']; ?>
+                <article class="installation-card dashboard-panel">
+                  <header class="installation-card__header">
                     <div>
-                      <small class="text-xs text-muted"><?= htmlspecialchars($visit['id'], ENT_QUOTES) ?></small>
-                      <h3><?= htmlspecialchars($visit['title'], ENT_QUOTES) ?></h3>
-                      <p class="visit-card-customer"><?= htmlspecialchars($visit['customer'], ENT_QUOTES) ?></p>
+                      <h3><?= htmlspecialchars($installation['project'] ?: $installation['customer'], ENT_QUOTES) ?></h3>
+                      <p class="installation-card__customer">Customer: <?= htmlspecialchars($installation['customer'], ENT_QUOTES) ?></p>
                     </div>
-                    <span
-                      class="dashboard-status dashboard-status--<?= htmlspecialchars($visit['statusTone'] ?? 'progress', ENT_QUOTES) ?>"
-                      data-visit-status
-                    ><?= htmlspecialchars($visit['statusLabel'] ?? 'Scheduled', ENT_QUOTES) ?></span>
+                    <span class="installation-card__stage installation-card__stage--<?= htmlspecialchars($installation['stageTone'], ENT_QUOTES) ?>">
+                      <?= htmlspecialchars($stageLabel, ENT_QUOTES) ?>
+                    </span>
                   </header>
-                  <ul class="visit-meta">
-                    <li><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> <?= htmlspecialchars($visit['scheduled'], ENT_QUOTES) ?></li>
-                    <li><i class="fa-solid fa-location-dot" aria-hidden="true"></i> <?= htmlspecialchars($visit['address'], ENT_QUOTES) ?></li>
+                  <ul class="installation-card__meta">
+                    <li><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Scheduled: <?= htmlspecialchars(employee_format_date($installation['scheduled'] ?? ''), ENT_QUOTES) ?></li>
+                    <li><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i> Target handover: <?= htmlspecialchars(employee_format_date($installation['handover'] ?? ''), ENT_QUOTES) ?></li>
+                    <li><i class="fa-solid fa-bolt" aria-hidden="true"></i> Capacity: <?= htmlspecialchars($installation['capacity'] ? number_format($installation['capacity'], 1) . ' kW' : '—', ENT_QUOTES) ?></li>
                   </ul>
-                  <div class="visit-block">
-                    <h4>Job checklist</h4>
-                    <ul>
-                      <?php foreach ($visit['checklist'] as $item): ?>
-                      <li><?= htmlspecialchars($item, ENT_QUOTES) ?></li>
+                  <ol class="installation-card__progress">
+                    <?php foreach ($installation['progress'] as $step): ?>
+                    <li class="installation-card__progress-item installation-card__progress-item--<?= htmlspecialchars($step['state'], ENT_QUOTES) ?>">
+                      <?= htmlspecialchars($step['label'], ENT_QUOTES) ?>
+                    </li>
+                    <?php endforeach; ?>
+                  </ol>
+                  <form class="installation-card__amc" method="post">
+                    <input type="hidden" name="action" value="toggle_installation_amc" />
+                    <input type="hidden" name="installation_id" value="<?= (int) $installation['id'] ?>" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                    <input type="hidden" name="redirect_view" value="installations" />
+                    <input type="hidden" name="target_amc" value="<?= $installation['amcCommitted'] ? '0' : '1' ?>" />
+                    <label>
+                      <input type="checkbox" <?= $installation['amcCommitted'] ? 'checked' : '' ?> onchange="this.form.submit()" />
+                      AMC committed
+                    </label>
+                  </form>
+                  <form class="installation-card__form" method="post">
+                    <input type="hidden" name="action" value="update_installation_stage" />
+                    <input type="hidden" name="installation_id" value="<?= (int) $installation['id'] ?>" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
+                    <input type="hidden" name="redirect_view" value="installations" />
+                    <div class="installation-card__form-row">
+                      <label>
+                        Stage
+                        <select name="target_stage">
+                          <?php foreach ($installation['stageOptions'] as $option): ?>
+                          <option value="<?= htmlspecialchars($option['value'], ENT_QUOTES) ?>" <?= $option['value'] === $installation['stage'] ? 'selected' : '' ?><?= !empty($option['disabled']) ? ' disabled' : '' ?>><?= htmlspecialchars($option['label'], ENT_QUOTES) ?></option>
+                          <?php endforeach; ?>
+                        </select>
+                      </label>
+                      <label>
+                        Remarks
+                        <input type="text" name="remarks" placeholder="Site note" />
+                      </label>
+                      <label>
+                        Photo reference
+                        <input type="text" name="photo_label" placeholder="Filename or link" />
+                      </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">Save update</button>
+                  </form>
+                  <?php if (!empty($installation['entries'])): ?>
+                  <div class="installation-card__timeline">
+                    <h4>Recent notes</h4>
+                    <ol>
+                      <?php foreach (array_slice(array_reverse($installation['entries']), 0, 4) as $entry): ?>
+                      <li>
+                        <div>
+                          <strong><?= htmlspecialchars($entry['stageLabel'], ENT_QUOTES) ?></strong>
+                          <span><?= htmlspecialchars($entry['actorName'], ENT_QUOTES) ?> · <?= htmlspecialchars(employee_format_datetime($entry['timestamp']), ENT_QUOTES) ?></span>
+                        </div>
+                        <?php if ($entry['remarks'] !== ''): ?>
+                        <p><?= htmlspecialchars($entry['remarks'], ENT_QUOTES) ?></p>
+                        <?php endif; ?>
+                        <?php if ($entry['photo'] !== ''): ?>
+                        <p class="installation-card__photo">Photo: <?= htmlspecialchars($entry['photo'], ENT_QUOTES) ?></p>
+                        <?php endif; ?>
+                        <?php if ($entry['type'] === 'request'): ?>
+                        <span class="installation-card__badge">Awaiting admin approval</span>
+                        <?php elseif ($entry['type'] === 'amc'): ?>
+                        <span class="installation-card__badge">AMC updated</span>
+                        <?php endif; ?>
+                      </li>
                       <?php endforeach; ?>
-                    </ul>
+                    </ol>
                   </div>
-                  <div class="visit-block visit-block--photos">
-                    <h4>Required photos</h4>
-                    <ul>
-                      <?php foreach ($visit['requiredPhotos'] as $photo): ?>
-                      <li><i class="fa-solid fa-camera" aria-hidden="true"></i> <?= htmlspecialchars($photo, ENT_QUOTES) ?></li>
-                      <?php endforeach; ?>
-                    </ul>
-                  </div>
-                  <?php if (!empty($visit['notes'])): ?>
-                  <p class="visit-notes"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <?= htmlspecialchars($visit['notes'], ENT_QUOTES) ?></p>
                   <?php endif; ?>
-                  <p class="visit-geotag" data-visit-geotag-wrapper hidden>
-                    <i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i>
-                    <span>Geo-tag: <strong data-visit-geotag-label></strong></span>
-                  </p>
-                  <footer class="visit-card-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-visit-geotag>
-                      <i class="fa-solid fa-location-arrow" aria-hidden="true"></i>
-                      Log geo-tag
-                    </button>
-                    <button type="button" class="btn btn-primary btn-sm" data-visit-complete>
-                      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
-                      Mark completed
-                    </button>
-                  </footer>
                 </article>
                 <?php endforeach; ?>
-                <?php endif; ?>
               </div>
-              <aside class="visit-activity-panel dashboard-panel">
-                <h3>Visit updates</h3>
-                <ol class="visit-activity" data-visit-activity>
-                  <?php if (empty($visitActivity)): ?>
-                  <li class="text-muted">Updates from field visits will appear here once logged.</li>
-                  <?php else: ?>
-                  <?php foreach ($visitActivity as $entry): ?>
-                  <li>
-                    <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
-                    <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
-                  </li>
-                  <?php endforeach; ?>
-                  <?php endif; ?>
-                </ol>
-              </aside>
+              <?php endif; ?>
             </div>
           </section>
           <?php endif; ?>

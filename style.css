@@ -7962,6 +7962,294 @@ button[data-task-undo]:focus-visible {
   border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
+.admin-installations {
+  margin-bottom: 2.5rem;
+}
+
+.admin-installations__grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.installation-admin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.installation-layout {
+  display: block;
+}
+
+.installation-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.installation-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.installation-card__details {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.installation-card__details .installation-card__meta {
+  flex: 1;
+}
+
+.installation-card__customer {
+  margin-top: 0.25rem;
+  color: var(--base-600);
+  font-size: 0.95rem;
+}
+
+.installation-card__stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.installation-card__stage--progress {
+  background: rgba(13, 110, 253, 0.12);
+  color: #0d6efd;
+}
+
+.installation-card__stage--info {
+  background: rgba(13, 202, 240, 0.14);
+  color: #0aa0c3;
+}
+
+.installation-card__stage--warning {
+  background: rgba(255, 193, 7, 0.16);
+  color: #d48f00;
+}
+
+.installation-card__stage--positive {
+  background: rgba(25, 135, 84, 0.14);
+  color: #198754;
+}
+
+.installation-card__stage--success {
+  background: rgba(59, 130, 246, 0.16);
+  color: #2563eb;
+}
+
+.installation-card__meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--base-600);
+}
+
+.installation-card__meta li i {
+  margin-right: 0.4rem;
+  color: var(--primary-500);
+}
+
+.installation-card__progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.installation-card__progress-item {
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(108, 117, 125, 0.16);
+  color: #6c757d;
+}
+
+.installation-card__progress-item--done {
+  background: rgba(25, 135, 84, 0.2);
+  color: #198754;
+}
+
+.installation-card__progress-item--current {
+  background: rgba(13, 110, 253, 0.2);
+  color: #0d6efd;
+}
+
+.installation-card__progress-item--upcoming {
+  opacity: 0.75;
+}
+
+.installation-card__amc {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.installation-card__amc label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: var(--base-700);
+}
+
+.installation-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.installation-card__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.installation-card__form-row {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.installation-card__form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.installation-card__form-row input,
+.installation-card__form-row select {
+  border: 1px solid rgba(33, 37, 41, 0.18);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+}
+
+.installation-card__timeline {
+  border-top: 1px solid rgba(33, 37, 41, 0.08);
+  padding-top: 1rem;
+}
+
+.installation-card__timeline h4 {
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  color: var(--base-700);
+}
+
+.installation-card__timeline ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.installation-card__timeline li {
+  font-size: 0.85rem;
+  color: var(--base-700);
+}
+
+.installation-card__timeline li div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.installation-card__timeline span {
+  font-size: 0.8rem;
+  color: var(--base-500);
+}
+
+.installation-card__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(13, 110, 253, 0.12);
+  color: #0d6efd;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.installation-card__photo {
+  font-size: 0.8rem;
+  color: var(--base-600);
+}
+
+@media (min-width: 720px) {
+  .installation-card__form-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.installer-shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 3rem;
+}
+
+.installer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.installer-identity {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.installer-identity i {
+  font-size: 2rem;
+  color: var(--primary-500);
+}
+
+.installer-subtitle {
+  margin: 0;
+  color: var(--base-500);
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.installer-title {
+  margin: 0.1rem 0 0;
+  font-size: 1.75rem;
+  color: var(--base-900);
+}
+
+.installer-installations h2 {
+  margin-bottom: 0.35rem;
+}
+
+.installer-installations__meta {
+  margin: 0 0 1.5rem;
+  color: var(--base-600);
+  max-width: 60ch;
+}
+
 .document-table .dashboard-status,
 .warranty-table .dashboard-status {
   display: inline-flex;

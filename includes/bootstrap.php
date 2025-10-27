@@ -256,26 +256,6 @@ SQL
     $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_status ON lead_proposals(status)');
 
     $db->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS installations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    customer_name TEXT NOT NULL,
-    project_reference TEXT,
-    capacity_kw REAL,
-    status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning','in_progress','completed','on_hold','cancelled')),
-    scheduled_date TEXT,
-    handover_date TEXT,
-    assigned_to INTEGER,
-    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
-    FOREIGN KEY(assigned_to) REFERENCES users(id)
-)
-SQL
-    );
-
-    $db->exec('CREATE INDEX IF NOT EXISTS idx_installations_status ON installations(status)');
-    $db->exec('CREATE INDEX IF NOT EXISTS idx_installations_updated_at ON installations(updated_at DESC)');
-
-    $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS subsidy_applications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_name TEXT NOT NULL,
@@ -515,6 +495,7 @@ function seed_defaults(PDO $db): void
     $roles = [
         'admin' => 'System administrators with full permissions.',
         'employee' => 'Internal staff managing operations and service.',
+        'installer' => 'Field installers responsible for on-site execution.',
     ];
 
     $insertRole = $db->prepare('INSERT OR IGNORE INTO roles(name, description) VALUES(:name, :description)');
@@ -544,6 +525,16 @@ function seed_defaults(PDO $db): void
         'password' => 'Employee@2025',
         'permissions_note' => 'Employee workspace access',
         'legacy_usernames' => ['employee'],
+    ]);
+
+    ensure_default_user($db, [
+        'role' => 'installer',
+        'full_name' => 'Lead Installer',
+        'email' => 'installer@dakshayani.in',
+        'username' => 'installer',
+        'password' => 'Installer@2025',
+        'permissions_note' => 'Installer workspace access',
+        'legacy_usernames' => ['installer'],
     ]);
 
     $defaultMetrics = [
@@ -815,6 +806,7 @@ function apply_schema_patches(PDO $db): void
 {
     upgrade_users_table($db);
     upgrade_blog_posts_table($db);
+    upgrade_installations_table($db);
     ensure_login_policy_row($db);
     ensure_portal_tables($db);
     ensure_lead_tables($db);
@@ -890,6 +882,80 @@ SQL
         $db->rollBack();
         throw $exception;
     }
+}
+
+function upgrade_installations_table(PDO $db): void
+{
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS installations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_name TEXT NOT NULL,
+    project_reference TEXT,
+    capacity_kw REAL,
+    status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning','in_progress','completed','on_hold','cancelled')),
+    stage TEXT NOT NULL DEFAULT 'structure' CHECK(stage IN ('structure','wiring','testing','meter','commissioned')),
+    stage_entries TEXT NOT NULL DEFAULT '[]',
+    requested_stage TEXT,
+    requested_by INTEGER,
+    requested_at TEXT,
+    amc_committed INTEGER NOT NULL DEFAULT 0,
+    scheduled_date TEXT,
+    handover_date TEXT,
+    assigned_to INTEGER,
+    installer_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(assigned_to) REFERENCES users(id),
+    FOREIGN KEY(requested_by) REFERENCES users(id),
+    FOREIGN KEY(installer_id) REFERENCES users(id)
+)
+SQL
+    );
+
+    $columns = $db->query("PRAGMA table_info('installations')")->fetchAll(PDO::FETCH_COLUMN, 1);
+
+    if (!in_array('stage', $columns, true)) {
+        $db->exec("ALTER TABLE installations ADD COLUMN stage TEXT NOT NULL DEFAULT 'structure'");
+    }
+
+    if (!in_array('stage_entries', $columns, true)) {
+        $db->exec("ALTER TABLE installations ADD COLUMN stage_entries TEXT NOT NULL DEFAULT '[]'");
+    }
+
+    if (!in_array('requested_stage', $columns, true)) {
+        $db->exec('ALTER TABLE installations ADD COLUMN requested_stage TEXT');
+    }
+
+    if (!in_array('requested_by', $columns, true)) {
+        $db->exec('ALTER TABLE installations ADD COLUMN requested_by INTEGER');
+    }
+
+    if (!in_array('requested_at', $columns, true)) {
+        $db->exec('ALTER TABLE installations ADD COLUMN requested_at TEXT');
+    }
+
+    if (!in_array('amc_committed', $columns, true)) {
+        $db->exec("ALTER TABLE installations ADD COLUMN amc_committed INTEGER NOT NULL DEFAULT 0");
+    }
+
+    if (!in_array('installer_id', $columns, true)) {
+        $db->exec('ALTER TABLE installations ADD COLUMN installer_id INTEGER');
+    }
+
+    // Normalise default values after adding new columns.
+    $db->exec("UPDATE installations SET stage = CASE WHEN stage IS NULL OR stage = '' THEN 'structure' ELSE stage END");
+    $db->exec("UPDATE installations SET stage_entries = CASE WHEN stage_entries IS NULL OR stage_entries = '' THEN '[]' ELSE stage_entries END");
+    $db->exec("UPDATE installations SET amc_committed = CASE WHEN amc_committed IS NULL THEN 0 ELSE amc_committed END");
+
+    // Align legacy status values with the new stage flow.
+    $db->exec("UPDATE installations SET stage = 'commissioned' WHERE status = 'completed' AND (stage IS NULL OR stage NOT IN ('structure','wiring','testing','meter','commissioned'))");
+    $db->exec("UPDATE installations SET status = 'in_progress' WHERE status NOT IN ('on_hold','cancelled','completed') AND stage != 'commissioned'");
+    $db->exec("UPDATE installations SET status = 'completed' WHERE stage = 'commissioned'");
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_installations_status ON installations(status)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_installations_stage ON installations(stage)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_installations_requested_stage ON installations(requested_stage)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_installations_updated_at ON installations(updated_at DESC)');
 }
 
 function ensure_login_policy_row(PDO $db): void
@@ -1625,6 +1691,154 @@ function seed_portal_defaults(PDO $db): void
             ':link' => '#complaints',
         ]);
     }
+
+    seed_installations($db);
+}
+
+function seed_installations(PDO $db): void
+{
+    $count = (int) $db->query('SELECT COUNT(*) FROM installations')->fetchColumn();
+    if ($count > 0) {
+        return;
+    }
+
+    $employeeId = (int) ($db->query("SELECT id FROM users WHERE LOWER(username) = 'employee' LIMIT 1")->fetchColumn() ?: 0);
+    $installerId = (int) ($db->query("SELECT id FROM users WHERE LOWER(username) = 'installer' LIMIT 1")->fetchColumn() ?: 0);
+    $employeeName = (string) ($db->query("SELECT full_name FROM users WHERE id = $employeeId")->fetchColumn() ?: 'Operations Coordinator');
+    $installerName = (string) ($db->query("SELECT full_name FROM users WHERE id = $installerId")->fetchColumn() ?: 'Lead Installer');
+    $adminId = (int) ($db->query("SELECT id FROM users WHERE LOWER(username) = 'admin' LIMIT 1")->fetchColumn() ?: 0);
+    $adminName = (string) ($db->query("SELECT full_name FROM users WHERE id = $adminId")->fetchColumn() ?: 'Administrator');
+
+    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+
+    $entrySetOne = json_encode([
+        [
+            'id' => bin2hex(random_bytes(8)),
+            'stage' => 'structure',
+            'type' => 'stage',
+            'remarks' => 'Mounting structure aligned and anchor bolts torqued.',
+            'photo' => 'structure-east-wing.jpg',
+            'actorId' => $employeeId ?: null,
+            'actorName' => $employeeName,
+            'actorRole' => 'Employee',
+            'timestamp' => $now->modify('-4 days')->format('Y-m-d H:i:s'),
+        ],
+        [
+            'id' => bin2hex(random_bytes(8)),
+            'stage' => 'wiring',
+            'type' => 'stage',
+            'remarks' => 'DC string continuity verified on rooftop.',
+            'photo' => 'string-test-report.pdf',
+            'actorId' => $installerId ?: null,
+            'actorName' => $installerName,
+            'actorRole' => 'Installer',
+            'timestamp' => $now->modify('-2 days')->format('Y-m-d H:i:s'),
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $entrySetTwo = json_encode([
+        [
+            'id' => bin2hex(random_bytes(8)),
+            'stage' => 'structure',
+            'type' => 'stage',
+            'remarks' => 'Module mounting completed, fasteners inspected with torque wrench.',
+            'photo' => 'mounting-bolts.jpg',
+            'actorId' => $installerId ?: null,
+            'actorName' => $installerName,
+            'actorRole' => 'Installer',
+            'timestamp' => $now->modify('-6 days')->format('Y-m-d H:i:s'),
+        ],
+        [
+            'id' => bin2hex(random_bytes(8)),
+            'stage' => 'testing',
+            'type' => 'stage',
+            'remarks' => 'Megger tests logged for DC and AC sides.',
+            'photo' => 'megger-log.xlsx',
+            'actorId' => $employeeId ?: null,
+            'actorName' => $employeeName,
+            'actorRole' => 'Employee',
+            'timestamp' => $now->modify('-3 days')->format('Y-m-d H:i:s'),
+        ],
+        [
+            'id' => bin2hex(random_bytes(8)),
+            'stage' => 'meter',
+            'type' => 'request',
+            'remarks' => 'DISCOM meter installed, commissioning evidence shared.',
+            'photo' => 'net-meter.jpg',
+            'actorId' => $installerId ?: null,
+            'actorName' => $installerName,
+            'actorRole' => 'Installer',
+            'timestamp' => $now->modify('-1 days')->format('Y-m-d H:i:s'),
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $entrySetThree = json_encode([
+        [
+            'id' => bin2hex(random_bytes(8)),
+            'stage' => 'commissioned',
+            'type' => 'stage',
+            'remarks' => 'Handover and training completed with customer family.',
+            'photo' => 'handover-checklist.pdf',
+            'actorId' => $adminId ?: null,
+            'actorName' => $adminName,
+            'actorRole' => 'Admin',
+            'timestamp' => $now->modify('-8 hours')->format('Y-m-d H:i:s'),
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $insert = $db->prepare("INSERT INTO installations(customer_name, project_reference, capacity_kw, status, stage, stage_entries, requested_stage, requested_by, requested_at, amc_committed, scheduled_date, handover_date, assigned_to, installer_id, created_at, updated_at)
+        VALUES(:customer_name, :project_reference, :capacity_kw, :status, :stage, :stage_entries, :requested_stage, :requested_by, :requested_at, :amc_committed, :scheduled_date, :handover_date, :assigned_to, :installer_id, datetime('now', '+330 minutes'), datetime('now', '+330 minutes'))");
+
+    $insert->execute([
+        ':customer_name' => 'Asha Devi',
+        ':project_reference' => 'INST-001',
+        ':capacity_kw' => 6.5,
+        ':status' => 'in_progress',
+        ':stage' => 'testing',
+        ':stage_entries' => $entrySetOne,
+        ':requested_stage' => null,
+        ':requested_by' => null,
+        ':requested_at' => null,
+        ':amc_committed' => 1,
+        ':scheduled_date' => $now->modify('+2 days')->format('Y-m-d'),
+        ':handover_date' => $now->modify('+7 days')->format('Y-m-d'),
+        ':assigned_to' => $employeeId ?: null,
+        ':installer_id' => $installerId ?: null,
+    ]);
+
+    $insert->execute([
+        ':customer_name' => 'Rajesh Kumar',
+        ':project_reference' => 'INST-004',
+        ':capacity_kw' => 8.0,
+        ':status' => 'in_progress',
+        ':stage' => 'meter',
+        ':stage_entries' => $entrySetTwo,
+        ':requested_stage' => 'commissioned',
+        ':requested_by' => $installerId ?: null,
+        ':requested_at' => $now->modify('-1 hours')->format('Y-m-d H:i:s'),
+        ':amc_committed' => 0,
+        ':scheduled_date' => $now->modify('+1 days')->format('Y-m-d'),
+        ':handover_date' => $now->modify('+3 days')->format('Y-m-d'),
+        ':assigned_to' => $employeeId ?: null,
+        ':installer_id' => $installerId ?: null,
+    ]);
+
+    $insert->execute([
+        ':customer_name' => 'Sangeeta P.',
+        ':project_reference' => 'INST-006',
+        ':capacity_kw' => 5.2,
+        ':status' => 'completed',
+        ':stage' => 'commissioned',
+        ':stage_entries' => $entrySetThree,
+        ':requested_stage' => null,
+        ':requested_by' => null,
+        ':requested_at' => null,
+        ':amc_committed' => 1,
+        ':scheduled_date' => $now->modify('-15 days')->format('Y-m-d'),
+        ':handover_date' => $now->modify('-8 days')->format('Y-m-d'),
+        ':assigned_to' => $employeeId ?: null,
+        ':installer_id' => $installerId ?: null,
+    ]);
 }
 
 function merge_employee_roles(PDO $db): void
@@ -1680,7 +1894,6 @@ function canonical_role_name(string $roleName): string
 {
     $normalized = strtolower(trim($roleName));
     $map = [
-        'installer' => 'employee',
         'referrer' => 'employee',
         'staff' => 'employee',
         'team' => 'employee',
@@ -1735,7 +1948,7 @@ function portal_ensure_employee(PDO $db, int $id): array
 
 function portal_list_team(PDO $db): array
 {
-    $stmt = $db->query("SELECT users.id, users.full_name, users.email, users.permissions_note, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name IN ('employee','admin') ORDER BY roles.name, users.full_name");
+    $stmt = $db->query("SELECT users.id, users.full_name, users.email, users.permissions_note, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name IN ('employee','installer','admin') ORDER BY roles.name, users.full_name");
     $team = [];
     foreach ($stmt->fetchAll() as $row) {
         $team[] = [
@@ -2421,7 +2634,7 @@ function admin_overview_counts(PDO $db): array
 {
     $activeEmployees = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee' AND users.status = 'active'")->fetchColumn();
     $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
-    $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE status = 'in_progress'")->fetchColumn();
+    $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status IN ('intake','triage','work')")->fetchColumn();
     $pendingSubsidy = (int) $db->query("SELECT COUNT(*) FROM subsidy_applications WHERE status IN ('pending','submitted')")->fetchColumn();
 
@@ -2467,14 +2680,20 @@ function admin_today_highlights(PDO $db, int $limit = 12): array
         ]);
     }
 
-    $installationStmt = $db->query('SELECT id, customer_name, project_reference, status, updated_at, created_at FROM installations ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    $installationStmt = $db->query('SELECT id, customer_name, project_reference, stage, requested_stage, updated_at, created_at FROM installations ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
     foreach ($installationStmt->fetchAll() as $row) {
-        $status = installation_status_label($row['status'] ?? '');
+        $stage = strtolower(trim((string) ($row['stage'] ?? 'structure')));
+        $stageLabel = installation_stage_label($stage);
         $name = $row['project_reference'] ?: $row['customer_name'];
-        $title = sprintf('Installation %s now %s', $name, strtolower($status));
+        $requested = strtolower(trim((string) ($row['requested_stage'] ?? '')));
+        if ($requested === 'commissioned') {
+            $title = sprintf('Installation %s pending commissioning approval', $name);
+        } else {
+            $title = sprintf('Installation %s now %s', $name, strtolower($stageLabel));
+        }
         $addEntry($row['updated_at'] ?: $row['created_at'], 'installations', $title, [
             'id' => (int) $row['id'],
-            'status' => $status,
+            'status' => $requested === 'commissioned' ? 'Commissioning pending' : $stageLabel,
         ]);
     }
 
@@ -2530,6 +2749,502 @@ function admin_today_highlights(PDO $db, int $limit = 12): array
             'context' => $item['context'],
         ];
     }, $sliced);
+}
+
+function installation_stage_keys(): array
+{
+    return ['structure', 'wiring', 'testing', 'meter', 'commissioned'];
+}
+
+function installation_stage_label(string $stage): string
+{
+    $map = [
+        'structure' => 'Structure',
+        'wiring' => 'Wiring',
+        'testing' => 'Testing',
+        'meter' => 'Meter',
+        'commissioned' => 'Commissioned',
+    ];
+
+    $normalized = strtolower(trim($stage));
+
+    return $map[$normalized] ?? ucfirst($normalized ?: 'Structure');
+}
+
+function installation_stage_index(string $stage): int
+{
+    $stages = installation_stage_keys();
+    $normalized = strtolower(trim($stage));
+    $index = array_search($normalized, $stages, true);
+
+    return $index === false ? 0 : (int) $index;
+}
+
+function installation_stage_progress(string $stage): array
+{
+    $currentIndex = installation_stage_index($stage);
+    $steps = [];
+
+    foreach (installation_stage_keys() as $index => $key) {
+        $steps[] = [
+            'key' => $key,
+            'label' => installation_stage_label($key),
+            'state' => $index < $currentIndex ? 'done' : ($index === $currentIndex ? 'current' : 'upcoming'),
+        ];
+    }
+
+    return $steps;
+}
+
+function installation_stage_tone(string $stage): string
+{
+    return match (strtolower(trim($stage))) {
+        'commissioned' => 'success',
+        'meter' => 'positive',
+        'testing' => 'warning',
+        'wiring' => 'info',
+        default => 'progress',
+    };
+}
+
+function installation_decode_stage_entries(?string $json): array
+{
+    if (!is_string($json) || trim($json) === '') {
+        return [];
+    }
+
+    try {
+        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        return [];
+    }
+
+    if (!is_array($decoded)) {
+        return [];
+    }
+
+    $entries = [];
+    foreach ($decoded as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $stage = strtolower(trim((string) ($item['stage'] ?? 'structure')));
+        $entries[] = [
+            'id' => (string) ($item['id'] ?? ''),
+            'stage' => $stage,
+            'stageLabel' => installation_stage_label($stage),
+            'type' => (string) ($item['type'] ?? 'note'),
+            'remarks' => (string) ($item['remarks'] ?? ''),
+            'photo' => (string) ($item['photo'] ?? ''),
+            'actorId' => isset($item['actorId']) ? (int) $item['actorId'] : null,
+            'actorName' => (string) ($item['actorName'] ?? ''),
+            'actorRole' => (string) ($item['actorRole'] ?? ''),
+            'timestamp' => (string) ($item['timestamp'] ?? ''),
+        ];
+    }
+
+    usort($entries, static fn (array $a, array $b): int => strcmp($a['timestamp'], $b['timestamp']));
+
+    return $entries;
+}
+
+function installation_actor_details(PDO $db, int $actorId): array
+{
+    $user = portal_find_user($db, $actorId);
+    if (!$user) {
+        return [
+            'id' => $actorId,
+            'name' => 'User #' . $actorId,
+            'role' => 'User',
+        ];
+    }
+
+    $roleName = (string) ($user['role_name'] ?? '');
+
+    return [
+        'id' => (int) $user['id'],
+        'name' => (string) ($user['full_name'] ?? ('User #' . $actorId)),
+        'role' => portal_role_label($roleName),
+    ];
+}
+
+function installation_append_stage_entry(PDO $db, array $row, array $entry): array
+{
+    $entries = installation_decode_stage_entries($row['stage_entries'] ?? '[]');
+    $entries[] = $entry;
+
+    $encoded = json_encode($entries, JSON_THROW_ON_ERROR);
+    $timestamp = now_ist();
+
+    $db->prepare('UPDATE installations SET stage_entries = :entries, updated_at = :updated_at WHERE id = :id')->execute([
+        ':entries' => $encoded,
+        ':updated_at' => $timestamp,
+        ':id' => (int) $row['id'],
+    ]);
+
+    $row['stage_entries'] = $encoded;
+    $row['updated_at'] = $timestamp;
+
+    return $row;
+}
+
+function installation_stage_max_for_role(string $role): string
+{
+    $canonical = strtolower(trim($role));
+
+    return match ($canonical) {
+        'admin' => 'commissioned',
+        default => 'meter',
+    };
+}
+
+function installation_role_can_finalize(string $role): bool
+{
+    return strtolower(trim($role)) === 'admin';
+}
+
+function installation_fetch(PDO $db, int $id): array
+{
+    $stmt = $db->prepare('SELECT installations.*, emp.full_name AS employee_name, inst.full_name AS installer_name, req.full_name AS requested_by_name FROM installations
+        LEFT JOIN users emp ON installations.assigned_to = emp.id
+        LEFT JOIN users inst ON installations.installer_id = inst.id
+        LEFT JOIN users req ON installations.requested_by = req.id
+        WHERE installations.id = :id LIMIT 1');
+    $stmt->execute([':id' => $id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('Installation not found.');
+    }
+
+    return $row;
+}
+
+function installation_stage_transition_allowed(string $role, string $currentStage, string $targetStage): bool
+{
+    $currentIndex = installation_stage_index($currentStage);
+    $targetIndex = installation_stage_index($targetStage);
+    $maxIndex = installation_stage_index(installation_stage_max_for_role($role));
+
+    if ($targetIndex > $maxIndex) {
+        return false;
+    }
+
+    if ($targetIndex < $currentIndex && strtolower(trim($role)) !== 'admin') {
+        return false;
+    }
+
+    return true;
+}
+
+function installation_stage_requires_approval(string $role, string $targetStage): bool
+{
+    if (installation_role_can_finalize($role)) {
+        return false;
+    }
+
+    return strtolower(trim($targetStage)) === 'commissioned';
+}
+
+function installation_update_stage(
+    PDO $db,
+    int $installationId,
+    string $targetStage,
+    int $actorId,
+    string $actorRole,
+    string $remarks = '',
+    string $photoLabel = ''
+): array {
+    $row = installation_fetch($db, $installationId);
+    $currentStage = strtolower(trim((string) ($row['stage'] ?? 'structure')));
+    $targetStage = strtolower(trim($targetStage));
+
+    if (!in_array($targetStage, installation_stage_keys(), true)) {
+        throw new RuntimeException('Unsupported installation stage.');
+    }
+
+    $actor = installation_actor_details($db, $actorId);
+    $now = now_ist();
+
+    $logId = bin2hex(random_bytes(8));
+    $entry = [
+        'id' => $logId,
+        'stage' => $targetStage,
+        'type' => 'note',
+        'remarks' => $remarks,
+        'photo' => $photoLabel,
+        'actorId' => $actor['id'],
+        'actorName' => $actor['name'],
+        'actorRole' => $actor['role'],
+        'timestamp' => $now,
+    ];
+
+    $requiresApproval = installation_stage_requires_approval($actorRole, $targetStage);
+
+    if ($requiresApproval) {
+        $db->prepare('UPDATE installations SET requested_stage = :requested_stage, requested_by = :requested_by, requested_at = :requested_at, updated_at = :updated_at WHERE id = :id')->execute([
+            ':requested_stage' => $targetStage,
+            ':requested_by' => $actor['id'],
+            ':requested_at' => $now,
+            ':updated_at' => $now,
+            ':id' => $installationId,
+        ]);
+
+        $entry['type'] = 'request';
+        $row['requested_stage'] = $targetStage;
+        $row['requested_by'] = $actor['id'];
+        $row['requested_at'] = $now;
+    } elseif ($targetStage !== $currentStage) {
+        if (!installation_stage_transition_allowed($actorRole, $currentStage, $targetStage)) {
+            throw new RuntimeException('Stage change is not permitted.');
+        }
+
+        $status = $targetStage === 'commissioned' ? 'completed' : 'in_progress';
+
+        $db->prepare('UPDATE installations SET stage = :stage, status = :status, requested_stage = NULL, requested_by = NULL, requested_at = NULL, updated_at = :updated_at WHERE id = :id')->execute([
+            ':stage' => $targetStage,
+            ':status' => $status,
+            ':updated_at' => $now,
+            ':id' => $installationId,
+        ]);
+
+        $row['stage'] = $targetStage;
+        $row['status'] = $status;
+        $row['requested_stage'] = null;
+        $row['requested_by'] = null;
+        $row['requested_at'] = null;
+        $entry['type'] = 'stage';
+    }
+
+    if ($remarks !== '' || $photoLabel !== '' || $entry['type'] !== 'note') {
+        $row = installation_append_stage_entry($db, $row, $entry);
+    }
+
+    return $row;
+}
+
+function installation_approve_commissioning(PDO $db, int $installationId, int $actorId, string $remarks = ''): array
+{
+    $row = installation_fetch($db, $installationId);
+    $requestedStage = strtolower(trim((string) ($row['requested_stage'] ?? '')));
+    if ($requestedStage !== 'commissioned') {
+        throw new RuntimeException('No commissioning request is pending.');
+    }
+
+    return installation_update_stage($db, $installationId, 'commissioned', $actorId, 'admin', $remarks);
+}
+
+function installation_toggle_amc(PDO $db, int $installationId, bool $committed, int $actorId): array
+{
+    $row = installation_fetch($db, $installationId);
+    $current = (int) ($row['amc_committed'] ?? 0) === 1;
+    if ($current === $committed) {
+        return $row;
+    }
+
+    $db->prepare('UPDATE installations SET amc_committed = :amc, updated_at = :updated_at WHERE id = :id')->execute([
+        ':amc' => $committed ? 1 : 0,
+        ':updated_at' => now_ist(),
+        ':id' => $installationId,
+    ]);
+
+    $row['amc_committed'] = $committed ? 1 : 0;
+
+    $actor = installation_actor_details($db, $actorId);
+    $entry = [
+        'id' => bin2hex(random_bytes(8)),
+        'stage' => strtolower(trim((string) ($row['stage'] ?? 'structure'))),
+        'type' => 'amc',
+        'remarks' => $committed ? 'AMC commitment confirmed.' : 'AMC commitment removed.',
+        'photo' => '',
+        'actorId' => $actor['id'],
+        'actorName' => $actor['name'],
+        'actorRole' => $actor['role'],
+        'timestamp' => now_ist(),
+    ];
+
+    installation_append_stage_entry($db, $row, $entry);
+
+    return $row;
+}
+
+function installation_normalize_row(PDO $db, array $row, string $role = 'admin'): array
+{
+    $stage = strtolower(trim((string) ($row['stage'] ?? 'structure')));
+    $entries = installation_decode_stage_entries($row['stage_entries'] ?? '[]');
+    $progress = installation_stage_progress($stage);
+    $requestedStage = strtolower(trim((string) ($row['requested_stage'] ?? '')));
+
+    $maxStage = installation_stage_max_for_role($role);
+    $maxIndex = installation_stage_index($maxStage);
+    $currentIndex = installation_stage_index($stage);
+
+    $stageOptions = [];
+    $hasCurrentStage = false;
+    $hasCommissionedOption = false;
+    $roleKey = strtolower(trim($role));
+    $commissionIndex = installation_stage_index('commissioned');
+
+    foreach (installation_stage_keys() as $key) {
+        $index = installation_stage_index($key);
+        if ($index < $currentIndex && $roleKey !== 'admin') {
+            continue;
+        }
+        if ($index > $maxIndex && $key !== $stage) {
+            continue;
+        }
+
+        $isCurrent = $key === $stage;
+        $isLocked = $requestedStage !== '' && $requestedStage !== $stage && $roleKey !== 'admin';
+
+        $stageOptions[] = [
+            'value' => $key,
+            'label' => installation_stage_label($key),
+            'disabled' => $isLocked && !$isCurrent,
+        ];
+
+        if ($isCurrent) {
+            $hasCurrentStage = true;
+        }
+
+        if ($key === 'commissioned') {
+            $hasCommissionedOption = true;
+        }
+    }
+
+    if (!$hasCurrentStage) {
+        $stageOptions[] = [
+            'value' => $stage,
+            'label' => installation_stage_label($stage),
+            'disabled' => false,
+        ];
+    }
+
+    $canRequestCommissioning = $roleKey !== 'admin'
+        && $currentIndex < $commissionIndex
+        && ($requestedStage === '' || $requestedStage === $stage);
+
+    if ($canRequestCommissioning && !$hasCommissionedOption) {
+        $stageOptions[] = [
+            'value' => 'commissioned',
+            'label' => 'Request commissioning approval',
+            'disabled' => false,
+        ];
+        $hasCommissionedOption = true;
+    }
+
+    return [
+        'id' => (int) $row['id'],
+        'customer' => (string) ($row['customer_name'] ?? ''),
+        'project' => (string) ($row['project_reference'] ?? ''),
+        'capacity' => isset($row['capacity_kw']) ? (float) $row['capacity_kw'] : null,
+        'stage' => $stage,
+        'stageLabel' => installation_stage_label($stage),
+        'stageTone' => installation_stage_tone($stage),
+        'progress' => $progress,
+        'entries' => $entries,
+        'amcCommitted' => (int) ($row['amc_committed'] ?? 0) === 1,
+        'scheduled' => (string) ($row['scheduled_date'] ?? ''),
+        'handover' => (string) ($row['handover_date'] ?? ''),
+        'employeeName' => (string) ($row['employee_name'] ?? ''),
+        'installerName' => (string) ($row['installer_name'] ?? ''),
+        'requestedStage' => $requestedStage,
+        'requestedByName' => (string) ($row['requested_by_name'] ?? ''),
+        'stageOptions' => $stageOptions,
+        'stageLocked' => $requestedStage !== '' && $requestedStage !== $stage,
+        'updated' => (string) ($row['updated_at'] ?? ''),
+        'created' => (string) ($row['created_at'] ?? ''),
+    ];
+}
+
+function installation_list_for_role(PDO $db, string $role, ?int $userId = null): array
+{
+    $roleKey = strtolower(trim($role));
+    $params = [];
+    $conditions = [];
+
+    if ($roleKey === 'employee' && $userId) {
+        $conditions[] = 'installations.assigned_to = :user_id';
+        $params[':user_id'] = $userId;
+    } elseif ($roleKey === 'installer' && $userId) {
+        $conditions[] = 'installations.installer_id = :user_id';
+        $params[':user_id'] = $userId;
+    }
+
+    $sql = 'SELECT installations.*, emp.full_name AS employee_name, inst.full_name AS installer_name, req.full_name AS requested_by_name FROM installations
+        LEFT JOIN users emp ON installations.assigned_to = emp.id
+        LEFT JOIN users inst ON installations.installer_id = inst.id
+        LEFT JOIN users req ON installations.requested_by = req.id';
+
+    if ($conditions) {
+        $sql .= ' WHERE ' . implode(' AND ', $conditions);
+    }
+
+    $sql .= ' ORDER BY CASE WHEN installations.stage = "commissioned" THEN 1 ELSE 0 END, COALESCE(installations.updated_at, installations.created_at) DESC';
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $record) {
+        $rows[] = installation_normalize_row($db, $record, $roleKey);
+    }
+
+    return $rows;
+}
+
+function installation_admin_filter(PDO $db, string $filter): array
+{
+    $filter = strtolower(trim($filter));
+    $params = [];
+    $conditions = [];
+
+    switch ($filter) {
+        case 'structure':
+        case 'wiring':
+        case 'testing':
+        case 'meter':
+        case 'commissioned':
+            $conditions[] = 'installations.stage = :stage';
+            $params[':stage'] = $filter;
+            break;
+        case 'on_hold':
+        case 'cancelled':
+            $conditions[] = 'installations.status = :status';
+            $params[':status'] = $filter;
+            break;
+        case 'pending_commissioned':
+            $conditions[] = "installations.requested_stage = 'commissioned'";
+            break;
+        case 'ongoing':
+            $conditions[] = "installations.stage != 'commissioned'";
+            $conditions[] = "installations.status NOT IN ('cancelled')";
+            break;
+        case 'all':
+        default:
+            break;
+    }
+
+    $sql = 'SELECT installations.*, emp.full_name AS employee_name, inst.full_name AS installer_name, req.full_name AS requested_by_name FROM installations
+        LEFT JOIN users emp ON installations.assigned_to = emp.id
+        LEFT JOIN users inst ON installations.installer_id = inst.id
+        LEFT JOIN users req ON installations.requested_by = req.id';
+
+    if ($conditions) {
+        $sql .= ' WHERE ' . implode(' AND ', $conditions);
+    }
+
+    $sql .= ' ORDER BY CASE WHEN installations.stage = "commissioned" THEN 1 ELSE 0 END, COALESCE(installations.updated_at, installations.created_at) DESC';
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $record) {
+        $rows[] = installation_normalize_row($db, $record, 'admin');
+    }
+
+    return $rows;
 }
 
 function format_due_date(string $date): string
@@ -3237,18 +3952,9 @@ function admin_list_leads(PDO $db, string $status = 'new'): array
     return $stmt->fetchAll();
 }
 
-function admin_list_installations(PDO $db, string $status = 'in_progress'): array
+function admin_list_installations(PDO $db, string $filter = 'ongoing'): array
 {
-    $status = strtolower(trim($status));
-    if ($status === 'all') {
-        $stmt = $db->query('SELECT customer_name, project_reference, status, scheduled_date, handover_date, created_at, updated_at FROM installations ORDER BY COALESCE(updated_at, created_at) DESC');
-        return $stmt->fetchAll();
-    }
-
-    $stmt = $db->prepare('SELECT customer_name, project_reference, status, scheduled_date, handover_date, created_at, updated_at FROM installations WHERE status = :status ORDER BY COALESCE(updated_at, created_at) DESC');
-    $stmt->execute([':status' => $status]);
-
-    return $stmt->fetchAll();
+    return installation_admin_filter($db, $filter);
 }
 
 function admin_list_complaints(PDO $db, string $status = 'open'): array
