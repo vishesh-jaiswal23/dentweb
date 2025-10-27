@@ -41,7 +41,18 @@ if (defined('ADMIN_EMAIL') && filter_var(ADMIN_EMAIL, FILTER_VALIDATE_EMAIL)) {
 $supportEmail = (string) $supportEmail;
 
 start_session();
-$db = get_db();
+
+$bootstrapError = '';
+$db = null;
+try {
+    $db = get_db();
+} catch (Throwable $exception) {
+    $bootstrapError = 'The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
+    if ($supportEmail !== '') {
+        $bootstrapError .= ' Reach out to ' . $supportEmail . ' for assistance.';
+    }
+    error_log('Login bootstrap failed: ' . $exception->getMessage());
+}
 
 $scriptDir = str_replace('\\', '/', dirname($_SERVER['PHP_SELF'] ?? ''));
 if ($scriptDir === '/' || $scriptDir === '.') {
@@ -62,38 +73,42 @@ $roleRoutes = [
     'referrer' => $routeFor('referrer-dashboard.html'),
 ];
 
-$error = '';
+$error = $bootstrapError;
 $success = '';
 $selectedRole = $_POST['role'] ?? 'admin';
 $emailValue = $_POST['email'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $csrfToken = $_POST['csrf_token'] ?? '';
-    if (!verify_csrf_token($csrfToken)) {
-        $error = 'Your session expired. Please refresh and try again.';
+    if ($bootstrapError !== '') {
+        $error = $bootstrapError;
     } else {
-        $selectedRole = $_POST['role'] ?? 'admin';
-        $email = trim($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
-
-        if (!isset($roleRoutes[$selectedRole])) {
-            $error = 'Select a valid portal to continue.';
-        } elseif ($email === '' || $password === '') {
-            $error = 'Enter both your email ID and password.';
+        $csrfToken = $_POST['csrf_token'] ?? '';
+        if (!verify_csrf_token($csrfToken)) {
+            $error = 'Your session expired. Please refresh and try again.';
         } else {
-            $user = authenticate_user($email, $password, $selectedRole);
-            if (!$user) {
-                $error = 'The provided credentials were incorrect or the account is inactive.';
+            $selectedRole = $_POST['role'] ?? 'admin';
+            $email = trim($_POST['email'] ?? '');
+            $password = $_POST['password'] ?? '';
+
+            if (!isset($roleRoutes[$selectedRole])) {
+                $error = 'Select a valid portal to continue.';
+            } elseif ($email === '' || $password === '') {
+                $error = 'Enter both your email ID and password.';
             } else {
-                $_SESSION['user'] = [
-                    'id' => $user['id'],
-                    'full_name' => $user['full_name'],
-                    'email' => $user['email'],
-                    'role_name' => $user['role_name'],
-                ];
-                $success = 'Login successful. Redirecting…';
-                header('Location: ' . $roleRoutes[$selectedRole]);
-                exit;
+                $user = authenticate_user($email, $password, $selectedRole);
+                if (!$user) {
+                    $error = 'The provided credentials were incorrect or the account is inactive.';
+                } else {
+                    $_SESSION['user'] = [
+                        'id' => $user['id'],
+                        'full_name' => $user['full_name'],
+                        'email' => $user['email'],
+                        'role_name' => $user['role_name'],
+                    ];
+                    $success = 'Login successful. Redirecting…';
+                    header('Location: ' . $roleRoutes[$selectedRole]);
+                    exit;
+                }
             }
         }
     }
