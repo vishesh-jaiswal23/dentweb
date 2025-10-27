@@ -10,6 +10,10 @@ function get_db(): PDO
         return $db;
     }
 
+    if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
+        throw new RuntimeException('The SQLite PDO driver is not installed.');
+    }
+
     $storageDir = __DIR__ . '/../storage';
     if (!is_dir($storageDir)) {
         mkdir($storageDir, 0775, true);
@@ -17,10 +21,14 @@ function get_db(): PDO
 
     $dbPath = $storageDir . '/app.sqlite';
 
-    $db = new PDO('sqlite:' . $dbPath, null, null, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    try {
+        $db = new PDO('sqlite:' . $dbPath, null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+    } catch (PDOException $exception) {
+        throw new RuntimeException('Failed to initialise the application database.', 0, $exception);
+    }
     $db->exec('PRAGMA foreign_keys = ON');
 
     initialize_schema($db);
@@ -275,39 +283,26 @@ function seed_defaults(PDO $db): void
         ]);
     }
 
-    // Seed default admin if none exists
-    $adminRoleId = (int) $db->query('SELECT id FROM roles WHERE name = "admin"')->fetchColumn();
-    $existingAdminCount = (int) $db->query('SELECT COUNT(*) FROM users WHERE role_id = ' . $adminRoleId)->fetchColumn();
-    if ($existingAdminCount === 0) {
-        $stmt = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'))");
-        $stmt->execute([
-            ':full_name' => 'Primary Administrator',
-            ':email' => 'd.entranchi@gmail.com',
-            ':username' => 'd.entranchi@gmail.com',
-            ':password_hash' => password_hash('Dent@2025', PASSWORD_DEFAULT),
-            ':role_id' => $adminRoleId,
-            ':permissions_note' => 'Full access',
-        ]);
-    } else {
-        $legacyAdminStmt = $db->prepare('SELECT id FROM users WHERE role_id = :role_id AND (LOWER(email) = LOWER(:legacy_email) OR LOWER(username) = LOWER(:legacy_username)) LIMIT 1');
-        $legacyAdminStmt->execute([
-            ':role_id' => $adminRoleId,
-            ':legacy_email' => 'admin@dakshayani.in',
-            ':legacy_username' => 'sysadmin',
-        ]);
-        $legacyAdmin = $legacyAdminStmt->fetchColumn();
-        if ($legacyAdmin !== false) {
-            $updateStmt = $db->prepare("UPDATE users SET full_name = :full_name, email = :email, username = :username, password_hash = :password_hash, status = 'active', permissions_note = :permissions_note, password_last_set_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
-            $updateStmt->execute([
-                ':full_name' => 'Primary Administrator',
-                ':email' => 'd.entranchi@gmail.com',
-                ':username' => 'd.entranchi@gmail.com',
-                ':password_hash' => password_hash('Dent@2025', PASSWORD_DEFAULT),
-                ':permissions_note' => 'Full access',
-                ':id' => (int) $legacyAdmin,
-            ]);
-        }
-    }
+    ensure_default_user($db, [
+        'role' => 'admin',
+        'full_name' => 'Primary Administrator',
+        'email' => 'admin@dakshayani.in',
+        'username' => 'admin',
+        'password' => 'Dent@2025',
+        'permissions_note' => 'Full access',
+        'legacy_emails' => ['d.entranchi@gmail.com'],
+        'legacy_usernames' => ['d.entranchi@gmail.com', 'sysadmin'],
+    ]);
+
+    ensure_default_user($db, [
+        'role' => 'employee',
+        'full_name' => 'Operations Coordinator',
+        'email' => 'employee@dakshayani.in',
+        'username' => 'employee',
+        'password' => 'Employee@2025',
+        'permissions_note' => 'Employee workspace access',
+        'legacy_usernames' => ['employee'],
+    ]);
 
     $defaultMetrics = [
         'last_backup' => 'Not recorded',
@@ -345,6 +340,146 @@ function seed_defaults(PDO $db): void
     blog_backfill_cover_images($db);
 
     seed_portal_defaults($db);
+}
+
+function ensure_default_user(PDO $db, array $account): void
+{
+    $roleStmt = $db->prepare('SELECT id FROM roles WHERE name = :name LIMIT 1');
+    $roleStmt->execute([':name' => $account['role']]);
+    $roleId = $roleStmt->fetchColumn();
+    if ($roleId === false) {
+        return;
+    }
+    $roleId = (int) $roleId;
+
+    $emails = array_map('strtolower', array_filter([
+        $account['email'] ?? null,
+        ...($account['legacy_emails'] ?? []),
+    ], 'is_string'));
+    $usernames = array_map('strtolower', array_filter([
+        $account['username'] ?? null,
+        ...($account['legacy_usernames'] ?? []),
+    ], 'is_string'));
+
+    $conditions = [];
+    $params = [];
+
+    if ($emails) {
+        $emails = array_values(array_unique($emails));
+        $placeholders = [];
+        foreach ($emails as $index => $email) {
+            $placeholder = ':email_lookup_' . $index;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $email;
+        }
+        $conditions[] = 'LOWER(email) IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    if ($usernames) {
+        $usernames = array_values(array_unique($usernames));
+        $placeholders = [];
+        foreach ($usernames as $index => $username) {
+            $placeholder = ':username_lookup_' . $index;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $username;
+        }
+        $conditions[] = 'LOWER(username) IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    $existing = null;
+    if ($conditions) {
+        $sql = 'SELECT id, email, username, password_hash, status, role_id, permissions_note, full_name FROM users WHERE ' . implode(' OR ', $conditions) . ' LIMIT 1';
+        $lookup = $db->prepare($sql);
+        $lookup->execute($params);
+        $existing = $lookup->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    $defaultPassword = (string) ($account['password'] ?? '');
+    $nowPasswordHash = null;
+
+    if ($existing === null) {
+        $insert = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'), datetime('now'), datetime('now'))");
+        if ($defaultPassword !== '') {
+            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
+        }
+
+        $insert->execute([
+            ':full_name' => $account['full_name'],
+            ':email' => $account['email'],
+            ':username' => $account['username'],
+            ':password_hash' => $nowPasswordHash,
+            ':role_id' => $roleId,
+            ':permissions_note' => $account['permissions_note'] ?? '',
+        ]);
+        return;
+    }
+
+    $updates = [];
+    $updateParams = [':id' => (int) $existing['id']];
+
+    if ((int) $existing['role_id'] !== $roleId) {
+        $updates[] = 'role_id = :role_id';
+        $updateParams[':role_id'] = $roleId;
+    }
+
+    $legacyEmails = array_map('strtolower', $account['legacy_emails'] ?? []);
+    $existingEmail = strtolower((string) ($existing['email'] ?? ''));
+    $targetEmail = strtolower((string) ($account['email'] ?? ''));
+    if ($targetEmail !== '' && $existingEmail !== $targetEmail) {
+        if (!$legacyEmails || in_array($existingEmail, $legacyEmails, true)) {
+            $updates[] = 'email = :email';
+            $updateParams[':email'] = $account['email'];
+        }
+    }
+
+    $legacyUsernames = array_map('strtolower', $account['legacy_usernames'] ?? []);
+    $existingUsername = strtolower((string) ($existing['username'] ?? ''));
+    $targetUsername = strtolower((string) ($account['username'] ?? ''));
+    if ($targetUsername !== '' && $existingUsername !== $targetUsername) {
+        if (!$legacyUsernames || in_array($existingUsername, $legacyUsernames, true)) {
+            $updates[] = 'username = :username';
+            $updateParams[':username'] = $account['username'];
+        }
+    }
+
+    $existingName = trim((string) ($existing['full_name'] ?? ''));
+    $targetName = (string) ($account['full_name'] ?? '');
+    if ($targetName !== '' && ($existingName === '' || $existingName === $targetName)) {
+        if ($existingName !== $targetName) {
+            $updates[] = 'full_name = :full_name';
+            $updateParams[':full_name'] = $targetName;
+        }
+    }
+
+    $existingNote = trim((string) ($existing['permissions_note'] ?? ''));
+    $targetNote = (string) ($account['permissions_note'] ?? '');
+    if ($targetNote !== '' && ($existingNote === '' || $existingNote === $targetNote)) {
+        if ($existingNote !== $targetNote) {
+            $updates[] = 'permissions_note = :permissions_note';
+            $updateParams[':permissions_note'] = $targetNote;
+        }
+    }
+
+    if (($existing['status'] ?? '') !== 'active') {
+        $updates[] = "status = 'active'";
+    }
+
+    $existingHash = (string) ($existing['password_hash'] ?? '');
+    if ($defaultPassword !== '' && ($existingHash === '' || !password_verify($defaultPassword, $existingHash))) {
+        if ($nowPasswordHash === null) {
+            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
+        }
+        $updates[] = 'password_hash = :password_hash';
+        $updateParams[':password_hash'] = $nowPasswordHash;
+        $updates[] = "password_last_set_at = datetime('now')";
+    }
+
+    if ($updates) {
+        $updates[] = "updated_at = datetime('now')";
+        $sql = 'UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = :id';
+        $stmt = $db->prepare($sql);
+        $stmt->execute($updateParams);
+    }
 }
 
 function get_setting(string $key, ?PDO $db = null): ?string
