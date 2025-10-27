@@ -5287,6 +5287,14 @@ body[data-festival-theme] .hero-highlight {
   align-items: stretch;
 }
 
+@media (min-width: 1100px) {
+  .dashboard-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+    align-items: start;
+  }
+}
+
 .dashboard-nav {
   background: var(--surface);
   border-radius: 1rem;
