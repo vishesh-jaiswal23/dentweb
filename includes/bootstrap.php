@@ -558,13 +558,23 @@ function ensure_default_user(PDO $db, array $account): void
     }
 
     $existingHash = (string) ($existing['password_hash'] ?? '');
-    if ($defaultPassword !== '' && ($existingHash === '' || !password_verify($defaultPassword, $existingHash))) {
-        if ($nowPasswordHash === null) {
-            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
+    if ($defaultPassword !== '') {
+        $shouldApplyDefault = false;
+
+        if ($existingHash === '') {
+            $shouldApplyDefault = true;
+        } elseif (password_verify($defaultPassword, $existingHash) && password_needs_rehash($existingHash, PASSWORD_DEFAULT)) {
+            $shouldApplyDefault = true;
         }
-        $updates[] = 'password_hash = :password_hash';
-        $updateParams[':password_hash'] = $nowPasswordHash;
-        $updates[] = "password_last_set_at = datetime('now')";
+
+        if ($shouldApplyDefault) {
+            if ($nowPasswordHash === null) {
+                $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
+            }
+            $updates[] = 'password_hash = :password_hash';
+            $updateParams[':password_hash'] = $nowPasswordHash;
+            $updates[] = "password_last_set_at = datetime('now')";
+        }
     }
 
     if ($updates) {
