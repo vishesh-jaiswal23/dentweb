@@ -4,6 +4,42 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/bootstrap.php';
 
+$supportEmail = null;
+if (defined('ADMIN_EMAIL') && filter_var(ADMIN_EMAIL, FILTER_VALIDATE_EMAIL)) {
+    $supportEmail = ADMIN_EMAIL;
+} else {
+    $emailCandidates = [
+        $_ENV['ADMIN_EMAIL'] ?? null,
+        $_SERVER['ADMIN_EMAIL'] ?? null,
+    ];
+
+    $envEmail = getenv('ADMIN_EMAIL');
+    if (is_string($envEmail)) {
+        $emailCandidates[] = $envEmail;
+    }
+
+    foreach ($emailCandidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+        $candidate = trim($candidate);
+        if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            $supportEmail = $candidate;
+            break;
+        }
+    }
+
+    if ($supportEmail === null) {
+        $supportEmail = 'support@dakshayani.in';
+    }
+
+    if (!defined('ADMIN_EMAIL')) {
+        define('ADMIN_EMAIL', $supportEmail);
+    }
+}
+
+$supportEmail = (string) $supportEmail;
+
 start_session();
 $db = get_db();
 
@@ -181,6 +217,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <p class="login-feedback <?= $error ? 'is-error' : ($success ? 'is-success' : '') ?>" role="status" aria-live="polite" data-login-feedback>
               <?= htmlspecialchars($error ?: $success, ENT_QUOTES) ?>
             </p>
+            <?php if ($supportEmail !== ''): ?>
+            <p class="text-xs login-support">Need help? Email <a href="mailto:<?= htmlspecialchars($supportEmail, ENT_QUOTES) ?>"><?= htmlspecialchars($supportEmail, ENT_QUOTES) ?></a>.</p>
+            <?php endif; ?>
           </form>
         </div>
 
