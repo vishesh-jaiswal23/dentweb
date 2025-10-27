@@ -127,6 +127,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $redirectView = 'reminders';
                 }
                 break;
+            case 'request_profile_update':
+                $payload = [
+                    'full_name' => (string) ($_POST['new_name'] ?? ''),
+                    'email' => (string) ($_POST['new_email'] ?? ''),
+                    'username' => (string) ($_POST['new_username'] ?? ''),
+                    'notes' => (string) ($_POST['request_notes'] ?? ''),
+                ];
+                employee_submit_request($db, $employeeId, 'profile_edit', $payload);
+                set_flash('success', 'Profile update request sent to Admin.');
+                $redirectView = 'requests';
+                break;
+            case 'request_leave':
+                $payload = [
+                    'start_date' => (string) ($_POST['leave_start'] ?? ''),
+                    'end_date' => (string) ($_POST['leave_end'] ?? ''),
+                    'reason' => (string) ($_POST['leave_reason'] ?? ''),
+                ];
+                employee_submit_request($db, $employeeId, 'leave', $payload);
+                set_flash('success', 'Leave request submitted for approval.');
+                $redirectView = 'requests';
+                break;
+            case 'request_expense':
+                $amountRaw = (string) ($_POST['expense_amount'] ?? '0');
+                $payload = [
+                    'amount' => (float) $amountRaw,
+                    'category' => (string) ($_POST['expense_category'] ?? ''),
+                    'description' => (string) ($_POST['expense_description'] ?? ''),
+                ];
+                employee_submit_request($db, $employeeId, 'expense', $payload);
+                set_flash('success', 'Expense submitted for Admin review.');
+                $redirectView = 'requests';
+                break;
+            case 'request_data_correction':
+                $payload = [
+                    'module' => (string) ($_POST['correction_module'] ?? ''),
+                    'record_id' => (string) ($_POST['correction_record'] ?? '0'),
+                    'field' => (string) ($_POST['correction_field'] ?? ''),
+                    'value' => (string) ($_POST['correction_value'] ?? ''),
+                    'details' => (string) ($_POST['correction_details'] ?? ''),
+                ];
+                employee_submit_request($db, $employeeId, 'data_correction', $payload);
+                set_flash('success', 'Data correction routed to Admin.');
+                $redirectView = 'requests';
+                break;
             case 'withdraw_reminder':
                 $reminderId = (int) ($_POST['reminder_id'] ?? 0);
                 if ($reminderId <= 0) {
@@ -1982,11 +2026,25 @@ $attachmentIcon = static function (string $filename): string {
                       </tr>
                       <?php else: ?>
                       <?php foreach ($employeeRequests as $request): ?>
+                      <?php
+                      $statusRaw = (string) ($request['status'] ?? 'pending');
+                      $statusLabel = ucwords(str_replace('_', ' ', $statusRaw));
+                      $typeLabel = ucwords(str_replace('_', ' ', (string) ($request['type'] ?? 'general')));
+                      $updatedRaw = (string) ($request['updatedAt'] ?? '');
+                      $updatedDisplay = '—';
+                      if ($updatedRaw !== '') {
+                          $updatedTime = strtotime($updatedRaw);
+                          if ($updatedTime !== false) {
+                              $updatedDisplay = date('d M · H:i', $updatedTime);
+                          }
+                      }
+                      $notes = trim((string) ($request['notes'] ?? ''));
+                      ?>
                       <tr>
-                        <td><?= htmlspecialchars($request['subject'] ?? 'Request', ENT_QUOTES) ?></td>
-                        <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', $request['type'] ?? 'general')), ENT_QUOTES) ?></td>
-                        <td><span class="dashboard-status"><?= htmlspecialchars(ucwords($request['status'] ?? 'pending'), ENT_QUOTES) ?></span></td>
-                        <td><?= htmlspecialchars($request['updated_at'] ?? '—', ENT_QUOTES) ?></td>
+                        <td<?= $notes !== '' ? ' title="' . htmlspecialchars($notes, ENT_QUOTES) . '"' : '' ?>><?= htmlspecialchars($request['subject'] ?? 'Request', ENT_QUOTES) ?></td>
+                        <td><?= htmlspecialchars($typeLabel, ENT_QUOTES) ?></td>
+                        <td><span class="dashboard-status dashboard-status--<?= htmlspecialchars(strtolower($statusRaw), ENT_QUOTES) ?>"><?= htmlspecialchars($statusLabel, ENT_QUOTES) ?></span></td>
+                        <td><?= htmlspecialchars($updatedDisplay, ENT_QUOTES) ?></td>
                       </tr>
                       <?php endforeach; ?>
                       <?php endif; ?>
@@ -1998,9 +2056,118 @@ $attachmentIcon = static function (string $filename): string {
               <article class="dashboard-panel dashboard-panel--muted">
                 <h3>Raise a new request</h3>
                 <p class="text-sm">
-                  Email Admin with detailed context for faster triage. Include customer reference numbers whenever applicable.
+                  Use these forms to route common approvals directly to Admin. Detailed notes help speed up the decision.
                 </p>
-                <a class="btn btn-secondary btn-sm" href="mailto:<?= htmlspecialchars($supportEmail, ENT_QUOTES) ?>">Contact Admin</a>
+
+                <section class="dashboard-request" aria-label="Profile update request">
+                  <h4>Profile update</h4>
+                  <form method="post" class="dashboard-request__form">
+                    <input type="hidden" name="action" value="request_profile_update" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
+                    <input type="hidden" name="redirect_view" value="requests" />
+                    <label>
+                      <span class="text-xs text-muted">New name</span>
+                      <input type="text" name="new_name" placeholder="Updated full name" />
+                    </label>
+                    <label>
+                      <span class="text-xs text-muted">New email</span>
+                      <input type="email" name="new_email" placeholder="name@example.com" />
+                    </label>
+                    <label>
+                      <span class="text-xs text-muted">New username</span>
+                      <input type="text" name="new_username" placeholder="portal username" />
+                    </label>
+                    <label>
+                      <span class="text-xs text-muted">Notes to Admin</span>
+                      <textarea name="request_notes" rows="2" placeholder="Access or contact updates"></textarea>
+                    </label>
+                    <button type="submit" class="btn btn-secondary btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Submit profile update</button>
+                  </form>
+                </section>
+
+                <section class="dashboard-request" aria-label="Leave request">
+                  <h4>Leave request</h4>
+                  <form method="post" class="dashboard-request__form">
+                    <input type="hidden" name="action" value="request_leave" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
+                    <input type="hidden" name="redirect_view" value="requests" />
+                    <div class="dashboard-request__grid">
+                      <label>
+                        <span class="text-xs text-muted">Start date</span>
+                        <input type="date" name="leave_start" required />
+                      </label>
+                      <label>
+                        <span class="text-xs text-muted">End date</span>
+                        <input type="date" name="leave_end" required />
+                      </label>
+                    </div>
+                    <label>
+                      <span class="text-xs text-muted">Reason</span>
+                      <textarea name="leave_reason" rows="2" placeholder="Purpose and coverage plan" required></textarea>
+                    </label>
+                    <button type="submit" class="btn btn-secondary btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Submit leave request</button>
+                  </form>
+                </section>
+
+                <section class="dashboard-request" aria-label="Expense claim">
+                  <h4>Expense reimbursement</h4>
+                  <form method="post" class="dashboard-request__form">
+                    <input type="hidden" name="action" value="request_expense" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
+                    <input type="hidden" name="redirect_view" value="requests" />
+                    <div class="dashboard-request__grid">
+                      <label>
+                        <span class="text-xs text-muted">Amount (₹)</span>
+                        <input type="number" name="expense_amount" step="0.01" min="0" placeholder="0.00" required />
+                      </label>
+                      <label>
+                        <span class="text-xs text-muted">Category</span>
+                        <input type="text" name="expense_category" placeholder="Travel, tools, etc." />
+                      </label>
+                    </div>
+                    <label>
+                      <span class="text-xs text-muted">Description</span>
+                      <textarea name="expense_description" rows="2" placeholder="Include bill numbers or context" required></textarea>
+                    </label>
+                    <button type="submit" class="btn btn-secondary btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Submit expense</button>
+                  </form>
+                </section>
+
+                <section class="dashboard-request" aria-label="Data correction">
+                  <h4>Data correction</h4>
+                  <form method="post" class="dashboard-request__form">
+                    <input type="hidden" name="action" value="request_data_correction" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
+                    <input type="hidden" name="redirect_view" value="requests" />
+                    <label>
+                      <span class="text-xs text-muted">Module</span>
+                      <select name="correction_module" required>
+                        <option value="">Select module</option>
+                        <option value="lead">Lead</option>
+                        <option value="installation">Installation</option>
+                        <option value="complaint">Complaint</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span class="text-xs text-muted">Record reference</span>
+                      <input type="number" name="correction_record" min="0" placeholder="Numeric identifier" />
+                    </label>
+                    <label>
+                      <span class="text-xs text-muted">Field to update</span>
+                      <input type="text" name="correction_field" placeholder="e.g. phone" />
+                    </label>
+                    <label>
+                      <span class="text-xs text-muted">New value</span>
+                      <input type="text" name="correction_value" placeholder="Correct value" />
+                    </label>
+                    <label>
+                      <span class="text-xs text-muted">Details</span>
+                      <textarea name="correction_details" rows="2" placeholder="Reason and supporting info" required></textarea>
+                    </label>
+                    <button type="submit" class="btn btn-secondary btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Submit correction</button>
+                  </form>
+                </section>
               </article>
             </div>
           </section>
