@@ -89,6 +89,10 @@ $roleRoutes = [
     'admin' => $routeFor('admin-dashboard.php'),
     'employee' => $routeFor('employee-dashboard.php'),
 ];
+$roleLabel = static function (string $role): string {
+    $clean = trim(str_replace(['_', '-'], ' ', strtolower($role)));
+    return $clean === '' ? 'Selected' : ucwords($clean);
+};
 
 $error = $bootstrapError;
 $success = '';
