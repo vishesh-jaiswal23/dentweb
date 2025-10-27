@@ -65,6 +65,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 admin_reject_lead_proposal($db, $proposalId, $adminId, $note);
                 set_flash('info', 'Proposal rejected.');
                 break;
+            case 'assign-referrer':
+                $leadId = (int) ($_POST['lead_id'] ?? 0);
+                $referrerId = isset($_POST['referrer_id']) && $_POST['referrer_id'] !== '' ? (int) $_POST['referrer_id'] : null;
+                admin_assign_referrer($db, $leadId, $referrerId, $adminId);
+                set_flash('success', $referrerId ? 'Referrer updated for the lead.' : 'Referrer removed from the lead.');
+                break;
             default:
                 throw new RuntimeException('Unsupported action.');
         }
@@ -90,6 +96,11 @@ function admin_format_datetime(?string $value): string
 }
 
 $employees = admin_active_employees($db);
+$referrers = admin_active_referrers($db);
+$referrerLookup = [];
+foreach ($referrers as $referrerOption) {
+    $referrerLookup[(int) $referrerOption['id']] = $referrerOption['name'];
+}
 $leads = admin_fetch_lead_overview($db);
 $csrfToken = $_SESSION['csrf_token'] ?? '';
 $stageOptions = [
@@ -183,6 +194,15 @@ $stageOptions = [
               <?php endforeach; ?>
             </select>
           </label>
+          <label>
+            Referrer (optional)
+            <select name="referrer_id">
+              <option value="">No referrer</option>
+              <?php foreach ($referrers as $referrer): ?>
+              <option value="<?= (int) $referrer['id'] ?>"><?= htmlspecialchars($referrer['name'], ENT_QUOTES) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </label>
         </div>
         <label class="admin-form__full">
           Site details / notes
@@ -223,6 +243,9 @@ $stageOptions = [
               <?php if ($lead['siteLocation']): ?>
               <li><i class="fa-solid fa-location-dot" aria-hidden="true"></i> <?= htmlspecialchars($lead['siteLocation'], ENT_QUOTES) ?></li>
               <?php endif; ?>
+              <?php if ($lead['referrerName']): ?>
+              <li><i class="fa-solid fa-handshake-angle" aria-hidden="true"></i> <?= htmlspecialchars($lead['referrerName'], ENT_QUOTES) ?></li>
+              <?php endif; ?>
             </ul>
           </header>
 
@@ -245,6 +268,25 @@ $stageOptions = [
                 </select>
               </label>
               <button type="submit" class="btn btn-secondary btn-xs">Save</button>
+            </form>
+
+            <form method="post" class="admin-inline-form">
+              <input type="hidden" name="action" value="assign-referrer" />
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+              <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
+              <label>
+                Referrer
+                <select name="referrer_id">
+                  <option value="">No referrer</option>
+                  <?php if ($lead['referrerId'] && !isset($referrerLookup[$lead['referrerId']])): ?>
+                  <option value="<?= (int) $lead['referrerId'] ?>" selected><?= htmlspecialchars($lead['referrerName'], ENT_QUOTES) ?> (inactive)</option>
+                  <?php endif; ?>
+                  <?php foreach ($referrers as $referrer): ?>
+                  <option value="<?= (int) $referrer['id'] ?>" <?= $lead['referrerId'] === (int) $referrer['id'] ? 'selected' : '' ?>><?= htmlspecialchars($referrer['name'], ENT_QUOTES) ?></option>
+                  <?php endforeach; ?>
+                </select>
+              </label>
+              <button type="submit" class="btn btn-secondary btn-xs">Update</button>
             </form>
 
             <?php if (!in_array($lead['status'], ['converted', 'lost'], true)): ?>

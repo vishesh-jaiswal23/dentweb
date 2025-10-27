@@ -59,6 +59,13 @@ $cardConfigs = [
         'link' => 'admin-leads.php',
     ],
     [
+        'label' => 'Active Referrers',
+        'value' => $counts['referrers'],
+        'icon' => 'fa-handshake-angle',
+        'description' => 'Channel partners enabled to submit and track leads.',
+        'link' => 'admin-referrers.php',
+    ],
+    [
         'label' => 'Ongoing Installations',
         'value' => $counts['installations'],
         'icon' => 'fa-solar-panel',
