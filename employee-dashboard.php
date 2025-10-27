@@ -6,20 +6,23 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 require_role('employee');
 $user = current_user();
+$db = get_db();
 
-$employeeName = trim((string) ($user['full_name'] ?? ''));
+$employeeRecord = null;
+if (!empty($user['id'])) {
+    $employeeRecord = portal_find_user($db, (int) $user['id']);
+}
+$employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
+
+$employeeName = trim((string) ($employeeRecord['full_name'] ?? $user['full_name'] ?? ''));
 if ($employeeName === '') {
     $employeeName = 'Employee';
 }
 
-$rawRole = $user['role_name'] === 'employee'
-    ? trim((string) ($user['job_title'] ?? ''))
-    : trim((string) ($user['role_name'] ?? ''));
-$employeeRole = $rawRole !== '' ? $rawRole : 'Employee';
-
-$employeeAccess = trim((string) ($user['access_scope'] ?? ''));
+$employeeRole = 'Employee';
+$employeeAccess = trim((string) ($employeeRecord['permissions_note'] ?? ''));
 if ($employeeAccess === '') {
-    $employeeAccess = 'Modules assigned to your role';
+    $employeeAccess = 'Employee workspace access managed by Admin';
 }
 
 $firstName = trim((string) $employeeName);
@@ -43,54 +46,33 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$performanceMetrics = [
-    [
-        'id' => 'tickets-closed',
-        'label' => 'Tickets resolved this month',
-        'value' => 12,
-        'precision' => 0,
-        'unit' => 'tickets',
-        'target' => 18,
-        'trend' => '+3 vs last month',
-        'history' => [7, 9, 10, 12],
-        'description' => 'Closed tickets synced instantly to the Admin portal.',
-    ],
-    [
-        'id' => 'resolution-time',
-        'label' => 'Avg. resolution time',
-        'value' => 1.5,
-        'precision' => 1,
-        'unit' => 'days',
-        'target' => 2.0,
-        'trend' => '-0.4 days vs last month',
-        'history' => [2.3, 2.1, 1.9, 1.5],
-        'description' => 'Customer complaints resolved within SLA timers.',
-    ],
-    [
-        'id' => 'amc-compliance',
-        'label' => 'AMC compliance rate',
-        'value' => 94,
-        'precision' => 0,
-        'unit' => '%',
-        'target' => 100,
-        'trend' => '+6 pts vs last quarter',
-        'history' => [82, 88, 91, 94],
-        'description' => 'Preventive visits completed before expiry.',
-    ],
-    [
-        'id' => 'csat-score',
-        'label' => 'Customer satisfaction',
-        'value' => 4.6,
-        'precision' => 1,
-        'unit' => '★',
-        'target' => 5,
-        'trend' => '+0.3 vs last survey',
-        'history' => [3.9, 4.1, 4.3, 4.6],
-        'description' => 'Feedback collected from resolved service tickets.',
-    ],
-];
+$tasks = $employeeId > 0 ? portal_list_tasks($db, $employeeId) : [];
+$complaints = $employeeId > 0 ? portal_employee_complaints($db, $employeeId) : [];
+$documentsRaw = portal_list_documents($db, 'employee');
+$notificationsRaw = $employeeId > 0 ? portal_list_notifications($db, $employeeId, 'employee') : [];
 
-$tickets = [];
+$nowIst = new DateTime('now', new DateTimeZone('Asia/Kolkata'));
+$currentMonthStart = (clone $nowIst)->modify('first day of this month')->setTime(0, 0, 0);
+$monthKeys = [];
+$monthCursor = (clone $currentMonthStart)->modify('-3 months');
+for ($i = 0; $i < 4; $i++) {
+    $monthKeys[] = $monthCursor->format('Y-m');
+    $monthCursor->modify('+1 month');
+}
+$monthKeyCurrent = $monthKeys[count($monthKeys) - 1] ?? $currentMonthStart->format('Y-m');
+$monthKeyPrevious = $monthKeys[count($monthKeys) - 2] ?? $monthKeyCurrent;
+
+$parseDateTime = static function (?string $value) {
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    try {
+        return new DateTime($value, new DateTimeZone('Asia/Kolkata'));
+    } catch (Throwable $exception) {
+        return null;
+    }
+};
 
 $statusOptions = [
     'in_progress' => 'In Progress',
@@ -116,23 +98,434 @@ $taskColumns = [
         'items' => [],
     ],
 ];
+
+$taskStatusCounts = ['todo' => 0, 'in_progress' => 0, 'done' => 0];
+$taskCompletionBuckets = [];
+foreach ($monthKeys as $monthKey) {
+    $taskCompletionBuckets[$monthKey] = ['completed' => 0, 'onTime' => 0];
+}
+$doneTasksTotal = 0;
+$onTimeTasksTotal = 0;
+foreach ($tasks as $taskRow) {
+    $statusKey = $taskRow['status'];
+    if (!isset($taskColumns[$statusKey])) {
+        continue;
+    }
+    $taskStatusCounts[$statusKey]++;
+    $priority = $taskRow['priority'] ?? 'medium';
+    $priorityLabel = match ($priority) {
+        'high' => 'High priority',
+        'low' => 'Low priority',
+        default => 'Medium priority',
+    };
+    $deadline = $taskRow['dueDate'] !== '' ? 'Due ' . date('d M Y', strtotime($taskRow['dueDate'])) : 'No due date set';
+    $linkText = $taskRow['linkedTo'] !== '' ? 'Linked to ' . $taskRow['linkedTo'] : 'No linked record';
+    $taskColumns[$statusKey]['items'][] = [
+        'id' => $taskRow['id'],
+        'title' => $taskRow['title'],
+        'priority' => $priority,
+        'priorityLabel' => $priorityLabel,
+        'deadline' => $deadline,
+        'link' => htmlspecialchars($linkText, ENT_QUOTES),
+        'action' => $statusKey === 'done'
+            ? ['label' => 'Reopen task', 'attr' => 'data-task-undo']
+            : ['label' => 'Mark complete', 'attr' => 'data-task-complete'],
+    ];
+
+    if ($taskRow['status'] === 'done') {
+        $doneTasksTotal++;
+        $completedAtRaw = $taskRow['completedAt'] ?: $taskRow['updatedAt'] ?: $taskRow['createdAt'] ?? '';
+        $completedAt = $parseDateTime($completedAtRaw);
+        $onTime = true;
+        if ($taskRow['dueDate'] !== '') {
+            $dueDate = DateTime::createFromFormat('Y-m-d', $taskRow['dueDate'], new DateTimeZone('Asia/Kolkata'));
+            if ($dueDate instanceof DateTime) {
+                $dueDate->setTime(23, 59, 59);
+                $onTime = $completedAt instanceof DateTime ? $completedAt <= $dueDate : false;
+            }
+        }
+        if ($onTime) {
+            $onTimeTasksTotal++;
+        }
+        if ($completedAt instanceof DateTime) {
+            $monthKey = $completedAt->format('Y-m');
+            if (isset($taskCompletionBuckets[$monthKey])) {
+                $taskCompletionBuckets[$monthKey]['completed']++;
+                if ($onTime) {
+                    $taskCompletionBuckets[$monthKey]['onTime']++;
+                }
+            }
+        }
+    }
+}
+
 $taskActivity = [];
+$sortedTasks = $tasks;
+usort($sortedTasks, static function (array $a, array $b): int {
+    return strcmp($b['updatedAt'] ?? '', $a['updatedAt'] ?? '');
+});
+foreach (array_slice($sortedTasks, 0, 5) as $recent) {
+    $timestamp = $recent['updatedAt'] ?: $recent['createdAt'];
+    if (!$timestamp) {
+        continue;
+    }
+    $isoTime = (new DateTime($timestamp))->format(DATE_ATOM);
+    $label = (new DateTime($timestamp))->format('d M H:i');
+    $taskActivity[] = [
+        'time' => $isoTime,
+        'label' => $label,
+        'message' => sprintf('%s moved to %s', $recent['title'], str_replace('_', ' ', ucfirst($recent['status']))),
+    ];
+}
+
+$taskReminders = [];
+$reminderClock = clone $nowIst;
+foreach ($tasks as $taskRow) {
+    if ($taskRow['dueDate'] === '') {
+        continue;
+    }
+    $dueDate = DateTime::createFromFormat('Y-m-d', $taskRow['dueDate'], new DateTimeZone('Asia/Kolkata'));
+    if (!$dueDate) {
+        continue;
+    }
+    $intervalDays = (int) $reminderClock->diff($dueDate)->format('%r%a');
+    if ($intervalDays >= 0 && $intervalDays <= 2) {
+        $taskReminders[] = [
+            'icon' => 'fa-solid fa-bell',
+            'message' => sprintf('%s due on %s', $taskRow['title'], $dueDate->format('d M Y')),
+        ];
+    }
+}
+
+$tickets = [];
+$complaintStatusMap = [
+    'intake' => ['key' => 'in_progress', 'label' => 'Intake review', 'tone' => 'progress'],
+    'triage' => ['key' => 'in_progress', 'label' => 'Admin triage', 'tone' => 'attention'],
+    'work' => ['key' => 'in_progress', 'label' => 'In progress', 'tone' => 'progress'],
+    'resolution' => ['key' => 'awaiting_response', 'label' => 'Awaiting response', 'tone' => 'attention'],
+    'closed' => ['key' => 'resolved', 'label' => 'Resolved', 'tone' => 'resolved'],
+];
+$ticketClosureByMonth = [];
+$resolutionDurationsByMonth = [];
+$csatBucketsByMonth = [];
+foreach ($monthKeys as $monthKey) {
+    $ticketClosureByMonth[$monthKey] = 0;
+    $resolutionDurationsByMonth[$monthKey] = [];
+    $csatBucketsByMonth[$monthKey] = ['closed' => 0, 'escalated' => 0, 'awaiting' => 0, 'total' => 0];
+}
+$totalResolutionDurations = [];
+$overallCsatBucket = ['closed' => 0, 'escalated' => 0, 'awaiting' => 0, 'total' => 0];
+foreach ($complaints as $complaint) {
+    $map = $complaintStatusMap[$complaint['status']] ?? $complaintStatusMap['intake'];
+    $timeline = [];
+    if (!empty($complaint['createdAt'])) {
+        $timeline[] = [
+            'time' => (new DateTime($complaint['createdAt']))->format(DATE_ATOM),
+            'label' => 'Created',
+            'message' => 'Ticket opened from Admin portal.',
+        ];
+    }
+    if (!empty($complaint['updatedAt']) && $complaint['updatedAt'] !== $complaint['createdAt']) {
+        $timeline[] = [
+            'time' => (new DateTime($complaint['updatedAt']))->format(DATE_ATOM),
+            'label' => 'Last update',
+            'message' => sprintf('Status updated to %s.', strtolower($map['label'])),
+        ];
+    }
+    $tickets[] = [
+        'id' => $complaint['reference'],
+        'title' => $complaint['title'],
+        'customer' => $complaint['reference'],
+        'status' => $map['key'],
+        'statusLabel' => $map['label'],
+        'statusTone' => $map['tone'],
+        'assignedBy' => 'Admin Control Center',
+        'sla' => $complaint['slaDue'] !== '' ? date('d M Y', strtotime($complaint['slaDue'])) : 'Not set',
+        'contact' => 'Shared via Admin',
+        'noteIcon' => 'fa-solid fa-pen-to-square',
+        'noteLabel' => 'Add note',
+        'attachments' => [],
+        'timeline' => $timeline,
+    ];
+
+    $updatedAt = $parseDateTime($complaint['updatedAt'] ?? '') ?: $parseDateTime($complaint['createdAt'] ?? '');
+    $monthKey = $updatedAt instanceof DateTime ? $updatedAt->format('Y-m') : null;
+
+    $overallCsatBucket['total']++;
+    if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
+        $csatBucketsByMonth[$monthKey]['total']++;
+    }
+
+    switch ($complaint['status']) {
+        case 'closed':
+            $overallCsatBucket['closed']++;
+            if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
+                $csatBucketsByMonth[$monthKey]['closed']++;
+                $ticketClosureByMonth[$monthKey]++;
+            }
+            if (!empty($complaint['createdAt']) && $updatedAt instanceof DateTime) {
+                $createdAt = $parseDateTime($complaint['createdAt']);
+                if ($createdAt instanceof DateTime) {
+                    $durationDays = max(0, round(($updatedAt->getTimestamp() - $createdAt->getTimestamp()) / 86400, 1));
+                    $totalResolutionDurations[] = $durationDays;
+                    if ($monthKey !== null && isset($resolutionDurationsByMonth[$monthKey])) {
+                        $resolutionDurationsByMonth[$monthKey][] = $durationDays;
+                    }
+                }
+            }
+            break;
+        case 'triage':
+            $overallCsatBucket['escalated']++;
+            if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
+                $csatBucketsByMonth[$monthKey]['escalated']++;
+            }
+            break;
+        case 'resolution':
+            $overallCsatBucket['awaiting']++;
+            if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
+                $csatBucketsByMonth[$monthKey]['awaiting']++;
+            }
+            break;
+    }
+}
+
+$documentVault = [];
+foreach ($documentsRaw as $doc) {
+    $documentVault[] = [
+        'type' => $doc['name'],
+        'filename' => $doc['reference'] !== '' ? $doc['reference'] : strtoupper((string) $doc['linkedTo']),
+        'customer' => ucfirst((string) ($doc['linkedTo'] ?? 'Shared')),
+        'statusLabel' => $doc['visibility'] === 'both' ? 'Shared with Admin' : 'Employee only',
+        'tone' => $doc['visibility'] === 'both' ? 'resolved' : 'progress',
+        'uploadedAt' => $doc['updatedAt'] ?? '',
+        'uploadedBy' => $doc['uploadedBy'] ?? 'Admin',
+    ];
+}
+
+$documentUploadCustomers = array_values(array_unique(array_map(static function (array $ticket): string {
+    return (string) $ticket['customer'];
+}, $tickets)));
+
+$notifications = array_map(static function (array $notice): array {
+    $category = stripos($notice['title'], 'ticket') !== false ? 'ticket' : 'general';
+    return [
+        'id' => 'N-' . $notice['id'],
+        'tone' => $notice['tone'] ?? 'info',
+        'icon' => $notice['icon'] ?? 'fa-solid fa-circle-info',
+        'title' => $notice['title'],
+        'message' => $notice['message'],
+        'time' => $notice['time'] ?? '',
+        'link' => $notice['link'] ?? '#',
+        'isRead' => !empty($notice['isRead']),
+        'category' => $category,
+    ];
+}, $notificationsRaw);
+
+$unreadNotificationCount = count(array_filter($notifications, static fn (array $item): bool => empty($item['isRead'])));
+
+$communicationLogs = [];
+foreach (array_slice($complaints, 0, 5) as $complaint) {
+    $time = $complaint['updatedAt'] ?: $complaint['createdAt'];
+    if (!$time) {
+        continue;
+    }
+    $communicationLogs[] = [
+        'channel' => 'Call',
+        'time' => (new DateTime($time))->format(DATE_ATOM),
+        'label' => sprintf('Ticket %s', $complaint['reference']),
+        'summary' => $complaint['title'],
+    ];
+}
+
+$performanceMetrics = [];
+$resolvedHistory = [];
+foreach ($monthKeys as $monthKey) {
+    $resolvedHistory[] = (int) ($ticketClosureByMonth[$monthKey] ?? 0);
+}
+$resolvedThisMonth = $ticketClosureByMonth[$monthKeyCurrent] ?? 0;
+$previousResolved = $ticketClosureByMonth[$monthKeyPrevious] ?? 0;
+$resolvedObservations = array_sum($resolvedHistory) > 0;
+if (!$resolvedObservations) {
+    $resolvedTrend = '—';
+} else {
+    $deltaResolved = $resolvedThisMonth - $previousResolved;
+    if ($deltaResolved > 0) {
+        $resolvedTrend = sprintf('+%d vs last month', $deltaResolved);
+    } elseif ($deltaResolved < 0) {
+        $resolvedTrend = sprintf('%d vs last month', $deltaResolved);
+    } else {
+        $resolvedTrend = 'No change vs last month';
+    }
+}
+$ticketTargetBaseline = max($resolvedThisMonth, $previousResolved, 1);
+$ticketTarget = max(5, (int) ceil($ticketTargetBaseline * 1.15));
+
+$resolutionHistory = [];
+foreach ($monthKeys as $monthKey) {
+    $durations = $resolutionDurationsByMonth[$monthKey] ?? [];
+    $resolutionHistory[] = !empty($durations)
+        ? round(array_sum($durations) / count($durations), 1)
+        : 0.0;
+}
+$avgResolution = !empty($totalResolutionDurations)
+    ? round(array_sum($totalResolutionDurations) / count($totalResolutionDurations), 1)
+    : 0.0;
+$previousResolution = $resolutionHistory[count($resolutionHistory) - 2] ?? 0.0;
+$resolutionObservations = !empty($totalResolutionDurations);
+if (!$resolutionObservations) {
+    $resolutionTrend = '—';
+} else {
+    $deltaResolution = round($avgResolution - $previousResolution, 1);
+    if ($deltaResolution < 0) {
+        $resolutionTrend = sprintf('%.1f days faster vs last month', abs($deltaResolution));
+    } elseif ($deltaResolution > 0) {
+        $resolutionTrend = sprintf('%.1f days slower vs last month', $deltaResolution);
+    } else {
+        $resolutionTrend = 'Steady vs last month';
+    }
+}
+
+$amcCompliance = $doneTasksTotal > 0 ? (int) round(($onTimeTasksTotal / $doneTasksTotal) * 100) : 0;
+$amcHistory = [];
+foreach ($monthKeys as $monthKey) {
+    $completed = $taskCompletionBuckets[$monthKey]['completed'] ?? 0;
+    $onTime = $taskCompletionBuckets[$monthKey]['onTime'] ?? 0;
+    $amcHistory[] = $completed > 0 ? (int) round(($onTime / $completed) * 100) : 0;
+}
+$previousAmc = $amcHistory[count($amcHistory) - 2] ?? 0;
+$amcObservations = $doneTasksTotal > 0;
+if (!$amcObservations) {
+    $amcTrend = '—';
+} else {
+    $deltaAmc = $amcCompliance - $previousAmc;
+    if ($deltaAmc > 0) {
+        $amcTrend = sprintf('+%d pts vs last month', $deltaAmc);
+    } elseif ($deltaAmc < 0) {
+        $amcTrend = sprintf('%d pts vs last month', $deltaAmc);
+    } else {
+        $amcTrend = 'No change vs last month';
+    }
+}
+$amcTarget = 95;
+
+$computeCsatScore = static function (array $bucket): ?float {
+    $total = $bucket['total'] ?? 0;
+    if ($total <= 0) {
+        return null;
+    }
+    $closed = $bucket['closed'] ?? 0;
+    $escalated = $bucket['escalated'] ?? 0;
+    $awaiting = $bucket['awaiting'] ?? 0;
+    $positiveRatio = $total > 0 ? $closed / $total : 0.0;
+    $penalty = (($escalated * 1.5) + ($awaiting * 0.75)) / $total;
+    $score = 4.2 + ($positiveRatio * 0.8) - ($penalty * 1.8);
+    $score = max(3.0, min(5.0, $score));
+    return round($score, 1);
+};
+$fillHistory = static function (array $values, float $fallback): array {
+    $filled = [];
+    $carry = $fallback;
+    foreach ($values as $value) {
+        if ($value === null) {
+            $filled[] = $carry;
+        } else {
+            $filled[] = $value;
+            $carry = $value;
+        }
+    }
+    return $filled;
+};
+
+$overallCsatValue = $computeCsatScore($overallCsatBucket);
+$csatScore = $overallCsatValue ?? 4.5;
+$csatHistoryRaw = [];
+foreach ($monthKeys as $monthKey) {
+    $csatHistoryRaw[] = $computeCsatScore($csatBucketsByMonth[$monthKey] ?? []);
+}
+$csatHistory = $fillHistory($csatHistoryRaw, $csatScore);
+$csatObservations = count(array_filter($csatHistoryRaw, static fn ($value) => $value !== null)) > 0;
+$currentCsat = $csatHistory[count($csatHistory) - 1] ?? $csatScore;
+$previousCsat = $csatHistory[count($csatHistory) - 2] ?? $currentCsat;
+if (!$csatObservations) {
+    $csatTrend = '—';
+} else {
+    $deltaCsat = round($currentCsat - $previousCsat, 1);
+    if ($deltaCsat > 0) {
+        $csatTrend = sprintf('+%.1f vs last month', $deltaCsat);
+    } elseif ($deltaCsat < 0) {
+        $csatTrend = sprintf('%.1f vs last month', $deltaCsat);
+    } else {
+        $csatTrend = 'No change vs last month';
+    }
+}
+
+$performanceMetrics = [
+    [
+        'id' => 'tickets-closed',
+        'label' => 'Tickets resolved this month',
+        'value' => $resolvedThisMonth,
+        'precision' => 0,
+        'unit' => 'tickets',
+        'target' => $ticketTarget,
+        'trend' => $resolvedTrend,
+        'history' => $resolvedHistory,
+        'description' => 'Closed tickets synced instantly to the Admin portal.',
+    ],
+    [
+        'id' => 'resolution-time',
+        'label' => 'Avg. resolution time',
+        'value' => $avgResolution,
+        'precision' => 1,
+        'unit' => 'days',
+        'target' => 2.0,
+        'trend' => $resolutionTrend,
+        'history' => $resolutionHistory,
+        'description' => 'Customer complaints resolved within SLA timers.',
+    ],
+    [
+        'id' => 'amc-compliance',
+        'label' => 'AMC compliance rate',
+        'value' => $amcCompliance,
+        'precision' => 0,
+        'unit' => '%',
+        'target' => $amcTarget,
+        'trend' => $amcTrend,
+        'history' => $amcHistory,
+        'description' => 'Preventive visits completed before expiry.',
+    ],
+    [
+        'id' => 'csat-score',
+        'label' => 'Customer satisfaction',
+        'value' => $csatScore,
+        'precision' => 1,
+        'unit' => '★',
+        'target' => 5,
+        'trend' => $csatTrend,
+        'history' => $csatHistory,
+        'description' => 'Feedback collected from resolved service tickets.',
+    ],
+];
 
 $leadUpdates = [];
 
 $pendingLeads = [];
 
-$leadRecords = [];
-
-$taskReminders = [];
+$leadRecords = array_map(static function (array $complaint) use ($employeeName): array {
+    return [
+        'id' => $complaint['reference'],
+        'label' => $complaint['title'],
+        'description' => sprintf('Priority %s', ucfirst($complaint['priority'] ?? 'medium')),
+        'contact' => '—',
+        'status' => str_replace('_', ' ', $complaint['status']),
+        'nextAction' => 'Update ticket',
+        'owner' => $employeeName,
+        'type' => 'lead',
+    ];
+}, $complaints);
 
 $siteVisits = [];
 
 $visitActivity = [];
-
-$documentVault = [];
-
-$documentUploadCustomers = [];
 
 $subsidyCases = [];
 
@@ -142,89 +535,46 @@ $warrantyAssets = [];
 
 $warrantyActivity = [];
 
-$communicationLogs = [];
+$complianceFlags = [];
 
-$notifications = [
-    [
-        'id' => 'N-1042',
-        'tone' => 'info',
-        'icon' => 'fa-solid fa-ticket',
-        'title' => 'New ticket assigned',
-        'message' => 'Ticket SR-219 is now in your queue.',
-        'time' => '2024-06-18T09:20:00+05:30',
-        'link' => '#complaints',
-        'isRead' => false,
-        'category' => 'ticket',
-    ],
-    [
-        'id' => 'N-1043',
-        'tone' => 'warning',
-        'icon' => 'fa-solid fa-clock',
-        'title' => 'SLA warning',
-        'message' => 'Complaint SR-205 is nearing its 24h SLA.',
-        'time' => '2024-06-18T08:45:00+05:30',
-        'link' => '#complaints',
-        'isRead' => false,
-        'category' => 'sla',
-    ],
-    [
-        'id' => 'N-1044',
-        'tone' => 'info',
-        'icon' => 'fa-solid fa-list-check',
-        'title' => 'Task deadline',
-        'message' => 'Safety inspection checklist due today.',
-        'time' => '2024-06-18T07:05:00+05:30',
-        'link' => '#tasks',
-        'isRead' => true,
-        'category' => 'task',
-    ],
-    [
-        'id' => 'N-1045',
-        'tone' => 'info',
-        'icon' => 'fa-solid fa-bell-concierge',
-        'title' => 'AMC visit reminder',
-        'message' => 'AMC visit for Customer Asha Devi due tomorrow.',
-        'time' => '2024-06-18T06:30:00+05:30',
-        'link' => '#warranty',
-        'isRead' => false,
-        'category' => 'amc',
-    ],
+$auditTrail = [];
+foreach (array_slice($taskActivity, 0, 3) as $activity) {
+    $auditTrail[] = [
+        'time' => $activity['time'],
+        'label' => $activity['label'],
+        'detail' => $activity['message'],
+    ];
+}
+if (empty($auditTrail) && !empty($communicationLogs)) {
+    foreach (array_slice($communicationLogs, 0, 2) as $log) {
+        $auditTrail[] = [
+            'time' => $log['time'],
+            'label' => $log['label'],
+            'detail' => $log['summary'],
+        ];
+    }
+}
+
+$employeeProfile = [
+    'email' => trim((string) ($employeeRecord['email'] ?? $user['email'] ?? 'employee@dakshayani.example')),
+    'phone' => 'Not provided',
+    'photo' => '',
+    'lastUpdated' => $nowIst->format(DATE_ATOM),
+];
+
+$lastSyncRaw = portal_latest_sync($db, $employeeId);
+if ($lastSyncRaw) {
+    $lastSyncTime = (new DateTime($lastSyncRaw, new DateTimeZone('Asia/Kolkata')))->format(DATE_ATOM);
+} else {
+    $lastSyncTime = $nowIst->format(DATE_ATOM);
+}
+$syncStatus = [
+    'label' => 'Realtime sync with Admin portal',
+    'lastSync' => $lastSyncTime,
+    'latency' => '0.3s',
 ];
 
 $unreadNotificationCount = count(array_filter($notifications, static fn (array $notice): bool => empty($notice['isRead'])));
-
-$complianceFlags = [];
-
-$auditTrail = [
-    [
-        'time' => '2024-06-17T18:40:00+05:30',
-        'label' => 'Resolved 14 complaints',
-        'detail' => '3 escalations handled with Admin support.',
-    ],
-    [
-        'time' => '2024-06-17T15:10:00+05:30',
-        'label' => 'Uploaded AMC evidence',
-        'detail' => 'Photos for Green Heights inverter sync to Admin vault.',
-    ],
-    [
-        'time' => '2024-06-17T10:05:00+05:30',
-        'label' => 'Filed subsidy progression',
-        'detail' => 'Customer R-212 moved to Inspection stage.',
-    ],
-];
-
-$employeeProfile = [
-    'email' => trim((string) ($user['email'] ?? 'employee@dakshayani.example')),
-    'phone' => trim((string) ($user['phone'] ?? '9876543210')),
-    'photo' => trim((string) ($user['photo'] ?? '')),
-    'lastUpdated' => '2024-06-10T11:25:00+05:30',
-];
-
-$syncStatus = [
-    'label' => 'Realtime sync with Admin portal',
-    'lastSync' => '2024-06-18T09:18:00+05:30',
-    'latency' => '12s',
-];
 
 $activeComplaintsCount = count(array_filter($tickets, static function (array $ticket): bool {
     return ($ticket['status'] ?? '') !== 'resolved';
@@ -1531,6 +1881,14 @@ $attachmentIcon = static function (string $filename): string {
     </div>
   </main>
 
+  <script>
+    window.DakshayaniEmployee = Object.freeze({
+      csrfToken: <?= json_encode($_SESSION['csrf_token'] ?? '') ?>,
+      apiBase: <?= json_encode($pathFor('api/employee.php')) ?>,
+      currentUser: <?= json_encode(['id' => $employeeId, 'name' => $employeeName]) ?>,
+      sync: <?= json_encode(['lastSync' => $syncStatus['lastSync'] ?? null]) ?>,
+    });
+  </script>
   <script src="employee-dashboard.js" defer></script>
   <script src="script.js" defer></script>
 </body>

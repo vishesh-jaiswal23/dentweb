@@ -1,6 +1,36 @@
 (function () {
   'use strict';
 
+  const config = window.DakshayaniEmployee || {};
+  const API_BASE = config.apiBase || 'api/employee.php';
+  const CSRF_TOKEN = config.csrfToken || '';
+
+  function api(action, { method = 'GET', body } = {}) {
+    if (!API_BASE) {
+      return Promise.reject(new Error('API base not configured'));
+    }
+    const options = {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'X-CSRF-Token': CSRF_TOKEN,
+      },
+      credentials: 'same-origin',
+    };
+    if (body) {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(body);
+    }
+    return fetch(`${API_BASE}?action=${encodeURIComponent(action)}`, options)
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.success === false) {
+          throw new Error(payload.error || `Request failed (${response.status})`);
+        }
+        return payload.data;
+      });
+  }
+
   const THEME_KEY = 'dakshayani-employee-theme';
   const body = document.body;
   const themeInputs = document.querySelectorAll('[data-theme-option]');
@@ -439,6 +469,18 @@
         const shouldMarkRead = item.dataset.notificationRead !== 'true';
         setNotificationRead(item, shouldMarkRead);
         syncNotificationCount();
+        const rawId = item.dataset.notificationId || '';
+        const numericId = Number.parseInt(rawId.replace(/^N-/, ''), 10);
+        if (!Number.isNaN(numericId)) {
+          api('mark-notification', {
+            method: 'POST',
+            body: { id: numericId, status: shouldMarkRead ? 'read' : 'unread' },
+          }).catch((error) => {
+            console.error(error);
+            setNotificationRead(item, !shouldMarkRead);
+            syncNotificationCount();
+          });
+        }
         const title = item.querySelector('.notification-item__title');
         recordAuditEvent(shouldMarkRead ? 'Notification read' : 'Notification marked unread', title ? title.textContent : 'Alert');
         return;
@@ -449,6 +491,16 @@
         if (!item) return;
         setNotificationRead(item, true);
         syncNotificationCount();
+        const rawId = item.dataset.notificationId || '';
+        const numericId = Number.parseInt(rawId.replace(/^N-/, ''), 10);
+        if (!Number.isNaN(numericId)) {
+          api('mark-notification', {
+            method: 'POST',
+            body: { id: numericId, status: 'read' },
+          }).catch((error) => {
+            console.error(error);
+          });
+        }
         const title = item.querySelector('.notification-item__title');
         recordAuditEvent('Notification opened', title ? title.textContent : 'Alert');
       }
@@ -461,6 +513,9 @@
         setNotificationRead(item, true);
       });
       syncNotificationCount();
+      api('mark-all-notifications', { method: 'POST' }).catch((error) => {
+        console.error(error);
+      });
       recordAuditEvent('Notifications marked read', 'All alerts cleared');
     });
   }
@@ -724,6 +779,18 @@
       statusNode.className = `dashboard-status dashboard-status--${config.tone}`;
     }
     syncTicketSummary();
+    const reference = card.dataset.ticketId;
+    if (reference) {
+      api('update-complaint-status', {
+        method: 'POST',
+        body: { reference, status: statusKey },
+      })
+        .then(() => refreshSyncIndicator(`Ticket ${reference}`))
+        .catch((error) => {
+          console.error(error);
+          window.alert('Unable to sync ticket update with Admin. Please retry.');
+        });
+    }
   }
 
   function logTicketTimeline(card, message) {
@@ -1062,6 +1129,19 @@
     const label = column.dataset.statusLabel || 'Updated';
     logTaskActivity(card, label);
     syncTaskCounts();
+    const status = column.dataset.taskColumn || 'todo';
+    const taskId = card.dataset.taskId;
+    if (taskId) {
+      api('update-task-status', {
+        method: 'POST',
+        body: { id: Number.parseInt(taskId, 10), status },
+      })
+        .then(() => refreshSyncIndicator(`Task ${taskId}`))
+        .catch((error) => {
+          console.error(error);
+          window.alert('Unable to sync task update with Admin. Please retry.');
+        });
+    }
   }
 
   if (taskBoard) {
