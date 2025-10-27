@@ -417,6 +417,21 @@ SQL
     );
 
     $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS reminder_status_banners (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    tone TEXT NOT NULL CHECK(tone IN ('info','success','warning','danger')),
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_reminder_status_banners_user ON reminder_status_banners(user_id, created_at DESC)');
+
+    $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS portal_notification_status (
     notification_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
@@ -2515,6 +2530,66 @@ function portal_mark_notification(PDO $db, int $notificationId, int $userId, str
     ]);
 }
 
+function portal_store_reminder_banner(PDO $db, int $userId, string $tone, string $title, string $message): void
+{
+    if ($userId <= 0) {
+        return;
+    }
+
+    $allowedTones = ['info', 'success', 'warning', 'danger'];
+    if (!in_array($tone, $allowedTones, true)) {
+        $tone = 'info';
+    }
+
+    try {
+        $stmt = $db->prepare('INSERT INTO reminder_status_banners(user_id, tone, title, message, created_at) VALUES(:user_id, :tone, :title, :message, :created_at)');
+        $stmt->execute([
+            ':user_id' => $userId,
+            ':tone' => $tone,
+            ':title' => $title,
+            ':message' => $message,
+            ':created_at' => now_ist(),
+        ]);
+    } catch (Throwable $exception) {
+        error_log('Failed to queue reminder banner: ' . $exception->getMessage());
+    }
+}
+
+function portal_consume_reminder_banners(PDO $db, int $userId): array
+{
+    if ($userId <= 0) {
+        return [];
+    }
+
+    try {
+        $stmt = $db->prepare('SELECT id, tone, title, message FROM reminder_status_banners WHERE user_id = :user_id ORDER BY created_at DESC');
+        $stmt->execute([':user_id' => $userId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$rows) {
+            return [];
+        }
+
+        $ids = array_map(static fn (array $row): int => (int) $row['id'], $rows);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $delete = $db->prepare("DELETE FROM reminder_status_banners WHERE id IN ($placeholders)");
+        foreach ($ids as $index => $id) {
+            $delete->bindValue($index + 1, $id, PDO::PARAM_INT);
+        }
+        $delete->execute();
+
+        return array_map(static function (array $row): array {
+            return [
+                'tone' => $row['tone'] ?? 'info',
+                'title' => (string) ($row['title'] ?? 'Reminder update'),
+                'message' => (string) ($row['message'] ?? ''),
+            ];
+        }, $rows);
+    } catch (Throwable $exception) {
+        error_log('Failed to load reminder banners: ' . $exception->getMessage());
+        return [];
+    }
+}
+
 function portal_latest_sync(PDO $db, ?int $userId = null): ?string
 {
     $parts = [];
@@ -4588,6 +4663,231 @@ function reminder_module_label(string $module): string
     return $options[$normalized] ?? ucfirst($normalized ?: 'Item');
 }
 
+function reminder_due_counts(PDO $db, ?int $proposerId = null): array
+{
+    $tzIst = new DateTimeZone('Asia/Kolkata');
+    $startIst = (new DateTimeImmutable('now', $tzIst))->setTime(0, 0, 0);
+    $endIst = $startIst->setTime(23, 59, 59);
+    $startUtc = $startIst->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    $endUtc = $endIst->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+
+    $baseConditions = ["status = 'active'", 'due_at IS NOT NULL'];
+    $params = [];
+
+    if ($proposerId !== null && $proposerId > 0) {
+        $baseConditions[] = 'proposer_id = :proposer_id';
+        $params[':proposer_id'] = $proposerId;
+    }
+
+    $where = implode(' AND ', $baseConditions);
+
+    $dueStmt = $db->prepare("SELECT COUNT(*) FROM reminders WHERE $where AND due_at BETWEEN :start AND :end");
+    $dueStmt->bindValue(':start', $startUtc);
+    $dueStmt->bindValue(':end', $endUtc);
+    foreach ($params as $key => $value) {
+        $dueStmt->bindValue($key, $value, PDO::PARAM_INT);
+    }
+    $dueStmt->execute();
+    $dueToday = (int) $dueStmt->fetchColumn();
+
+    $overStmt = $db->prepare("SELECT COUNT(*) FROM reminders WHERE $where AND due_at < :start");
+    $overStmt->bindValue(':start', $startUtc);
+    foreach ($params as $key => $value) {
+        $overStmt->bindValue($key, $value, PDO::PARAM_INT);
+    }
+    $overStmt->execute();
+    $overdue = (int) $overStmt->fetchColumn();
+
+    return [
+        'due_today' => $dueToday,
+        'overdue' => $overdue,
+    ];
+}
+
+function admin_list_reminder_requests(PDO $db): array
+{
+    $stmt = $db->prepare(
+        'SELECT reminders.*, proposer.full_name AS proposer_name, approver.full_name AS approver_name '
+        . 'FROM reminders '
+        . 'LEFT JOIN users proposer ON reminders.proposer_id = proposer.id '
+        . 'LEFT JOIN users approver ON reminders.approver_id = approver.id '
+        . "WHERE reminders.status = 'proposed' ORDER BY reminders.due_at ASC, reminders.id ASC"
+    );
+    $stmt->execute();
+
+    $items = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $items[] = admin_normalize_reminder_row($row);
+    }
+
+    return $items;
+}
+
+function portal_employee_reminders(PDO $db, int $userId, array $filters = []): array
+{
+    $statusFilter = strtolower(trim((string) ($filters['status'] ?? 'all')));
+    $validStatuses = ['proposed', 'active', 'completed', 'cancelled', 'all'];
+    if (!in_array($statusFilter, $validStatuses, true)) {
+        $statusFilter = 'all';
+    }
+
+    $dueFilter = strtolower(trim((string) ($filters['due'] ?? 'all')));
+    $validDue = ['all', 'due_today', 'overdue', 'upcoming'];
+    if (!in_array($dueFilter, $validDue, true)) {
+        $dueFilter = 'all';
+    }
+
+    $conditions = ['reminders.proposer_id = :user_id'];
+    $params = [':user_id' => $userId];
+
+    if ($statusFilter !== 'all') {
+        $conditions[] = 'reminders.status = :status_filter';
+        $params[':status_filter'] = $statusFilter;
+    }
+
+    $tzIst = new DateTimeZone('Asia/Kolkata');
+    $startIst = (new DateTimeImmutable('now', $tzIst))->setTime(0, 0, 0);
+    $startUtc = $startIst->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    $endUtc = $startIst->setTime(23, 59, 59)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+
+    if ($dueFilter === 'due_today') {
+        if ($statusFilter === 'all') {
+            $conditions[] = "reminders.status = 'active'";
+        }
+        $conditions[] = 'reminders.due_at BETWEEN :due_start AND :due_end';
+        $params[':due_start'] = $startUtc;
+        $params[':due_end'] = $endUtc;
+        $conditions[] = 'reminders.due_at IS NOT NULL';
+    } elseif ($dueFilter === 'overdue') {
+        if ($statusFilter === 'all') {
+            $conditions[] = "reminders.status = 'active'";
+        }
+        $conditions[] = 'reminders.due_at < :due_start';
+        $params[':due_start'] = $startUtc;
+        $conditions[] = 'reminders.due_at IS NOT NULL';
+    } elseif ($dueFilter === 'upcoming') {
+        if ($statusFilter === 'all') {
+            $conditions[] = "reminders.status = 'active'";
+        }
+        $conditions[] = 'reminders.due_at >= :due_start';
+        $params[':due_start'] = $startUtc;
+        $conditions[] = 'reminders.due_at IS NOT NULL';
+    }
+
+    $sql = 'SELECT reminders.*, proposer.full_name AS proposer_name, approver.full_name AS approver_name '
+        . 'FROM reminders '
+        . 'LEFT JOIN users proposer ON reminders.proposer_id = proposer.id '
+        . 'LEFT JOIN users approver ON reminders.approver_id = approver.id';
+
+    if (!empty($conditions)) {
+        $sql .= ' WHERE ' . implode(' AND ', $conditions);
+    }
+
+    $sql .= ' ORDER BY COALESCE(reminders.due_at, reminders.created_at) ASC, reminders.id ASC';
+
+    $limit = null;
+    if (isset($filters['limit'])) {
+        $limit = max(1, (int) $filters['limit']);
+        $sql .= ' LIMIT :limit';
+    }
+
+    $stmt = $db->prepare($sql);
+    foreach ($params as $key => $value) {
+        if ($key === ':status_filter') {
+            $stmt->bindValue($key, $value, PDO::PARAM_STR);
+        } elseif ($key === ':due_start' || $key === ':due_end') {
+            $stmt->bindValue($key, $value, PDO::PARAM_STR);
+        } else {
+            $stmt->bindValue($key, $value, PDO::PARAM_INT);
+        }
+    }
+    if ($limit !== null) {
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    }
+
+    $stmt->execute();
+
+    $items = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $items[] = admin_normalize_reminder_row($row);
+    }
+
+    return $items;
+}
+
+function portal_notify_reminder_status(PDO $db, array $reminder, string $status): void
+{
+    $proposerId = $reminder['proposerId'] ?? null;
+    if ($proposerId === null || $proposerId <= 0) {
+        return;
+    }
+
+    $user = portal_find_user($db, (int) $proposerId);
+    if (!$user || canonical_role_name($user['role_name'] ?? '') !== 'employee') {
+        return;
+    }
+
+    $tone = match ($status) {
+        'active' => 'success',
+        'cancelled' => 'danger',
+        'completed' => 'info',
+        default => 'info',
+    };
+
+    $title = match ($status) {
+        'active' => 'Reminder approved',
+        'cancelled' => 'Reminder rejected',
+        'completed' => 'Reminder completed',
+        default => 'Reminder update',
+    };
+
+    $moduleLabel = $reminder['moduleLabel'] ?? reminder_module_label($reminder['module'] ?? '');
+    $identifier = $reminder['linkedId'] ?? '';
+    $dueDisplay = $reminder['dueDisplay'] ?? '—';
+    $dueText = $dueDisplay !== '—' ? (' Due ' . $dueDisplay . '.') : '';
+
+    $message = sprintf(
+        'Reminder "%s" for %s #%s has been %s.%s',
+        $reminder['title'] ?? 'Reminder',
+        $moduleLabel,
+        $identifier,
+        $status === 'cancelled' ? 'rejected' : ($status === 'active' ? 'approved' : 'updated'),
+        $dueText
+    );
+
+    if ($status === 'cancelled' && ($reminder['decisionNote'] ?? '') !== '') {
+        $message .= ' Reason: ' . trim((string) $reminder['decisionNote']);
+    }
+
+    $delivered = false;
+
+    try {
+        $insert = $db->prepare(
+            "INSERT INTO portal_notifications(audience, tone, icon, title, message, link, scope_user_id, created_at) "
+            . "VALUES('employee', :tone, :icon, :title, :message, :link, :scope_user_id, :created_at)"
+        );
+        $insert->execute([
+            ':tone' => $tone,
+            ':icon' => 'fa-solid fa-bell',
+            ':title' => $title,
+            ':message' => $message,
+            ':link' => 'employee-dashboard.php?view=reminders',
+            ':scope_user_id' => $proposerId,
+            ':created_at' => now_ist(),
+        ]);
+
+        $notificationId = (int) $db->lastInsertId();
+        portal_mark_notification($db, $notificationId, (int) $proposerId, 'unread');
+        $delivered = true;
+    } catch (Throwable $exception) {
+        error_log('Failed to notify proposer about reminder update: ' . $exception->getMessage());
+    }
+
+    if (!$delivered) {
+        portal_store_reminder_banner($db, (int) $proposerId, $tone, $title, $message);
+    }
+}
+
 function admin_normalize_reminder_row(array $row): array
 {
     $dueValue = $row['due_at'] ?? null;
@@ -4838,6 +5138,8 @@ function admin_update_reminder_status(PDO $db, int $id, string $targetStatus, in
     if ($updated === null) {
         throw new RuntimeException('Reminder could not be reloaded.');
     }
+
+    portal_notify_reminder_status($db, $updated, $target);
 
     return $updated;
 }

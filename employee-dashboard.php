@@ -36,6 +36,7 @@ if (!empty($user['id'])) {
     $employeeRecord = portal_find_user($db, (int) $user['id']);
 }
 $employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
+$reminderBannerAlerts = portal_consume_reminder_banners($db, $employeeId);
 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -166,6 +167,35 @@ $notificationsRaw = $bootstrapData['notifications'] ?? [];
 $requestsRaw = $bootstrapData['requests'] ?? [];
 $syncSnapshot = $bootstrapData['sync'] ?? null;
 $employeeRequests = is_array($requestsRaw) ? $requestsRaw : [];
+$reminderScopeParam = strtolower(trim((string) ($_GET['reminder_scope'] ?? 'all')));
+$validReminderScopes = ['all', 'due-today', 'overdue'];
+if (!in_array($reminderScopeParam, $validReminderScopes, true)) {
+    $reminderScopeParam = 'all';
+}
+$reminderScopeMap = [
+    'all' => 'all',
+    'due-today' => 'due_today',
+    'overdue' => 'overdue',
+];
+$employeeReminderCounts = reminder_due_counts($db, $employeeId);
+$employeeReminderList = portal_employee_reminders($db, $employeeId, [
+    'status' => 'all',
+    'due' => $reminderScopeMap[$reminderScopeParam] ?? 'all',
+]);
+$employeeUpcomingReminders = portal_employee_reminders($db, $employeeId, [
+    'status' => 'active',
+    'due' => 'upcoming',
+    'limit' => 5,
+]);
+$reminderScopeLabels = [
+    'all' => 'all reminders',
+    'due-today' => 'reminders due today',
+    'overdue' => 'overdue reminders',
+];
+$reminderScopeLabel = $reminderScopeLabels[$reminderScopeParam] ?? 'all reminders';
+$employeeDueTodayLink = $reminderFilterUrlFor('due-today') . '#reminder-tracker';
+$employeeOverdueLink = $reminderFilterUrlFor('overdue') . '#reminder-tracker';
+$employeeRemindersResetLink = $reminderFilterUrlFor('all') . '#reminder-tracker';
 $supportEmail = resolve_admin_email();
 
 $viewDefinitions = [
@@ -209,6 +239,15 @@ $viewUrlFor = static function (string $view) use ($pathFor, $viewDefinitions): s
     $base = $pathFor('employee-dashboard.php');
 
     return $base . '?view=' . rawurlencode($view);
+};
+
+$reminderFilterUrlFor = static function (string $scope) use ($viewUrlFor): string {
+    $base = $viewUrlFor('reminders');
+    if ($scope === 'all') {
+        return $base;
+    }
+
+    return $base . '&reminder_scope=' . rawurlencode($scope);
 };
 
 $dashboardViews = [];
@@ -350,22 +389,24 @@ foreach (array_slice($sortedTasks, 0, 5) as $recent) {
 }
 
 $taskReminders = [];
-$reminderClock = clone $nowIst;
-foreach ($tasks as $taskRow) {
-    if ($taskRow['dueDate'] === '') {
-        continue;
+foreach ($employeeUpcomingReminders as $reminderRow) {
+    $title = trim((string) ($reminderRow['title'] ?? 'Reminder'));
+    $moduleLabel = trim((string) ($reminderRow['moduleLabel'] ?? ''));
+    $linkedId = (string) ($reminderRow['linkedId'] ?? '');
+    $dueDisplay = trim((string) ($reminderRow['dueDisplay'] ?? ''));
+
+    $parts = [$title];
+    if ($moduleLabel !== '' && $linkedId !== '') {
+        $parts[] = sprintf('%s #%s', $moduleLabel, $linkedId);
     }
-    $dueDate = DateTime::createFromFormat('Y-m-d', $taskRow['dueDate'], new DateTimeZone('Asia/Kolkata'));
-    if (!$dueDate) {
-        continue;
+    if ($dueDisplay !== '' && $dueDisplay !== '—') {
+        $parts[] = 'Due ' . $dueDisplay;
     }
-    $intervalDays = (int) $reminderClock->diff($dueDate)->format('%r%a');
-    if ($intervalDays >= 0 && $intervalDays <= 2) {
-        $taskReminders[] = [
-            'icon' => 'fa-solid fa-bell',
-            'message' => sprintf('%s due on %s', $taskRow['title'], $dueDate->format('d M Y')),
-        ];
-    }
+
+    $taskReminders[] = [
+        'icon' => 'fa-solid fa-bell',
+        'message' => implode(' · ', $parts),
+    ];
 }
 
 $tickets = [];
@@ -1412,6 +1453,47 @@ $attachmentIcon = static function (string $filename): string {
             <p class="dashboard-section-sub">
               Update statuses inline or drag cards between columns. Priorities, due dates, and reminders keep your workload aligned with Admin expectations.
             </p>
+            <?php if (!empty($reminderBannerAlerts)): ?>
+            <div class="reminder-banner-stack" role="status" aria-live="polite">
+              <?php foreach ($reminderBannerAlerts as $banner): ?>
+              <?php
+              $bannerTone = in_array($banner['tone'], ['success', 'info', 'warning', 'danger'], true) ? $banner['tone'] : 'info';
+              $bannerIcons = [
+                  'success' => 'fa-circle-check',
+                  'danger' => 'fa-triangle-exclamation',
+                  'warning' => 'fa-circle-exclamation',
+                  'info' => 'fa-circle-info',
+              ];
+              $bannerIcon = $bannerIcons[$bannerTone] ?? 'fa-circle-info';
+              ?>
+              <div class="reminder-banner reminder-banner--<?= htmlspecialchars($bannerTone, ENT_QUOTES) ?>">
+                <i class="fa-solid <?= htmlspecialchars($bannerIcon, ENT_QUOTES) ?>" aria-hidden="true"></i>
+                <div class="reminder-banner__content">
+                  <p class="reminder-banner__title"><?= htmlspecialchars($banner['title'], ENT_QUOTES) ?></p>
+                  <p class="reminder-banner__message"><?= htmlspecialchars($banner['message'], ENT_QUOTES) ?></p>
+                </div>
+              </div>
+              <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+            <div class="dashboard-reminder-summary">
+              <div class="dashboard-reminder-chips">
+                <a class="reminder-chip" href="<?= htmlspecialchars($employeeDueTodayLink, ENT_QUOTES) ?>">
+                  <span class="reminder-chip__label">Due today</span>
+                  <span class="reminder-chip__count"><?= number_format((int) ($employeeReminderCounts['due_today'] ?? 0)) ?></span>
+                </a>
+                <a class="reminder-chip reminder-chip--danger" href="<?= htmlspecialchars($employeeOverdueLink, ENT_QUOTES) ?>">
+                  <span class="reminder-chip__label">Overdue</span>
+                  <span class="reminder-chip__count"><?= number_format((int) ($employeeReminderCounts['overdue'] ?? 0)) ?></span>
+                </a>
+              </div>
+              <?php if ($reminderScopeParam !== 'all'): ?>
+              <p class="dashboard-reminder-summary__filter">
+                Showing <?= htmlspecialchars($reminderScopeLabel, ENT_QUOTES) ?>.
+                <a href="<?= htmlspecialchars($employeeRemindersResetLink, ENT_QUOTES) ?>">Reset</a>
+              </p>
+              <?php endif; ?>
+            </div>
             <div class="task-board" data-task-board>
               <?php foreach ($taskColumns as $columnKey => $column): ?>
               <section class="task-column" data-task-column="<?= htmlspecialchars($columnKey, ENT_QUOTES) ?>" data-status-label="<?= htmlspecialchars($column['label'], ENT_QUOTES) ?>">
@@ -1440,6 +1522,77 @@ $attachmentIcon = static function (string $filename): string {
                 </div>
               </section>
               <?php endforeach; ?>
+            </div>
+            <div class="reminder-tracker" id="reminder-tracker">
+              <div class="reminder-tracker__header">
+                <h3>Reminder list</h3>
+                <p>Track proposals, active reminders, and cancellations for your linked items.</p>
+              </div>
+              <div class="reminder-tracker__table-wrapper">
+                <table class="reminder-tracker__table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Reminder</th>
+                      <th scope="col">Due</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Linked item</th>
+                      <th scope="col">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php if (empty($employeeReminderList)): ?>
+                    <tr>
+                      <td colspan="5" class="text-muted">No reminders match the selected filter.</td>
+                    </tr>
+                    <?php else: ?>
+                    <?php foreach ($employeeReminderList as $reminderRow): ?>
+                    <?php
+                    $dueIso = $reminderRow['dueIso'] ?? '';
+                    $isOverdue = false;
+                    if ($dueIso !== '' && strtolower((string) ($reminderRow['status'] ?? '')) === 'active') {
+                        try {
+                            $dueInstance = new DateTimeImmutable($dueIso);
+                            $overdueCutoff = DateTimeImmutable::createFromMutable(clone $nowIst)->setTime(0, 0, 0);
+                            $isOverdue = $dueInstance < $overdueCutoff;
+                        } catch (Throwable $exception) {
+                            $isOverdue = false;
+                        }
+                    }
+                    ?>
+                    <?php
+                    $updatedDisplay = '—';
+                    if (!empty($reminderRow['updatedAt'])) {
+                        try {
+                            $updatedInstance = new DateTimeImmutable($reminderRow['updatedAt']);
+                            $updatedDisplay = $updatedInstance->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('d M Y · h:i A');
+                        } catch (Throwable $exception) {
+                            $updatedDisplay = $reminderRow['updatedAt'];
+                        }
+                    }
+                    ?>
+                    <tr>
+                      <td>
+                        <strong><?= htmlspecialchars($reminderRow['title'], ENT_QUOTES) ?></strong>
+                        <span class="text-muted d-block"><?= htmlspecialchars($reminderRow['moduleLabel'], ENT_QUOTES) ?> · #<?= htmlspecialchars((string) $reminderRow['linkedId'], ENT_QUOTES) ?></span>
+                      </td>
+                      <td>
+                        <?php if ($dueIso !== ''): ?>
+                        <time datetime="<?= htmlspecialchars($dueIso, ENT_QUOTES) ?>" class="reminder-tracker__due<?= $isOverdue ? ' reminder-tracker__due--overdue' : '' ?>"><?= htmlspecialchars($reminderRow['dueDisplay'], ENT_QUOTES) ?></time>
+                        <?php else: ?>
+                        —
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <span class="reminder-status-chip <?= reminder_status_class($reminderRow['status']) ?>"><?= htmlspecialchars($reminderRow['statusLabel'], ENT_QUOTES) ?></span>
+                      </td>
+                      <td><?= htmlspecialchars($reminderRow['moduleLabel'], ENT_QUOTES) ?> · #<?= htmlspecialchars((string) $reminderRow['linkedId'], ENT_QUOTES) ?></td>
+                      <td><?= htmlspecialchars($updatedDisplay, ENT_QUOTES) ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php endif; ?>
+                  </tbody>
+                </table>
+              </div>
             </div>
             <div class="task-footer">
               <div class="task-activity-block">
