@@ -169,6 +169,7 @@
   };
 
   let autoblogTimer = null;
+  let localPostCounter = 0;
 
   const TASK_STATUS_LABELS = {
     todo: 'To Do',
@@ -1216,6 +1217,15 @@
     return text;
   }
 
+  function estimateWordCount(html) {
+    if (!html) return 0;
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const text = (temp.textContent || '').trim();
+    if (!text) return 0;
+    return text.split(/\s+/).filter(Boolean).length;
+  }
+
   function extractAiDraftDetails(metadata = state.ai) {
     const draft = metadata?.draft || '';
     if (!draft) {
@@ -1261,6 +1271,57 @@
       coverImageAlt: effectiveAlt,
     };
     return imageData;
+  }
+
+  function buildFallbackResearch(formOptions = {}) {
+    const topic = (formOptions.topic || state.ai.topic || 'AI Blog Post').toString().trim() || 'AI Blog Post';
+    const tone = formOptions.tone || 'informative';
+    const length = Number(formOptions.length || 650) || 650;
+    const keywordsArray = Array.isArray(formOptions.keywords) && formOptions.keywords.length
+      ? formOptions.keywords
+      : parseKeywords(formOptions.keywordsText);
+    const outlineText = formOptions.outlineText
+      ? formOptions.outlineText
+      : Array.isArray(formOptions.outline)
+      ? formOptions.outline.join('\n')
+      : '';
+    const draftHtml = buildBlogDraft({
+      topic,
+      tone,
+      length,
+      keywords: keywordsArray.join(', '),
+      outline: outlineText,
+    });
+    const excerpt = buildExcerptFromHtml(draftHtml, outlineText || topic);
+    const wordCount = estimateWordCount(draftHtml);
+    const readingTimeMinutes = Math.max(1, Math.round(wordCount / 180) || 1);
+    const aspect = aiImageAspect?.value || state.ai.coverAspect || '16:9';
+    const coverPrompt = topic;
+    const coverAlt = `Gemini generated illustration for ${topic}`;
+    const coverImage = ensureAiCoverImage({ title: topic, prompt: coverPrompt, aspect, alt: coverAlt });
+    return {
+      title: topic,
+      draftHtml,
+      excerpt,
+      keywords: keywordsArray,
+      outline: outlineText
+        ? outlineText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+        : [],
+      wordCount,
+      readingTimeMinutes,
+      cover: {
+        image: coverImage,
+        alt: coverAlt,
+        prompt: coverPrompt,
+        aspect,
+      },
+      research: {
+        brief: 'Gemini API was unreachable, so a Dentweb fallback draft was generated locally.',
+        sections: [],
+        takeaways: [],
+        sources: [],
+      },
+    };
   }
 
   function pickRandomTheme(previousTheme) {
@@ -1487,15 +1548,29 @@
         return research;
       })
       .catch((error) => {
+        console.error('Gemini request failed', error);
+        const fallback = buildFallbackResearch(formOptions);
+        formOptions.topic = fallback.title;
+        formOptions.keywords = fallback.keywords;
+        formOptions.keywordsText = fallback.keywords.join(', ');
+        formOptions.outline = fallback.outline;
+        if (!formOptions.outlineText) {
+          formOptions.outlineText = fallback.outline.join('\n');
+        }
+        formOptions.length = formOptions.length || fallback.wordCount;
+        applyAiResearchResult(fallback, formOptions, intent);
         renderInlineStatus(
           aiStatus,
-          'error',
-          'Gemini request failed',
-          error.message || 'Unable to generate AI-assisted content.'
+          'info',
+          'Fallback draft prepared',
+          'Gemini API was unreachable, so a Dentweb template draft was generated.'
         );
-        clearInlineStatus(aiImageStatus);
-        showToast('Gemini unavailable', error.message || 'Unable to generate AI-assisted content right now.', 'error');
-        throw error;
+        showToast(
+          'Offline draft prepared',
+          `Created a starter draft for “${fallback.title}”.`,
+          'warning'
+        );
+        return fallback;
       });
   }
 
@@ -1556,8 +1631,38 @@
         showToast('Draft sent to Blog Publishing', `“${normalized.title}” is now waiting for approval.`, 'success');
       })
       .catch((error) => {
-        renderInlineStatus(aiStatus, 'error', 'Queue failed', error.message || 'Unable to hand off the draft.');
-        showToast('Publish blocked', error.message || 'AI draft could not be sent for review.', 'error');
+        console.error('Publish blocked', error);
+        const localPost = storeLocalBlogPost(
+          {
+            title: payload.title,
+            excerpt,
+            body: details.body,
+            authorName: payload.authorName,
+            coverImage,
+            coverImageAlt: coverAlt,
+            tags,
+            status: 'pending',
+          },
+          { setAsEditing: true }
+        );
+        activateTab('blog');
+        renderInlineStatus(
+          aiStatus,
+          'info',
+          'Draft saved locally',
+          'Gemini API was unreachable. Review and publish from Blog Publishing once connectivity returns.'
+        );
+        renderInlineStatus(
+          blogStatus,
+          'warning',
+          'Awaiting sync',
+          `“${localPost.title}” stored locally for editorial approval.`
+        );
+        showToast(
+          'Draft saved for review',
+          `Stored “${localPost.title}” locally until the API is reachable.`,
+          'warning'
+        );
       });
   }
 
@@ -1593,6 +1698,7 @@
       tags: keywordTags,
       status: 'published',
     };
+    const descriptor = describeAutoblogRotation(normalizedTheme, actualTheme);
     renderInlineStatus(
       aiScheduleStatus,
       'progress',
@@ -1601,39 +1707,33 @@
     );
     api('save-blog-post', { method: 'POST', body: payload })
       .then(({ post }) => {
-        const normalized = normalizeBlogPost(post);
-        upsertBlogPost(normalized);
-        renderBlogPosts();
-        updateBlogActions();
-        state.aiAutoblog = {
-          ...(state.aiAutoblog || {}),
-          enabled: true,
-          theme: normalizedTheme,
-          time: scheduleTime,
-          lastPublishedAt: new Date().toISOString(),
-          lastRandomTheme: normalizedTheme === 'random' ? actualTheme : null,
-        };
-        const descriptor = describeAutoblogRotation(normalizedTheme, actualTheme);
-        renderInlineStatus(
-          aiScheduleStatus,
-          'success',
-          'Schedule active',
-          `Daily ${descriptor} will publish automatically at ${scheduleTime}. Latest article went live.`
-        );
-        showToast(
-          'Scheduled blog published',
-          `Auto-blog “${normalized.title}” published without review with a ${capitalize(actualTheme)} focus.`,
-          'success'
-        );
+        handleAutoblogSuccess(post, {
+          descriptor,
+          scheduleTime,
+          normalizedTheme,
+          actualTheme,
+          fallback: false,
+        });
       })
       .catch((error) => {
-        renderInlineStatus(
-          aiScheduleStatus,
-          'error',
-          'Auto-blog publish failed',
-          error.message || 'Unable to publish the scheduled blog.'
-        );
-        showToast('Scheduled publish failed', error.message || 'Unable to publish scheduled content.', 'error');
+        console.error('Scheduled publish failed', error);
+        const localPost = createLocalBlogPost({
+          title: payload.title,
+          excerpt,
+          body,
+          authorName: payload.authorName,
+          coverImage: payload.coverImage,
+          coverImageAlt: payload.coverImageAlt,
+          tags: payload.tags,
+          status: 'published',
+        });
+        handleAutoblogSuccess(localPost, {
+          descriptor,
+          scheduleTime,
+          normalizedTheme,
+          actualTheme,
+          fallback: true,
+        });
       });
   }
 
@@ -3257,6 +3357,89 @@
   function capitalize(value) {
     if (!value) return '';
     return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function slugify(value) {
+    if (!value) {
+      return `draft-${Date.now()}`;
+    }
+    let text = value.toString().trim().toLowerCase();
+    try {
+      text = text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+    } catch (error) {
+      // ignore normalization issues in older browsers
+    }
+    text = text.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return text || `draft-${Date.now()}`;
+  }
+
+  function generateLocalId() {
+    localPostCounter += 1;
+    return -(Date.now() + localPostCounter);
+  }
+
+  function createLocalBlogPost(options = {}) {
+    const status = (options.status || 'draft').toLowerCase();
+    const title = options.title || 'AI Blog Post';
+    const nowIso = new Date().toISOString();
+    return {
+      id: options.id ?? generateLocalId(),
+      title,
+      slug: slugify(options.slug || title),
+      excerpt: options.excerpt || '',
+      status,
+      publishedAt: status === 'published' ? nowIso : '',
+      updatedAt: nowIso,
+      authorName: options.authorName || '',
+      coverImage: options.coverImage || '',
+      coverImageAlt: options.coverImageAlt || '',
+      tags: Array.isArray(options.tags) ? options.tags.filter(Boolean) : [],
+      body: options.body || '',
+    };
+  }
+
+  function storeLocalBlogPost(options = {}, { setAsEditing = false } = {}) {
+    const post = createLocalBlogPost(options);
+    upsertBlogPost(post);
+    renderBlogPosts();
+    if (setAsEditing) {
+      blogState.editingId = post.id;
+      blogState.editingStatus = post.status;
+      populateBlogForm(post);
+    }
+    updateBlogActions();
+    return post;
+  }
+
+  function handleAutoblogSuccess(
+    post,
+    { descriptor, scheduleTime, normalizedTheme, actualTheme, fallback = false }
+  ) {
+    const normalized = normalizeBlogPost(post);
+    upsertBlogPost(normalized);
+    renderBlogPosts();
+    updateBlogActions();
+    state.aiAutoblog = {
+      ...(state.aiAutoblog || {}),
+      enabled: true,
+      theme: normalizedTheme,
+      time: scheduleTime,
+      lastPublishedAt: new Date().toISOString(),
+      lastRandomTheme: normalizedTheme === 'random' ? actualTheme : null,
+    };
+    const tone = fallback ? 'info' : 'success';
+    const title = fallback ? 'Auto-blog cached offline' : 'Schedule active';
+    const message = fallback
+      ? `Saved “${normalized.title}” locally. Daily ${descriptor} will resume publishing at ${scheduleTime} once connectivity returns.`
+      : `Daily ${descriptor} will publish automatically at ${scheduleTime}. Latest article went live.`;
+    renderInlineStatus(aiScheduleStatus, tone, title, message);
+    showToast(
+      fallback ? 'Scheduled blog cached' : 'Scheduled blog published',
+      fallback
+        ? `Auto-blog “${normalized.title}” stored locally until the API is reachable.`
+        : `Auto-blog “${normalized.title}” published without review with a ${capitalize(actualTheme)} focus.`,
+      fallback ? 'warning' : 'success'
+    );
   }
 
   function handleSearch(term) {

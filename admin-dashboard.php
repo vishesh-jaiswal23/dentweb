@@ -1531,117 +1531,134 @@ $subsidyApplications = [];
               </div>
             </form>
 
-            <div class="dashboard-profile-grid">
-              <form class="dashboard-form" data-ai-blog-form>
-                <h3>Generate AI-assisted blog</h3>
-                <div class="dashboard-form-grid dashboard-form-grid--two">
-                  <label>
-                    Describe what you want to post about
-                    <div class="dashboard-input-with-action">
-                      <input
-                        type="text"
-                        name="topic"
-                        value="Solar Benefits in Jharkhand"
-                        placeholder="Share the idea, audience, or outcome you want Gemini to cover"
-                        required
-                        data-ai-topic
-                      />
-                      <button type="button" class="btn btn-outline" data-action="research-topic">
-                        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-                        Research
+            <div class="dashboard-profile-grid dashboard-ai-stack">
+              <form class="dashboard-form dashboard-ai-suite" data-ai-blog-form>
+                <div class="dashboard-ai-suite__header">
+                  <h3>AI content studio</h3>
+                  <p class="dashboard-muted">
+                    Generate the draft, artwork, and narration without leaving this workflow.
+                  </p>
+                </div>
+                <div class="dashboard-ai-suite__grid">
+                  <section class="dashboard-ai-suite__panel dashboard-ai-suite__panel--primary">
+                    <h4>Generate AI-assisted blog</h4>
+                    <div class="dashboard-form-grid dashboard-form-grid--two">
+                      <label>
+                        Describe what you want to post about
+                        <div class="dashboard-input-with-action">
+                          <input
+                            type="text"
+                            name="topic"
+                            value="Solar Benefits in Jharkhand"
+                            placeholder="Share the idea, audience, or outcome you want Gemini to cover"
+                            required
+                            data-ai-topic
+                          />
+                          <button type="button" class="btn btn-outline" data-action="research-topic">
+                            <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                            Research
+                          </button>
+                        </div>
+                      </label>
+                      <label>
+                        Tone
+                        <select name="tone" data-ai-tone>
+                          <option value="informative" selected>Informative</option>
+                          <option value="conversational">Conversational</option>
+                          <option value="technical">Technical</option>
+                          <option value="promotional">Promotional</option>
+                        </select>
+                      </label>
+                      <label>
+                        Target length (words)
+                        <input type="number" name="length" min="200" max="1500" value="650" data-ai-length />
+                      </label>
+                      <label>
+                        Focus keywords
+                        <input type="text" name="keywords" placeholder="PM Surya Ghar, net metering" data-ai-keywords />
+                      </label>
+                    </div>
+                    <label>
+                      Outline hints
+                      <textarea
+                        name="outline"
+                        rows="3"
+                        placeholder="Add sections or bullet points you want the draft to include."
+                        data-ai-outline
+                      ></textarea>
+                    </label>
+                    <div class="dashboard-ai-suite__actions">
+                      <button type="submit" class="btn btn-secondary" data-action="generate-blog">Generate draft</button>
+                      <button type="button" class="btn btn-ghost" data-action="clear-blog">Clear</button>
+                      <button type="button" class="btn btn-tertiary" data-action="publish-blog">
+                        <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
+                        Push to Blog Publishing
                       </button>
                     </div>
-                  </label>
-                  <label>
-                    Tone
-                    <select name="tone" data-ai-tone>
-                      <option value="informative" selected>Informative</option>
-                      <option value="conversational">Conversational</option>
-                      <option value="technical">Technical</option>
-                      <option value="promotional">Promotional</option>
-                    </select>
-                  </label>
-                  <label>
-                    Target length (words)
-                    <input type="number" name="length" min="200" max="1500" value="650" data-ai-length />
-                  </label>
-                  <label>
-                    Focus keywords
-                    <input type="text" name="keywords" placeholder="PM Surya Ghar, net metering" data-ai-keywords />
-                  </label>
+                    <div class="dashboard-ai-preview" data-ai-blog-preview>
+                      <p class="dashboard-muted">Draft output will appear here for preview and editing.</p>
+                    </div>
+                    <div class="dashboard-inline-status" data-ai-status hidden></div>
+                  </section>
+                  <div class="dashboard-ai-suite__aside">
+                    <section class="dashboard-ai-suite__panel dashboard-ai-suite__panel--card">
+                      <h4>Cover image generation</h4>
+                      <p class="dashboard-muted">
+                        Gemini pairs a cover with every draft automatically. Refresh it when you need a fresh visual.
+                      </p>
+                      <div class="dashboard-form-grid dashboard-form-grid--two">
+                        <label>
+                          Prompt
+                          <input type="text" value="Sunlit rooftop solar panels in Ranchi" data-ai-image-prompt />
+                        </label>
+                        <label>
+                          Aspect ratio
+                          <select data-ai-image-aspect>
+                            <option value="16:9" selected>16:9</option>
+                            <option value="1:1">1:1</option>
+                            <option value="4:5">4:5</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div class="dashboard-ai-figure">
+                        <img
+                          data-ai-image
+                          src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'><rect fill='%23eef2ff' width='120' height='80'/><text x='60' y='44' font-size='10' text-anchor='middle' fill='%234256b6'>AI Cover Preview</text></svg>"
+                          alt="AI generated cover preview"
+                        />
+                      </div>
+                      <div class="dashboard-ai-suite__actions">
+                        <button type="button" class="btn btn-secondary" data-action="generate-image">Regenerate cover image</button>
+                        <button type="button" class="btn btn-ghost" data-action="download-image">Download</button>
+                      </div>
+                      <div class="dashboard-inline-status" data-ai-image-status hidden></div>
+                    </section>
+                    <section class="dashboard-ai-suite__panel dashboard-ai-suite__panel--card">
+                      <h4>Audio narration (TTS)</h4>
+                      <p class="dashboard-muted">Request a narration track that pairs with the generated blog.</p>
+                      <label>
+                        Voice style
+                        <select data-ai-voice>
+                          <option value="neutral" selected>Neutral professional</option>
+                          <option value="friendly">Friendly Hindi-English mix</option>
+                          <option value="youthful">Youthful energy</option>
+                        </select>
+                      </label>
+                      <div class="dashboard-ai-suite__actions">
+                        <button type="button" class="btn btn-secondary" data-action="generate-audio">
+                          <i class="fa-solid fa-wave-square" aria-hidden="true"></i>
+                          Generate narration
+                        </button>
+                        <button type="button" class="btn btn-ghost" data-action="download-audio">Download</button>
+                      </div>
+                      <audio data-ai-audio controls hidden></audio>
+                      <div class="dashboard-inline-status" data-ai-audio-status hidden></div>
+                    </section>
+                  </div>
                 </div>
-                <label>
-                  Outline hints
-                  <textarea name="outline" rows="3" placeholder="Add sections or bullet points you want the draft to include." data-ai-outline></textarea>
-                </label>
-                <div>
-                  <button type="submit" class="btn btn-secondary" data-action="generate-blog">Generate draft</button>
-                  <button type="button" class="btn btn-ghost" data-action="clear-blog">Clear</button>
-                  <button type="button" class="btn btn-tertiary" data-action="publish-blog">
-                    <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-                    Push to Blog Publishing
-                  </button>
-                </div>
-                <div class="dashboard-ai-preview" data-ai-blog-preview>
-                  <p class="dashboard-muted">Draft output will appear here for preview and editing.</p>
-                </div>
-                <div class="dashboard-inline-status" data-ai-status hidden></div>
               </form>
 
-              <article class="dashboard-form">
-                <h3>Cover image generation</h3>
-                <p>Gemini now pairs a cover with every draft automatically. Regenerate it here if you want a fresh visual.</p>
-                <div class="dashboard-form-grid dashboard-form-grid--two">
-                  <label>
-                    Prompt
-                    <input type="text" value="Sunlit rooftop solar panels in Ranchi" data-ai-image-prompt />
-                  </label>
-                  <label>
-                    Aspect ratio
-                    <select data-ai-image-aspect>
-                      <option value="16:9" selected>16:9</option>
-                      <option value="1:1">1:1</option>
-                      <option value="4:5">4:5</option>
-                    </select>
-                  </label>
-                </div>
-                <div class="dashboard-ai-figure">
-                  <img
-                    data-ai-image
-                    src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'><rect fill='%23eef2ff' width='120' height='80'/><text x='60' y='44' font-size='10' text-anchor='middle' fill='%234256b6'>AI Cover Preview</text></svg>"
-                    alt="AI generated cover preview"
-                  />
-                </div>
-                <div>
-                  <button type="button" class="btn btn-secondary" data-action="generate-image">Regenerate cover image</button>
-                  <button type="button" class="btn btn-ghost" data-action="download-image">Download</button>
-                </div>
-                <div class="dashboard-inline-status" data-ai-image-status hidden></div>
-              </article>
-
-              <article class="dashboard-form">
-                <h3>Audio narration (TTS)</h3>
-                <p>Request a narration track that pairs with the generated blog.</p>
-                <label>
-                  Voice style
-                  <select data-ai-voice>
-                    <option value="neutral" selected>Neutral professional</option>
-                    <option value="friendly">Friendly Hindi-English mix</option>
-                    <option value="youthful">Youthful energy</option>
-                  </select>
-                </label>
-                <div>
-                  <button type="button" class="btn btn-secondary" data-action="generate-audio">
-                    <i class="fa-solid fa-wave-square" aria-hidden="true"></i>
-                    Generate narration
-                  </button>
-                  <button type="button" class="btn btn-ghost" data-action="download-audio">Download</button>
-                </div>
-                <audio data-ai-audio controls hidden></audio>
-                <div class="dashboard-inline-status" data-ai-audio-status hidden></div>
-              </article>
-
-              <form class="dashboard-form" data-ai-schedule-form>
+              <form class="dashboard-form dashboard-ai-schedule" data-ai-schedule-form>
                 <h3>Auto-blog scheduling</h3>
                 <div class="dashboard-form-grid dashboard-form-grid--two">
                   <label class="dashboard-toggle">
