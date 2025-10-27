@@ -46,10 +46,76 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$tasks = $employeeId > 0 ? portal_list_tasks($db, $employeeId) : [];
-$complaints = $employeeId > 0 ? portal_employee_complaints($db, $employeeId) : [];
-$documentsRaw = portal_list_documents($db, 'employee');
-$notificationsRaw = $employeeId > 0 ? portal_list_notifications($db, $employeeId, 'employee') : [];
+$viewDefinitions = [
+    'overview' => [
+        'label' => 'Overview',
+        'icon' => 'fa-solid fa-gauge-high',
+    ],
+    'complaints' => [
+        'label' => 'Complaints',
+        'icon' => 'fa-solid fa-ticket',
+    ],
+    'tasks' => [
+        'label' => 'Tasks',
+        'icon' => 'fa-solid fa-list-check',
+    ],
+    'leads' => [
+        'label' => 'Leads',
+        'icon' => 'fa-solid fa-user-plus',
+    ],
+    'field-work' => [
+        'label' => 'Field work',
+        'icon' => 'fa-solid fa-route',
+    ],
+    'documents' => [
+        'label' => 'Documents',
+        'icon' => 'fa-solid fa-folder-open',
+    ],
+    'subsidy' => [
+        'label' => 'Subsidy',
+        'icon' => 'fa-solid fa-sack-dollar',
+    ],
+    'warranty' => [
+        'label' => 'Warranty',
+        'icon' => 'fa-solid fa-shield-halved',
+    ],
+    'communication' => [
+        'label' => 'Communication',
+        'icon' => 'fa-solid fa-comments',
+    ],
+    'ai-assist' => [
+        'label' => 'AI assist',
+        'icon' => 'fa-solid fa-robot',
+    ],
+];
+
+$requestedView = strtolower(trim((string) ($_GET['view'] ?? '')));
+if ($requestedView === '' || !array_key_exists($requestedView, $viewDefinitions)) {
+    $requestedView = 'overview';
+}
+$currentView = $requestedView;
+
+$viewUrlFor = static function (string $view) use ($pathFor, $viewDefinitions): string {
+    if (!array_key_exists($view, $viewDefinitions)) {
+        $view = 'overview';
+    }
+
+    $base = $pathFor('employee-dashboard.php');
+
+    return $base . '?view=' . rawurlencode($view);
+};
+
+$dashboardViews = [];
+foreach ($viewDefinitions as $viewKey => $viewConfig) {
+    $dashboardViews[$viewKey] = $viewConfig + [
+        'href' => $viewUrlFor($viewKey),
+    ];
+}
+
+$currentViewLabel = $dashboardViews[$currentView]['label'] ?? 'Overview';
+$pageTitle = sprintf('%s · Employee Workspace | Dakshayani Enterprises', $currentViewLabel);
+
+$performanceMetrics = [];
 
 $nowIst = new DateTime('now', new DateTimeZone('Asia/Kolkata'));
 $currentMonthStart = (clone $nowIst)->modify('first day of this month')->setTime(0, 0, 0);
@@ -868,7 +934,9 @@ $attachmentIcon = static function (string $filename): string {
                   assignments are completed.
                 </p>
               </div>
-            </section>
+          </section>
+
+          <?php endif; ?>
 
           <?php if ($currentView === 'complaints'): ?>
           <section id="complaints" class="dashboard-section" data-section>
