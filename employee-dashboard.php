@@ -8,6 +8,29 @@ require_role('employee');
 $user = current_user();
 $db = get_db();
 
+$flashData = consume_flash();
+$flashMessage = '';
+$flashTone = 'info';
+$flashIcons = [
+    'success' => 'fa-circle-check',
+    'warning' => 'fa-triangle-exclamation',
+    'error' => 'fa-circle-exclamation',
+    'info' => 'fa-circle-info',
+];
+$flashIcon = $flashIcons[$flashTone];
+if (is_array($flashData)) {
+    if (isset($flashData['message']) && is_string($flashData['message'])) {
+        $flashMessage = trim($flashData['message']);
+    }
+    if (isset($flashData['type']) && is_string($flashData['type'])) {
+        $candidateTone = strtolower($flashData['type']);
+        if (isset($flashIcons[$candidateTone])) {
+            $flashTone = $candidateTone;
+            $flashIcon = $flashIcons[$candidateTone];
+        }
+    }
+}
+
 $employeeRecord = null;
 if (!empty($user['id'])) {
     $employeeRecord = portal_find_user($db, (int) $user['id']);
@@ -886,6 +909,13 @@ $attachmentIcon = static function (string $filename): string {
           </div>
         </div>
       </div>
+
+      <?php if ($flashMessage !== ''): ?>
+      <div class="portal-flash portal-flash--<?= htmlspecialchars($flashTone, ENT_QUOTES) ?>" role="status" aria-live="polite">
+        <i class="fa-solid <?= htmlspecialchars($flashIcon, ENT_QUOTES) ?>" aria-hidden="true"></i>
+        <span><?= htmlspecialchars($flashMessage, ENT_QUOTES) ?></span>
+      </div>
+      <?php endif; ?>
 
       <div class="dashboard-auth-bar" role="banner">
         <div class="dashboard-auth-user">

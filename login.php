@@ -51,6 +51,29 @@ $supportEmail = resolve_admin_email();
 
 start_session();
 
+$flashData = consume_flash();
+$flashMessage = '';
+$flashTone = 'info';
+$flashIcons = [
+    'success' => 'fa-circle-check',
+    'warning' => 'fa-triangle-exclamation',
+    'error' => 'fa-circle-exclamation',
+    'info' => 'fa-circle-info',
+];
+$flashIcon = $flashIcons[$flashTone] ?? 'fa-circle-info';
+if (is_array($flashData)) {
+    if (isset($flashData['message']) && is_string($flashData['message'])) {
+        $flashMessage = trim($flashData['message']);
+    }
+    if (isset($flashData['type']) && is_string($flashData['type'])) {
+        $candidateTone = strtolower($flashData['type']);
+        if (isset($flashIcons[$candidateTone])) {
+            $flashTone = $candidateTone;
+            $flashIcon = $flashIcons[$candidateTone];
+        }
+    }
+}
+
 $scriptDir = str_replace('\\', '/', dirname($_SERVER['PHP_SELF'] ?? ''));
 if ($scriptDir === '/' || $scriptDir === '.') {
     $scriptDir = '';
@@ -73,6 +96,9 @@ $roleLabel = static function (string $role): string {
 
 $error = $bootstrapError;
 $success = '';
+$recoveryError = '';
+$recoverySuccess = '';
+$rateLimitMessage = '';
 
 $selectedRole = 'admin';
 $submittedRole = isset($_POST['role']) && is_string($_POST['role']) ? trim($_POST['role']) : '';
@@ -95,68 +121,233 @@ if (isset($_POST['password']) && is_string($_POST['password'])) {
     $passwordValue = (string) $_POST['password'];
 }
 
+$intent = 'login';
+if (isset($_POST['intent']) && is_string($_POST['intent'])) {
+    $candidateIntent = strtolower(trim($_POST['intent']));
+    if (in_array($candidateIntent, ['login', 'recover'], true)) {
+        $intent = $candidateIntent;
+    }
+}
+
+$validateRecoveryPassword = static function (string $password): ?string {
+    if (strlen($password) < 12) {
+        return 'Choose a password with at least 12 characters.';
+    }
+    if (!preg_match('/[A-Z]/', $password)) {
+        return 'Include at least one uppercase letter in the new password.';
+    }
+    if (!preg_match('/[a-z]/', $password)) {
+        return 'Include at least one lowercase letter in the new password.';
+    }
+    if (!preg_match('/\d/', $password)) {
+        return 'Include at least one number in the new password.';
+    }
+    if (!preg_match('/[^a-zA-Z0-9]/', $password)) {
+        return 'Include at least one special character in the new password.';
+    }
+
+    return null;
+};
+
 if (!empty($_SESSION['offline_session_invalidated'])) {
     $error = 'Your emergency administrator session ended because the secure database is available again. Please sign in using your standard credentials.';
     unset($_SESSION['offline_session_invalidated']);
 }
 
+$ipAddress = client_ip_address();
+
+$db = null;
+$loginPolicy = [
+    'retry_limit' => 5,
+    'lockout_minutes' => 30,
+    'session_timeout' => 45,
+];
+
+try {
+    $db = get_db();
+    $loginPolicy = get_login_policy($db);
+} catch (Throwable $dbInitialisationError) {
+    $db = null;
+}
+
+$recoverySecretConfigured = admin_recovery_secret() !== '';
+$recoveryAvailable = $db instanceof PDO ? is_admin_recovery_available($db) : false;
+
 $requestMethod = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET';
 if ($requestMethod === 'POST') {
-    if ($bootstrapError !== '') {
-        $error = $bootstrapError;
-    } else {
-        $csrfToken = $_POST['csrf_token'] ?? '';
-        if (!verify_csrf_token($csrfToken)) {
+    $csrfToken = $_POST['csrf_token'] ?? '';
+    if (!verify_csrf_token($csrfToken)) {
+        if ($intent === 'recover') {
+            $recoveryError = 'Your session expired. Please refresh and try again.';
+        } else {
             $error = 'Your session expired. Please refresh and try again.';
-        } elseif (!$isRoleValid) {
+        }
+    } elseif ($bootstrapError !== '') {
+        if ($intent === 'recover') {
+            $recoveryError = $bootstrapError;
+        } else {
+            $error = $bootstrapError;
+        }
+    } elseif ($intent === 'recover') {
+        if (!$recoverySecretConfigured) {
+            $recoveryError = 'Emergency recovery is disabled on this server.';
+        } elseif (!$db instanceof PDO) {
+            $recoveryError = 'Emergency recovery requires the secure database to be online. Please try again once the database connection is restored.';
+        } elseif (!$recoveryAvailable) {
+            $recoveryError = 'Emergency recovery is unavailable because at least one administrator account remains active.';
+        } else {
+            $secretInput = isset($_POST['recovery_secret']) && is_string($_POST['recovery_secret']) ? trim($_POST['recovery_secret']) : '';
+            $newPassword = isset($_POST['recovery_password']) && is_string($_POST['recovery_password']) ? (string) $_POST['recovery_password'] : '';
+            $confirmPassword = isset($_POST['recovery_password_confirm']) && is_string($_POST['recovery_password_confirm']) ? (string) $_POST['recovery_password_confirm'] : '';
+
+            if ($secretInput === '') {
+                $recoveryError = 'Enter the recovery secret provided in the environment configuration.';
+            } elseif (!hash_equals(admin_recovery_secret(), $secretInput)) {
+                $recoveryError = 'The recovery secret was incorrect.';
+                record_system_audit(
+                    $db,
+                    'admin_recovery_failed',
+                    'security',
+                    0,
+                    sprintf('Invalid recovery secret attempt from %s', mask_ip_for_log($ipAddress))
+                );
+            } elseif ($newPassword !== $confirmPassword) {
+                $recoveryError = 'The confirmation password did not match.';
+            } else {
+                $passwordIssue = $validateRecoveryPassword($newPassword);
+                if ($passwordIssue !== null) {
+                    $recoveryError = $passwordIssue;
+                } else {
+                    $recoveryEmailCandidates = [
+                        $_ENV['ADMIN_RECOVERY_EMAIL'] ?? null,
+                        $_SERVER['ADMIN_RECOVERY_EMAIL'] ?? null,
+                        getenv('ADMIN_RECOVERY_EMAIL') ?: null,
+                    ];
+                    $recoveryEmail = 'd.entranchi@gmail.com';
+                    foreach ($recoveryEmailCandidates as $candidateEmail) {
+                        if (is_string($candidateEmail)) {
+                            $candidateEmail = trim($candidateEmail);
+                            if ($candidateEmail !== '' && filter_var($candidateEmail, FILTER_VALIDATE_EMAIL)) {
+                                $recoveryEmail = $candidateEmail;
+                                break;
+                            }
+                        }
+                    }
+
+                    $recoveryNameCandidates = [
+                        $_ENV['ADMIN_RECOVERY_NAME'] ?? null,
+                        $_SERVER['ADMIN_RECOVERY_NAME'] ?? null,
+                        getenv('ADMIN_RECOVERY_NAME') ?: null,
+                    ];
+                    $recoveryName = 'Primary Administrator';
+                    foreach ($recoveryNameCandidates as $candidateName) {
+                        if (is_string($candidateName)) {
+                            $candidateName = trim($candidateName);
+                            if ($candidateName !== '') {
+                                $recoveryName = $candidateName;
+                                break;
+                            }
+                        }
+                    }
+
+                    $recoveryUsernameCandidates = [
+                        $_ENV['ADMIN_RECOVERY_USERNAME'] ?? null,
+                        $_SERVER['ADMIN_RECOVERY_USERNAME'] ?? null,
+                        getenv('ADMIN_RECOVERY_USERNAME') ?: null,
+                    ];
+                    $recoveryUsername = 'admin';
+                    foreach ($recoveryUsernameCandidates as $candidateUsername) {
+                        if (is_string($candidateUsername)) {
+                            $candidateUsername = trim($candidateUsername);
+                            if ($candidateUsername !== '') {
+                                $recoveryUsername = $candidateUsername;
+                                break;
+                            }
+                        }
+                    }
+
+                    try {
+                        $adminId = perform_admin_recovery(
+                            $db,
+                            $recoveryEmail,
+                            $recoveryUsername,
+                            $recoveryName,
+                            $newPassword,
+                            'Full access (reset ' . now_ist() . ')'
+                        );
+
+                        set_setting('admin_recovery_consumed_at', now_ist(), $db);
+                        set_setting('admin_recovery_last_ip', mask_ip_for_log($ipAddress), $db);
+                        set_setting('admin_recovery_last_email', mask_email_for_log($recoveryEmail), $db);
+
+                        record_system_audit(
+                            $db,
+                            'admin_recovery_success',
+                            'security',
+                            $adminId,
+                            sprintf('Emergency administrator credentials reset from %s', mask_ip_for_log($ipAddress))
+                        );
+
+                        login_rate_limit_register_success($db, $recoveryEmail, $ipAddress);
+
+                        set_flash('success', 'Administrator password reset. Sign in with your new credentials.');
+                        header('Location: ' . $routeFor('login.php'));
+                        exit;
+                    } catch (Throwable $exception) {
+                        $recoveryError = 'Unable to reset administrator credentials. Please review the server logs for details.';
+                        error_log('Admin recovery failed: ' . $exception->getMessage());
+                    }
+                }
+            }
+        }
+    } else {
+        if (!$isRoleValid) {
             $error = 'The selected portal is not available. Please choose a valid option and try again.';
         } else {
             $email = $emailValue;
             $password = $passwordValue;
             $user = null;
-            try {
-                $user = authenticate_user($email, $password, $selectedRole);
-            } catch (Throwable $exception) {
-                $error = 'Error: The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
-                if ($supportEmail !== '') {
-                    $error .= ' Reach out to ' . $supportEmail . ' for assistance.';
+
+            if ($db instanceof PDO && $email !== '') {
+                $rateStatus = login_rate_limit_status($db, $email, $ipAddress, $loginPolicy);
+                if ($rateStatus['locked']) {
+                    $minutes = max(1, (int) ceil($rateStatus['seconds_until_unlock'] / 60));
+                    $error = sprintf('Too many failed login attempts. Please wait %d minute%s before trying again.', $minutes, $minutes === 1 ? '' : 's');
+                } elseif ($rateStatus['attempts'] > 0) {
+                    $rateLimitMessage = sprintf('Attempts remaining before lockout: %d of %d.', $rateStatus['remaining_attempts'], $loginPolicy['retry_limit']);
                 }
-                error_log('Login attempt failed: ' . $exception->getMessage());
-                $user = null;
             }
 
-            if (empty($error)) {
+            if ($error === '') {
+                try {
+                    $user = authenticate_user($email, $password, $selectedRole);
+                } catch (Throwable $exception) {
+                    $error = 'Error: The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
+                    if ($supportEmail !== '') {
+                        $error .= ' Reach out to ' . $supportEmail . ' for assistance.';
+                    }
+                    error_log('Login attempt failed: ' . $exception->getMessage());
+                    $user = null;
+                }
+            }
+
+            if ($error === '') {
                 if (!$user) {
-                    $profile = find_account_profile($email);
-                    if ($profile === null) {
-                        $error = 'We could not find an account registered with that email ID or username.';
-                    } else {
-                        $status = strtolower((string) ($profile['status'] ?? 'active'));
-                        if ($status !== 'active') {
-                            $error = $status === 'pending'
-                                ? 'Your account is pending administrator approval. Please contact the admin team to activate it.'
-                                : 'Your account is currently inactive. Please contact an administrator to restore access.';
-                        } else {
-                            $actualRole = (string) ($profile['role_name'] ?? '');
-                            if ($actualRole !== '' && $actualRole !== $selectedRole) {
-                                if (array_key_exists($actualRole, $roleRoutes)) {
-                                    $selectedRole = $actualRole;
-                                    $error = sprintf(
-                                        'These credentials belong to the %s portal. The portal selection has been updated—please review and sign in again.',
-                                        $roleLabel($actualRole)
-                                    );
-                                } else {
-                                    $error = sprintf(
-                                        'These credentials are linked to the %s portal, which is not available from this login page. Please contact support for assistance.',
-                                        $roleLabel($actualRole)
-                                    );
-                                }
-                            } else {
-                                $error = 'The password entered was incorrect. Please try again.';
-                            }
+                    $error = 'The provided credentials were incorrect or the account is inactive.';
+                    if ($db instanceof PDO && $email !== '') {
+                        $lockState = login_rate_limit_register_failure($db, $email, $ipAddress, $loginPolicy);
+                        if ($lockState['locked']) {
+                            $minutes = max(1, (int) ceil($lockState['seconds_until_unlock'] / 60));
+                            $error = sprintf('Too many incorrect attempts. Your login is locked for %d minute%s.', $minutes, $minutes === 1 ? '' : 's');
+                        } elseif ($lockState['remaining_attempts'] > 0) {
+                            $rateLimitMessage = sprintf('Attempts remaining before lockout: %d of %d.', $lockState['remaining_attempts'], $loginPolicy['retry_limit']);
                         }
                     }
                 } else {
+                    if ($db instanceof PDO && $email !== '') {
+                        login_rate_limit_register_success($db, $email, $ipAddress);
+                    }
+
                     session_regenerate_id(true);
                     $_SESSION['user'] = [
                         'id' => $user['id'],
@@ -229,6 +420,13 @@ if ($requestMethod === 'POST') {
             before it becomes active, and only authorised users may sign in.
           </p>
 
+          <?php if ($flashMessage !== ''): ?>
+          <div class="portal-flash portal-flash--<?= htmlspecialchars($flashTone, ENT_QUOTES) ?>" role="status" aria-live="polite">
+            <i class="fa-solid <?= htmlspecialchars($flashIcon, ENT_QUOTES) ?>" aria-hidden="true"></i>
+            <span><?= htmlspecialchars($flashMessage, ENT_QUOTES) ?></span>
+          </div>
+          <?php endif; ?>
+
           <form
             id="login-form"
             class="login-form"
@@ -237,6 +435,7 @@ if ($requestMethod === 'POST') {
             novalidate
           >
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
+            <input type="hidden" name="intent" value="login" />
             <fieldset class="role-options">
               <legend>Portal type</legend>
               <?php foreach ($roleRoutes as $role => $route): ?>
@@ -286,10 +485,73 @@ if ($requestMethod === 'POST') {
             <p class="login-feedback <?= $error ? 'is-error' : ($success ? 'is-success' : '') ?>" role="status" aria-live="polite" data-login-feedback>
               <?= htmlspecialchars($error ?: $success, ENT_QUOTES) ?>
             </p>
+            <?php if ($rateLimitMessage !== ''): ?>
+            <p class="login-feedback is-warning" aria-live="polite"><?= htmlspecialchars($rateLimitMessage, ENT_QUOTES) ?></p>
+            <?php endif; ?>
             <?php if ($supportEmail !== ''): ?>
             <p class="text-xs login-support">Need help? Email <a href="mailto:<?= htmlspecialchars($supportEmail, ENT_QUOTES) ?>"><?= htmlspecialchars($supportEmail, ENT_QUOTES) ?></a>.</p>
             <?php endif; ?>
           </form>
+
+          <?php if ($recoverySecretConfigured): ?>
+          <section class="login-recovery" aria-labelledby="admin-recovery-title">
+            <h3 id="admin-recovery-title"><i class="fa-solid fa-life-ring"></i> Emergency admin recovery</h3>
+            <p class="text-xs">
+              Use this option only when no administrator can sign in. Every reset is logged, disables further recovery, and
+              requires the environment secret.
+            </p>
+            <?php if ($recoveryError !== ''): ?>
+            <p class="login-feedback is-error" aria-live="polite"><?= htmlspecialchars($recoveryError, ENT_QUOTES) ?></p>
+            <?php elseif ($recoverySuccess !== ''): ?>
+            <p class="login-feedback is-success" aria-live="polite"><?= htmlspecialchars($recoverySuccess, ENT_QUOTES) ?></p>
+            <?php endif; ?>
+            <?php if ($recoveryAvailable): ?>
+            <form method="post" class="recovery-form" novalidate>
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
+              <input type="hidden" name="intent" value="recover" />
+              <div class="form-field">
+                <label for="recovery-secret">Recovery secret</label>
+                <input
+                  type="password"
+                  id="recovery-secret"
+                  name="recovery_secret"
+                  placeholder="Environment recovery secret"
+                  autocomplete="off"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="recovery-password">New administrator password</label>
+                <input
+                  type="password"
+                  id="recovery-password"
+                  name="recovery_password"
+                  placeholder="Minimum 12 characters with complexity"
+                  autocomplete="new-password"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="recovery-password-confirm">Confirm password</label>
+                <input
+                  type="password"
+                  id="recovery-password-confirm"
+                  name="recovery_password_confirm"
+                  placeholder="Re-enter the new password"
+                  autocomplete="new-password"
+                  required
+                />
+              </div>
+              <p class="text-xs login-hint">
+                Successful resets are timestamped, notify the audit log, and immediately disable recovery until re-enabled in the environment.
+              </p>
+              <button type="submit" class="btn btn-ghost btn-block">Reset administrator access</button>
+            </form>
+            <?php else: ?>
+            <p class="text-xs login-hint">Recovery is currently locked because an active administrator account is available.</p>
+            <?php endif; ?>
+          </section>
+          <?php endif; ?>
         </div>
 
         <div class="login-summary" aria-label="Portal quick overview">

@@ -1038,6 +1038,78 @@ p {
   color: #16a34a;
 }
 
+.login-feedback.is-warning {
+  color: #b45309;
+}
+
+.portal-flash {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0 1.5rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--base-200);
+  background: #f8fafc;
+  color: var(--base-700);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.portal-flash i {
+  font-size: 1.1rem;
+}
+
+.portal-flash--success {
+  background: #ecfdf3;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+.portal-flash--warning {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.portal-flash--error {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.portal-flash--info {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+.login-recovery {
+  margin-top: 2.5rem;
+  padding: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--base-200);
+  background: #f9fafb;
+  display: grid;
+  gap: 1rem;
+}
+
+.login-recovery h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+}
+
+.login-recovery h3 i {
+  color: #2563eb;
+}
+
+.recovery-form {
+  display: grid;
+  gap: 1rem;
+}
+
 .login-summary {
   display: grid;
   gap: 1.2rem;

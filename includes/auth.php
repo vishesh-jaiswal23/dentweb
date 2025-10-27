@@ -16,9 +16,14 @@ function start_session(): void
     }
 
     $now = time();
-    $timeoutMinutes = (int) ($_SESSION['session_policy_timeout'] ?? 45);
-    if ($timeoutMinutes < 15 || $timeoutMinutes > 720) {
-        $timeoutMinutes = 45;
+    $timeoutMinutes = 45;
+    try {
+        $timeoutMinutes = get_session_timeout_minutes(get_db());
+    } catch (Throwable $exception) {
+        $fallback = (int) ($_SESSION['session_policy_timeout'] ?? 45);
+        if ($fallback >= 15 && $fallback <= 720) {
+            $timeoutMinutes = $fallback;
+        }
     }
 
     $timeoutSeconds = $timeoutMinutes * 60;
@@ -96,10 +101,96 @@ function require_role(string $role): void
     }
 }
 
+function require_admin(): void
+{
+    start_session();
+    enforce_offline_session_validity();
+
+    $user = $_SESSION['user'] ?? null;
+    if (!$user) {
+        header('Location: login.php');
+        exit;
+    }
+
+    if (($user['role_name'] ?? '') === 'admin') {
+        return;
+    }
+
+    $redirect = 'login.php';
+    if (($user['role_name'] ?? '') === 'employee') {
+        $redirect = 'employee-dashboard.php';
+    }
+
+    set_flash('warning', 'Administrator permissions are required to access that workspace.');
+    header('Location: ' . $redirect);
+    exit;
+}
+
 function current_user(): ?array
 {
     start_session();
     return $_SESSION['user'] ?? null;
+}
+
+function set_flash(string $type, string $message): void
+{
+    start_session();
+
+    $allowed = ['success', 'info', 'warning', 'error'];
+    if (!in_array($type, $allowed, true)) {
+        $type = 'info';
+    }
+
+    $_SESSION['flash'] = [
+        'type' => $type,
+        'message' => trim($message),
+    ];
+}
+
+function consume_flash(): ?array
+{
+    start_session();
+    $flash = $_SESSION['flash'] ?? null;
+    if (!is_array($flash)) {
+        return null;
+    }
+
+    unset($_SESSION['flash']);
+
+    $type = is_string($flash['type'] ?? null) ? $flash['type'] : 'info';
+    $message = is_string($flash['message'] ?? null) ? $flash['message'] : '';
+
+    return [
+        'type' => $type,
+        'message' => $message,
+    ];
+}
+
+function client_ip_address(): string
+{
+    $candidates = [
+        $_SERVER['HTTP_X_FORWARDED_FOR'] ?? null,
+        $_SERVER['HTTP_X_REAL_IP'] ?? null,
+        $_SERVER['REMOTE_ADDR'] ?? null,
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+
+        if (str_contains($candidate, ',')) {
+            $parts = explode(',', $candidate);
+            $candidate = $parts[0] ?? $candidate;
+        }
+
+        $candidate = trim($candidate);
+        if ($candidate !== '') {
+            return $candidate;
+        }
+    }
+
+    return '0.0.0.0';
 }
 
 function verify_csrf_token(?string $token): bool
@@ -431,4 +522,8 @@ function logout_user(): void
     $_SESSION['session_policy_timeout'] = 45;
     $_SESSION['session_last_activity'] = time();
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    $_SESSION['flash'] = [
+        'type' => 'success',
+        'message' => 'You have been signed out securely.',
+    ];
 }
