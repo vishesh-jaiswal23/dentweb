@@ -47,7 +47,7 @@ if (!defined('ADMIN_EMAIL') && is_string($supportEmail) && $supportEmail !== '')
     define('ADMIN_EMAIL', $supportEmail);
 }
 
-$supportEmail = (string) $supportEmail;
+$supportEmail = resolve_admin_email();
 
 start_session();
 
@@ -96,7 +96,8 @@ if (!empty($_SESSION['offline_session_invalidated'])) {
     unset($_SESSION['offline_session_invalidated']);
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+$requestMethod = isset($_SERVER['REQUEST_METHOD']) ? strtoupper((string) $_SERVER['REQUEST_METHOD']) : 'GET';
+if ($requestMethod === 'POST') {
     if ($bootstrapError !== '') {
         $error = $bootstrapError;
     } else {

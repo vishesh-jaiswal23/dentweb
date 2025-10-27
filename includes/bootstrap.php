@@ -3,6 +3,66 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/blog.php';
 
+function safe_get_constant(string $name, $default = null)
+{
+    if (!defined($name)) {
+        return $default;
+    }
+
+    try {
+        return constant($name);
+    } catch (Throwable $exception) {
+        error_log(sprintf('Failed to read constant %s: %s', $name, $exception->getMessage()));
+        return $default;
+    }
+}
+
+function resolve_admin_email(): string
+{
+    static $resolvedEmail = null;
+    if ($resolvedEmail !== null) {
+        return $resolvedEmail;
+    }
+
+    $candidates = [
+        safe_get_constant('ADMIN_EMAIL'),
+        $_ENV['ADMIN_EMAIL'] ?? null,
+        $_SERVER['ADMIN_EMAIL'] ?? null,
+        getenv('ADMIN_EMAIL') ?: null,
+        $_ENV['FALLBACK_ADMIN_EMAIL'] ?? null,
+        $_SERVER['FALLBACK_ADMIN_EMAIL'] ?? null,
+        getenv('FALLBACK_ADMIN_EMAIL') ?: null,
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            continue;
+        }
+
+        if (!filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            continue;
+        }
+
+        $resolvedEmail = $candidate;
+        break;
+    }
+
+    if ($resolvedEmail === null) {
+        $resolvedEmail = 'support@dakshayani.in';
+    }
+
+    if (!defined('ADMIN_EMAIL')) {
+        define('ADMIN_EMAIL', $resolvedEmail);
+    }
+
+    return $resolvedEmail;
+}
+
 function get_db(): PDO
 {
     static $db = null;
