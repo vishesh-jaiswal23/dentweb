@@ -88,60 +88,47 @@ $tasks = $bootstrapData['tasks'] ?? [];
 $complaints = $bootstrapData['complaints'] ?? [];
 $documentsRaw = $bootstrapData['documents'] ?? [];
 $notificationsRaw = $bootstrapData['notifications'] ?? [];
+$requestsRaw = $bootstrapData['requests'] ?? [];
 $syncSnapshot = $bootstrapData['sync'] ?? null;
+$employeeRequests = is_array($requestsRaw) ? $requestsRaw : [];
+$supportEmail = resolve_admin_email();
 
 $viewDefinitions = [
-    'overview' => [
-        'label' => 'Overview',
-        'icon' => 'fa-solid fa-gauge-high',
-    ],
-    'complaints' => [
-        'label' => 'Complaints',
-        'icon' => 'fa-solid fa-ticket',
-    ],
-    'tasks' => [
-        'label' => 'Tasks',
-        'icon' => 'fa-solid fa-list-check',
-    ],
     'leads' => [
-        'label' => 'Leads',
+        'label' => 'My Leads / Visits',
         'icon' => 'fa-solid fa-user-plus',
     ],
-    'field-work' => [
-        'label' => 'Field work',
+    'installations' => [
+        'label' => 'My Installations',
         'icon' => 'fa-solid fa-route',
     ],
-    'documents' => [
-        'label' => 'Documents',
-        'icon' => 'fa-solid fa-folder-open',
+    'complaints' => [
+        'label' => 'My Complaints',
+        'icon' => 'fa-solid fa-ticket',
     ],
-    'subsidy' => [
-        'label' => 'Subsidy',
-        'icon' => 'fa-solid fa-sack-dollar',
+    'reminders' => [
+        'label' => 'My Reminders',
+        'icon' => 'fa-solid fa-list-check',
     ],
-    'warranty' => [
-        'label' => 'Warranty',
-        'icon' => 'fa-solid fa-shield-halved',
+    'profile' => [
+        'label' => 'My Profile',
+        'icon' => 'fa-solid fa-id-badge',
     ],
-    'communication' => [
-        'label' => 'Communication',
-        'icon' => 'fa-solid fa-comments',
-    ],
-    'ai-assist' => [
-        'label' => 'AI assist',
-        'icon' => 'fa-solid fa-robot',
+    'requests' => [
+        'label' => 'Requests',
+        'icon' => 'fa-solid fa-inbox',
     ],
 ];
 
 $requestedView = strtolower(trim((string) ($_GET['view'] ?? '')));
 if ($requestedView === '' || !array_key_exists($requestedView, $viewDefinitions)) {
-    $requestedView = 'overview';
+    $requestedView = 'leads';
 }
 $currentView = $requestedView;
 
 $viewUrlFor = static function (string $view) use ($pathFor, $viewDefinitions): string {
     if (!array_key_exists($view, $viewDefinitions)) {
-        $view = 'overview';
+        $view = 'leads';
     }
 
     $base = $pathFor('employee-dashboard.php');
@@ -962,18 +949,18 @@ $attachmentIcon = static function (string $filename): string {
             <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
             <span>Search</span>
           </button>
-          <button type="button" class="employee-header-button" data-open-profile>
+          <a class="employee-header-button" href="<?= htmlspecialchars($viewUrlFor('profile'), ENT_QUOTES) ?>">
             <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
             <span>Profile</span>
-          </button>
+          </a>
           <button type="button" class="employee-header-button" data-open-notifications>
             <i class="fa-solid fa-bell" aria-hidden="true"></i>
             <span>Notifications</span>
             <span class="employee-header-count" data-notification-count><?= (int) $unreadNotificationCount ?></span>
           </button>
-          <a class="employee-header-button" href="<?= htmlspecialchars($viewUrlFor('tasks'), ENT_QUOTES) ?>">
+          <a class="employee-header-button" href="<?= htmlspecialchars($viewUrlFor('reminders'), ENT_QUOTES) ?>">
             <i class="fa-solid fa-list-check" aria-hidden="true"></i>
-            <span>My Work</span>
+            <span>My Reminders</span>
           </a>
         </div>
         <nav class="dashboard-quick-nav" aria-label="Employee navigation">
@@ -992,114 +979,236 @@ $attachmentIcon = static function (string $filename): string {
 
       <div class="dashboard-body dashboard-body--with-aside">
         <div class="dashboard-main">
-          <?php if ($currentView === 'overview'): ?>
-          <section id="overview" class="dashboard-section" data-section>
-            <h2>Employee overview</h2>
+          <?php if ($currentView === 'leads'): ?>
+          <section id="leads" class="dashboard-section" data-section>
+            <h2>My leads / visits</h2>
             <p class="dashboard-section-sub">
-              Employees authenticate with hashed passwords, identical session hardening, and throttled logins. Access scope,
-              module visibility, and data ownership are enforced from your admin-defined role.
+              Admin shares customer records with your role. Add notes, update contact details, or create new prospects—fresh entries
+              wait for Admin approval before they appear in the main CRM.
             </p>
-            <div class="dashboard-cards dashboard-cards--grid">
-              <?php foreach ($overviewMetrics as $metric): ?>
-              <article class="dashboard-card dashboard-card--<?= htmlspecialchars($metric['tone'], ENT_QUOTES) ?>">
-                <div class="dashboard-card-icon"><i class="<?= htmlspecialchars($metric['icon'], ENT_QUOTES) ?>" aria-hidden="true"></i></div>
-                <div>
-                  <p class="dashboard-card-title"><?= htmlspecialchars($metric['title'], ENT_QUOTES) ?></p>
-                  <p class="dashboard-card-value"<?= isset($metric['dataTarget']) ? ' data-summary-target="' . htmlspecialchars($metric['dataTarget'], ENT_QUOTES) . '"' : '' ?>><?= htmlspecialchars((string) $metric['value'], ENT_QUOTES) ?></p>
-                  <p class="dashboard-card-meta"><?= htmlspecialchars($metric['meta'], ENT_QUOTES) ?></p>
-                </div>
-              </article>
-              <?php endforeach; ?>
-              <article class="dashboard-card dashboard-card--neutral dashboard-card--analytics">
-                <div class="dashboard-card-icon"><i class="fa-solid fa-bolt" aria-hidden="true"></i></div>
-                <div class="dashboard-card-body">
-                  <div class="dashboard-card-heading">
-                    <p class="dashboard-card-title">Performance analytics</p>
-                    <p class="dashboard-card-meta">Realtime metrics pulled from the Admin data lake for your scope.</p>
-                  </div>
-                  <div class="analytics-metric-grid">
-                    <?php if (empty($performanceMetrics)): ?>
-                    <p class="text-muted mb-0">Performance metrics will appear after your activity is tracked.</p>
+            <div class="lead-layout">
+              <div class="dashboard-table-wrapper lead-table">
+                <table class="dashboard-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Lead</th>
+                      <th scope="col">Contact</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Next action</th>
+                      <th scope="col">Owner</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php if (empty($leadRecords)): ?>
+                    <tr>
+                      <td colspan="5" class="text-center text-muted">No leads or customers assigned yet. Admin-approved records will populate automatically.</td>
+                    </tr>
                     <?php else: ?>
-                    <?php foreach ($performanceMetrics as $metric): ?>
-                    <?php
-                    $valueNumber = is_numeric($metric['value']) ? (float) $metric['value'] : null;
-                    $precision = (int) ($metric['precision'] ?? 0);
-                    if ($valueNumber !== null) {
-                        $formattedValue = number_format($valueNumber, $precision, '.', '');
-                        if ($precision > 0) {
-                            $formattedValue = rtrim(rtrim($formattedValue, '0'), '.');
-                        }
-                    } else {
-                        $formattedValue = (string) $metric['value'];
-                    }
-                    $unit = (string) ($metric['unit'] ?? '');
-                    $targetNumber = is_numeric($metric['target'] ?? null) ? (float) $metric['target'] : null;
-                    $historyPoints = array_map(
-                        static fn ($point) => is_numeric($point) ? (string) $point : null,
-                        $metric['history'] ?? []
-                    );
-                    $historyPoints = array_values(array_filter($historyPoints, static fn ($point) => $point !== null));
-                    $historyAttribute = htmlspecialchars(implode(',', $historyPoints), ENT_QUOTES);
-                    ?>
-                    <div
-                      class="analytics-metric"
-                      data-analytics-card
-                      data-metric-id="<?= htmlspecialchars($metric['id'], ENT_QUOTES) ?>"
-                      data-metric-value="<?= htmlspecialchars((string) ($valueNumber ?? $metric['value']), ENT_QUOTES) ?>"
-                      data-metric-target="<?= htmlspecialchars((string) ($targetNumber ?? ''), ENT_QUOTES) ?>"
-                      data-metric-unit="<?= htmlspecialchars($unit, ENT_QUOTES) ?>"
-                      data-metric-trend="<?= htmlspecialchars($metric['trend'], ENT_QUOTES) ?>"
-                      data-metric-history="<?= $historyAttribute ?>"
-                    >
-                      <div class="analytics-metric__header">
-                        <p class="analytics-metric__label"><?= htmlspecialchars($metric['label'], ENT_QUOTES) ?></p>
-                        <span class="analytics-metric__value">
-                          <?= htmlspecialchars($formattedValue, ENT_QUOTES) ?>
-                          <?php if ($unit !== ''): ?><span class="analytics-metric__unit"><?= htmlspecialchars($unit, ENT_QUOTES) ?></span><?php endif; ?>
-                        </span>
-                      </div>
-                      <p class="analytics-metric__trend"><?= htmlspecialchars($metric['trend'], ENT_QUOTES) ?></p>
-                      <div
-                        class="analytics-metric__progress"
-                        data-metric-progress
-                        role="progressbar"
-                        aria-label="<?= htmlspecialchars($metric['label'] . ' progress', ENT_QUOTES) ?>"
-                      ></div>
-                      <div class="analytics-metric__sparkline" data-metric-sparkline aria-hidden="true"></div>
-                      <p class="analytics-metric__description"><?= htmlspecialchars($metric['description'], ENT_QUOTES) ?></p>
-                    </div>
+                    <?php foreach ($leadRecords as $record): ?>
+                    <tr data-lead-row="<?= htmlspecialchars($record['id'], ENT_QUOTES) ?>">
+                      <td>
+                        <div class="dashboard-user">
+                          <strong><?= htmlspecialchars($record['label'], ENT_QUOTES) ?></strong>
+                          <span><?= htmlspecialchars($record['description'], ENT_QUOTES) ?></span>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="dashboard-user">
+                          <strong><?= htmlspecialchars($record['contactName'], ENT_QUOTES) ?></strong>
+                          <span><?= htmlspecialchars($record['contactDetail'], ENT_QUOTES) ?></span>
+                        </div>
+                      </td>
+                      <td><span class="dashboard-status dashboard-status--<?= htmlspecialchars($record['statusTone'], ENT_QUOTES) ?>"><?= htmlspecialchars($record['statusLabel'], ENT_QUOTES) ?></span></td>
+                      <td><?= htmlspecialchars($record['nextAction'], ENT_QUOTES) ?></td>
+                      <td><?= htmlspecialchars($record['owner'], ENT_QUOTES) ?></td>
+                    </tr>
                     <?php endforeach; ?>
                     <?php endif; ?>
-                  </div>
-                  <footer class="analytics-actions">
-                      <button type="button" class="btn btn-secondary btn-sm" data-download-report data-report-period="">
-                        <i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i>
-                        Download monthly report
-                      </button>
-                      <p class="text-xs text-muted mb-0">
-                        Admin console aggregates every employee’s analytics for consolidated leadership dashboards.
-                      </p>
-                    </footer>
+                  </tbody>
+                </table>
+              </div>
+              <aside class="lead-sidebar">
+                <article class="dashboard-panel">
+                  <h2>Log follow-up</h2>
+                  <form class="lead-note-form" data-lead-note-form>
+                    <label>
+                      Lead or customer
+                      <select name="lead" required>
+                        <option value="" selected disabled>Select record</option>
+                        <?php if (empty($leadRecords)): ?>
+                        <option value="" disabled>No records available</option>
+                        <?php else: ?>
+                        <?php foreach ($leadRecords as $record): ?>
+                        <option value="<?= htmlspecialchars($record['id'], ENT_QUOTES) ?>"><?= htmlspecialchars($record['label'] . ' · ' . $record['description'], ENT_QUOTES) ?></option>
+                        <?php endforeach; ?>
+                        <?php endif; ?>
+                      </select>
+                    </label>
+                    <label>
+                      Outcome / next step
+                      <textarea name="note" rows="3" placeholder="Document your conversation and agreed follow-up." required></textarea>
+                    </label>
+                    <button type="submit" class="btn btn-primary btn-sm">Save update</button>
+                  </form>
+                  <div class="lead-activity">
+                    <h3>Recent updates</h3>
+                    <ul data-lead-activity>
+                      <?php if (empty($leadUpdates)): ?>
+                      <li class="text-muted">Log a follow-up to start building the timeline.</li>
+                      <?php else: ?>
+                      <?php foreach ($leadUpdates as $update): ?>
+                      <li>
+                        <time datetime="<?= htmlspecialchars($update['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($update['label'], ENT_QUOTES) ?></time>
+                        <p><?= $update['message'] ?></p>
+                      </li>
+                      <?php endforeach; ?>
+                      <?php endif; ?>
+                    </ul>
                   </div>
                 </article>
-              </div>
-              <div class="dashboard-panel dashboard-panel--muted dashboard-panel--analytics-note">
-                <p class="mb-0">
-                  Analytics will display once Admin shares performance data for your queue. Check back after your first
-                  assignments are completed.
-                </p>
-              </div>
-          </section>
 
+                <article class="dashboard-panel dashboard-panel--muted">
+                  <h2>Submit new prospect</h2>
+                  <form class="lead-intake-form" data-lead-intake data-validate-form data-compliance-source="Lead intake">
+                    <label>
+                      Prospect name
+                      <input type="text" name="prospect" placeholder="e.g., Sunrise Enclave" required />
+                    </label>
+                    <label>
+                      Location
+                      <input type="text" name="location" placeholder="City / landmark" required />
+                    </label>
+                    <label>
+                      Pincode
+                      <input type="text" name="pincode" placeholder="6-digit service area" required data-validate="pincode" maxlength="6" />
+                      <small class="form-field-error" data-validation-message></small>
+                    </label>
+                    <label>
+                      Contact number
+                      <input type="tel" name="contact" placeholder="10-digit mobile" required pattern="[0-9]{10}" data-validate="phone" />
+                      <small class="form-field-error" data-validation-message></small>
+                    </label>
+                    <label>
+                      Preferred visit date
+                      <input type="date" name="visit_date" data-validate="date" />
+                      <small class="form-field-error" data-validation-message></small>
+                    </label>
+                    <button type="submit" class="btn btn-secondary btn-sm">Send for approval</button>
+                  </form>
+                  <p class="text-xs text-muted mb-0">New entries remain pending until Admin verifies the details.</p>
+                  <ul class="pending-leads" data-pending-leads>
+                    <?php if (empty($pendingLeads)): ?>
+                    <li class="text-muted">Leads submitted for Admin approval will appear here once queued.</li>
+                    <?php else: ?>
+                    <?php foreach ($pendingLeads as $prospect): ?>
+                    <li>
+                      <strong><?= htmlspecialchars($prospect['name'], ENT_QUOTES) ?></strong>
+                      <span>Pending Admin approval · <?= htmlspecialchars($prospect['source'], ENT_QUOTES) ?></span>
+                    </li>
+                    <?php endforeach; ?>
+                    <?php endif; ?>
+                  </ul>
+                </article>
+              </aside>
+            </div>
+          </section>
+          <?php endif; ?>
+
+          <?php if ($currentView === 'installations'): ?>
+          <section id="installations" class="dashboard-section" data-section>
+            <h2>My installations</h2>
+            <p class="dashboard-section-sub">
+              Review every scheduled installation or maintenance visit, capture geo-tags when available, and close assignments so Admin can review commissioning evidence before locking tickets.
+            </p>
+            <div class="visit-layout">
+              <div class="visit-grid">
+                <?php if (empty($siteVisits)): ?>
+                <p class="empty-state">No field visits scheduled. Admin-assigned visits will display here immediately.</p>
+                <?php else: ?>
+                <?php foreach ($siteVisits as $visit): ?>
+                <article
+                  class="visit-card dashboard-panel"
+                  data-visit-card
+                  data-visit-id="<?= htmlspecialchars($visit['id'], ENT_QUOTES) ?>"
+                  data-visit-status="<?= htmlspecialchars($visit['status'], ENT_QUOTES) ?>"
+                  data-visit-customer="<?= htmlspecialchars($visit['customer'], ENT_QUOTES) ?>"
+                >
+                  <header class="visit-card-header">
+                    <div>
+                      <small class="text-xs text-muted"><?= htmlspecialchars($visit['id'], ENT_QUOTES) ?></small>
+                      <h3><?= htmlspecialchars($visit['title'], ENT_QUOTES) ?></h3>
+                      <p class="visit-card-customer"><?= htmlspecialchars($visit['customer'], ENT_QUOTES) ?></p>
+                    </div>
+                    <span
+                      class="dashboard-status dashboard-status--<?= htmlspecialchars($visit['statusTone'] ?? 'progress', ENT_QUOTES) ?>"
+                      data-visit-status
+                    ><?= htmlspecialchars($visit['statusLabel'] ?? 'Scheduled', ENT_QUOTES) ?></span>
+                  </header>
+                  <ul class="visit-meta">
+                    <li><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> <?= htmlspecialchars($visit['scheduled'], ENT_QUOTES) ?></li>
+                    <li><i class="fa-solid fa-location-dot" aria-hidden="true"></i> <?= htmlspecialchars($visit['address'], ENT_QUOTES) ?></li>
+                  </ul>
+                  <div class="visit-block">
+                    <h4>Job checklist</h4>
+                    <ul>
+                      <?php foreach ($visit['checklist'] as $item): ?>
+                      <li><?= htmlspecialchars($item, ENT_QUOTES) ?></li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
+                  <div class="visit-block visit-block--photos">
+                    <h4>Required photos</h4>
+                    <ul>
+                      <?php foreach ($visit['requiredPhotos'] as $photo): ?>
+                      <li><i class="fa-solid fa-camera" aria-hidden="true"></i> <?= htmlspecialchars($photo, ENT_QUOTES) ?></li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
+                  <?php if (!empty($visit['notes'])): ?>
+                  <p class="visit-notes"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <?= htmlspecialchars($visit['notes'], ENT_QUOTES) ?></p>
+                  <?php endif; ?>
+                  <p class="visit-geotag" data-visit-geotag-wrapper hidden>
+                    <i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i>
+                    <span>Geo-tag: <strong data-visit-geotag-label></strong></span>
+                  </p>
+                  <footer class="visit-card-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-visit-geotag>
+                      <i class="fa-solid fa-location-arrow" aria-hidden="true"></i>
+                      Log geo-tag
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" data-visit-complete>
+                      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                      Mark completed
+                    </button>
+                  </footer>
+                </article>
+                <?php endforeach; ?>
+                <?php endif; ?>
+              </div>
+              <aside class="visit-activity-panel dashboard-panel">
+                <h3>Visit updates</h3>
+                <ol class="visit-activity" data-visit-activity>
+                  <?php if (empty($visitActivity)): ?>
+                  <li class="text-muted">Updates from field visits will appear here once logged.</li>
+                  <?php else: ?>
+                  <?php foreach ($visitActivity as $entry): ?>
+                  <li>
+                    <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
+                    <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
+                  </li>
+                  <?php endforeach; ?>
+                  <?php endif; ?>
+                </ol>
+              </aside>
+            </div>
+          </section>
           <?php endif; ?>
 
           <?php if ($currentView === 'complaints'): ?>
           <section id="complaints" class="dashboard-section" data-section>
-            <h2>Complaints &amp; service workflow</h2>
+            <h2>My complaints</h2>
             <p class="dashboard-section-sub">
-              Tickets are provisioned by Admin with customer details, SLA timers, and attachments. Update status, add field notes,
-              or escalate back to Admin for complex issues—every action updates the timeline automatically.
+              Tickets are provisioned by Admin with customer details, SLA timers, and attachments. Update status, add field notes, or escalate back to Admin for complex issues—every action updates the timeline automatically.
             </p>
             <div class="ticket-board">
               <?php if (empty($tickets)): ?>
@@ -1203,12 +1312,11 @@ $attachmentIcon = static function (string $filename): string {
           </section>
           <?php endif; ?>
 
-          <?php if ($currentView === 'tasks'): ?>
-          <section id="tasks" class="dashboard-section" data-section>
-            <h2>Tasks &amp; My Work</h2>
+          <?php if ($currentView === 'reminders'): ?>
+          <section id="reminders" class="dashboard-section" data-section>
+            <h2>My reminders</h2>
             <p class="dashboard-section-sub">
-              Update statuses inline or drag cards between columns. Priorities, due dates, and reminders keep your workload aligned
-              with Admin expectations.
+              Update statuses inline or drag cards between columns. Priorities, due dates, and reminders keep your workload aligned with Admin expectations.
             </p>
             <div class="task-board" data-task-board>
               <?php foreach ($taskColumns as $columnKey => $column): ?>
@@ -1271,603 +1379,107 @@ $attachmentIcon = static function (string $filename): string {
           </section>
           <?php endif; ?>
 
-          <?php if ($currentView === 'leads'): ?>
-          <section id="leads" class="dashboard-section" data-section>
-            <h2>Leads &amp; customer follow-ups</h2>
+          <?php if ($currentView === 'profile'): ?>
+          <section id="profile" class="dashboard-section" data-section>
+            <h2>My profile</h2>
             <p class="dashboard-section-sub">
-              Admin shares customer records with your role. Add notes, update contact details, or create new prospects—fresh entries
-              wait for Admin approval before they appear in the main CRM.
+              Your portal access inherits Admin security controls. Review your account details and confirm everything looks accurate.
             </p>
-            <div class="lead-layout">
-              <div class="dashboard-table-wrapper lead-table">
-                <table class="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Lead</th>
-                      <th scope="col">Contact</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">Next action</th>
-                      <th scope="col">Owner</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php if (empty($leadRecords)): ?>
-                    <tr>
-                      <td colspan="5" class="text-center text-muted">No leads or customers assigned yet. Admin-approved records will populate automatically.</td>
-                    </tr>
-                    <?php else: ?>
-                    <?php foreach ($leadRecords as $record): ?>
-                    <tr data-lead-row="<?= htmlspecialchars($record['id'], ENT_QUOTES) ?>">
-                      <td>
-                        <div class="dashboard-user">
-                          <strong><?= htmlspecialchars($record['label'], ENT_QUOTES) ?></strong>
-                          <span><?= htmlspecialchars($record['description'], ENT_QUOTES) ?></span>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="dashboard-user">
-                          <strong><?= htmlspecialchars($record['contactName'], ENT_QUOTES) ?></strong>
-                          <span><?= htmlspecialchars($record['contactDetail'], ENT_QUOTES) ?></span>
-                        </div>
-                      </td>
-                      <td><span class="dashboard-status dashboard-status--<?= htmlspecialchars($record['statusTone'], ENT_QUOTES) ?>"><?= htmlspecialchars($record['statusLabel'], ENT_QUOTES) ?></span></td>
-                      <td><?= htmlspecialchars($record['nextAction'], ENT_QUOTES) ?></td>
-                      <td><?= htmlspecialchars($record['owner'], ENT_QUOTES) ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <?php endif; ?>
-                  </tbody>
-                </table>
-              </div>
-
-              <aside class="lead-sidebar">
-                <article class="dashboard-panel">
-                  <h2>Log follow-up</h2>
-                  <form class="lead-note-form" data-lead-note-form>
-                    <label>
-                      Lead or customer
-                      <select name="lead" required>
-                        <option value="" selected disabled>Select record</option>
-                        <?php if (empty($leadRecords)): ?>
-                        <option value="" disabled>No records available</option>
-                        <?php else: ?>
-                        <?php foreach ($leadRecords as $record): ?>
-                        <option value="<?= htmlspecialchars($record['id'], ENT_QUOTES) ?>"><?= htmlspecialchars($record['label'] . ' · ' . $record['description'], ENT_QUOTES) ?></option>
-                        <?php endforeach; ?>
-                        <?php endif; ?>
-                      </select>
-                    </label>
-                    <label>
-                      Outcome / next step
-                      <textarea name="note" rows="3" placeholder="Document your conversation and agreed follow-up." required></textarea>
-                    </label>
-                    <button type="submit" class="btn btn-primary btn-sm">Save update</button>
-                  </form>
-                  <div class="lead-activity">
-                    <h3>Recent updates</h3>
-                    <ul data-lead-activity>
-                      <?php if (empty($leadUpdates)): ?>
-                      <li class="text-muted">Log a follow-up to start building the timeline.</li>
-                      <?php else: ?>
-                      <?php foreach ($leadUpdates as $update): ?>
-                      <li>
-                        <time datetime="<?= htmlspecialchars($update['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($update['label'], ENT_QUOTES) ?></time>
-                        <p><?= $update['message'] ?></p>
-                      </li>
-                      <?php endforeach; ?>
-                      <?php endif; ?>
-                    </ul>
-                  </div>
-                </article>
-
-                <article class="dashboard-panel dashboard-panel--muted">
-                  <h2>Submit new prospect</h2>
-                  <form class="lead-intake-form" data-lead-intake data-validate-form data-compliance-source="Lead intake">
-                    <label>
-                      Prospect name
-                      <input type="text" name="prospect" placeholder="e.g., Sunrise Enclave" required />
-                    </label>
-                    <label>
-                      Location
-                      <input type="text" name="location" placeholder="City / landmark" required />
-                    </label>
-                    <label>
-                      Pincode
-                      <input type="text" name="pincode" placeholder="6-digit service area" required data-validate="pincode" maxlength="6" />
-                      <small class="form-field-error" data-validation-message></small>
-                    </label>
-                    <label>
-                      Contact number
-                      <input type="tel" name="contact" placeholder="10-digit mobile" required pattern="[0-9]{10}" data-validate="phone" />
-                      <small class="form-field-error" data-validation-message></small>
-                    </label>
-                    <label>
-                      Preferred visit date
-                      <input type="date" name="visit_date" data-validate="date" />
-                      <small class="form-field-error" data-validation-message></small>
-                    </label>
-                    <button type="submit" class="btn btn-secondary btn-sm">Send for approval</button>
-                  </form>
-                  <p class="text-xs text-muted mb-0">New entries remain pending until Admin verifies the details.</p>
-                  <ul class="pending-leads" data-pending-leads>
-                    <?php if (empty($pendingLeads)): ?>
-                    <li class="text-muted">Leads submitted for Admin approval will appear here once queued.</li>
-                    <?php else: ?>
-                    <?php foreach ($pendingLeads as $prospect): ?>
-                    <li>
-                      <strong><?= htmlspecialchars($prospect['name'], ENT_QUOTES) ?></strong>
-                      <span>Pending Admin approval · <?= htmlspecialchars($prospect['source'], ENT_QUOTES) ?></span>
-                    </li>
-                    <?php endforeach; ?>
-                    <?php endif; ?>
-                  </ul>
-                </article>
-              </aside>
-            </div>
-          </section>
-          <?php endif; ?>
-
-          <?php if ($currentView === 'field-work'): ?>
-          <section id="field-work" class="dashboard-section" data-section>
-            <h2>Installation &amp; field work</h2>
-            <p class="dashboard-section-sub">
-              Review every scheduled installation or maintenance visit, capture geo-tags when available, and close assignments
-              so Admin can review commissioning evidence before locking tickets.
-            </p>
-            <div class="visit-layout">
-              <div class="visit-grid">
-                <?php if (empty($siteVisits)): ?>
-                <p class="empty-state">No field visits scheduled. Admin-assigned visits will display here immediately.</p>
-                <?php else: ?>
-                <?php foreach ($siteVisits as $visit): ?>
-                <article
-                  class="visit-card dashboard-panel"
-                  data-visit-card
-                  data-visit-id="<?= htmlspecialchars($visit['id'], ENT_QUOTES) ?>"
-                  data-visit-status="<?= htmlspecialchars($visit['status'], ENT_QUOTES) ?>"
-                  data-visit-customer="<?= htmlspecialchars($visit['customer'], ENT_QUOTES) ?>"
-                >
-                  <header class="visit-card-header">
-                    <div>
-                      <small class="text-xs text-muted"><?= htmlspecialchars($visit['id'], ENT_QUOTES) ?></small>
-                      <h3><?= htmlspecialchars($visit['title'], ENT_QUOTES) ?></h3>
-                      <p class="visit-card-customer"><?= htmlspecialchars($visit['customer'], ENT_QUOTES) ?></p>
-                    </div>
-                    <span
-                      class="dashboard-status dashboard-status--<?= htmlspecialchars($visit['statusTone'] ?? 'progress', ENT_QUOTES) ?>"
-                      data-visit-status
-                    ><?= htmlspecialchars($visit['statusLabel'] ?? 'Scheduled', ENT_QUOTES) ?></span>
-                  </header>
-                  <ul class="visit-meta">
-                    <li><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> <?= htmlspecialchars($visit['scheduled'], ENT_QUOTES) ?></li>
-                    <li><i class="fa-solid fa-location-dot" aria-hidden="true"></i> <?= htmlspecialchars($visit['address'], ENT_QUOTES) ?></li>
-                  </ul>
-                  <div class="visit-block">
-                    <h4>Job checklist</h4>
-                    <ul>
-                      <?php foreach ($visit['checklist'] as $item): ?>
-                      <li><?= htmlspecialchars($item, ENT_QUOTES) ?></li>
-                      <?php endforeach; ?>
-                    </ul>
-                  </div>
-                  <div class="visit-block visit-block--photos">
-                    <h4>Required photos</h4>
-                    <ul>
-                      <?php foreach ($visit['requiredPhotos'] as $photo): ?>
-                      <li><i class="fa-solid fa-camera" aria-hidden="true"></i> <?= htmlspecialchars($photo, ENT_QUOTES) ?></li>
-                      <?php endforeach; ?>
-                    </ul>
-                  </div>
-                  <?php if (!empty($visit['notes'])): ?>
-                  <p class="visit-notes"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> <?= htmlspecialchars($visit['notes'], ENT_QUOTES) ?></p>
-                  <?php endif; ?>
-                  <p class="visit-geotag" data-visit-geotag-wrapper hidden>
-                    <i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i>
-                    <span>Geo-tag: <strong data-visit-geotag-label></strong></span>
-                  </p>
-                  <footer class="visit-card-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-visit-geotag>
-                      <i class="fa-solid fa-location-arrow" aria-hidden="true"></i>
-                      Log geo-tag
-                    </button>
-                    <button type="button" class="btn btn-primary btn-sm" data-visit-complete>
-                      <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
-                      Mark completed
-                    </button>
-                  </footer>
-                </article>
-                <?php endforeach; ?>
-                <?php endif; ?>
-              </div>
-              <aside class="visit-activity-panel dashboard-panel">
-                <h3>Visit updates</h3>
-                <ol class="visit-activity" data-visit-activity>
-                  <?php if (empty($visitActivity)): ?>
-                  <li class="text-muted">Updates from field visits will appear here once logged.</li>
-                  <?php else: ?>
-                  <?php foreach ($visitActivity as $entry): ?>
-                  <li>
-                    <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
-                    <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
-                  </li>
-                  <?php endforeach; ?>
-                  <?php endif; ?>
-                </ol>
-              </aside>
-            </div>
-          </section>
-          <?php endif; ?>
-
-          <?php if ($currentView === 'documents'): ?>
-          <section id="documents" class="dashboard-section" data-section>
-            <h2>Document vault access</h2>
-            <p class="dashboard-section-sub">
-              Upload photos, invoices, or forms tied to your assignments. Visibility stays limited to your customers until
-              Admin reviews, versions, and tags each record for the master vault.
-            </p>
-            <div class="document-layout">
-              <div class="dashboard-table-wrapper document-table">
-                <table class="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Document</th>
-                      <th scope="col">Customer</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">Uploaded</th>
-                    </tr>
-                  </thead>
-                  <tbody data-document-list>
-                    <?php if (empty($documentVault)): ?>
-                    <tr>
-                      <td colspan="4" class="text-center text-muted">No documents uploaded yet. Use the form to submit your first file.</td>
-                    </tr>
-                    <?php else: ?>
-                    <?php foreach ($documentVault as $doc): ?>
-                    <?php $docTime = strtotime($doc['uploadedAt'] ?? '') ?: null; ?>
-                    <tr>
-                      <td>
-                        <strong><?= htmlspecialchars($doc['type'], ENT_QUOTES) ?></strong>
-                        <span class="text-xs text-muted d-block"><?= htmlspecialchars($doc['filename'], ENT_QUOTES) ?></span>
-                      </td>
-                      <td><?= htmlspecialchars($doc['customer'], ENT_QUOTES) ?></td>
-                      <td>
-                        <span class="dashboard-status dashboard-status--<?= htmlspecialchars($doc['tone'] ?? 'progress', ENT_QUOTES) ?>">
-                          <?= htmlspecialchars($doc['statusLabel'], ENT_QUOTES) ?>
-                        </span>
-                      </td>
-                      <td>
-                        <?php if ($docTime !== null): ?>
-                        <time datetime="<?= htmlspecialchars($doc['uploadedAt'], ENT_QUOTES) ?>"><?= htmlspecialchars(date('d M · H:i', $docTime), ENT_QUOTES) ?></time>
-                        <?php else: ?>
-                        <span>—</span>
-                        <?php endif; ?>
-                        <span class="text-xs text-muted d-block">by <?= htmlspecialchars($doc['uploadedBy'], ENT_QUOTES) ?></span>
-                      </td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <?php endif; ?>
-                  </tbody>
-                </table>
-              </div>
-              <aside class="document-panel dashboard-panel">
-                <h3>Upload to shared vault</h3>
-                <form class="document-form" data-document-form data-validate-form data-compliance-source="Document upload">
-                  <label>
-                    Customer
-                    <select name="customer" required>
-                      <option value="" disabled selected>Select customer</option>
-                      <?php if (empty($documentUploadCustomers)): ?>
-                      <option value="" disabled>No customers available</option>
-                      <?php else: ?>
-                      <?php foreach ($documentUploadCustomers as $customer): ?>
-                      <option value="<?= htmlspecialchars($customer, ENT_QUOTES) ?>"><?= htmlspecialchars($customer, ENT_QUOTES) ?></option>
-                      <?php endforeach; ?>
-                      <?php endif; ?>
-                    </select>
-                  </label>
-                  <label>
-                    Document type
-                    <input type="text" name="type" placeholder="e.g., Service photos" required />
-                  </label>
-                  <label>
-                    File name
-                    <input type="text" name="filename" placeholder="example-file.jpg" required data-validate="filename" data-allowed-ext="pdf,jpg,jpeg,png,doc,docx" />
-                    <small class="form-field-error" data-validation-message></small>
-                  </label>
-                  <label>
-                    File size (MB)
-                    <input type="number" name="file_size" step="0.1" min="0" max="50" placeholder="e.g., 3.5" data-validate="filesize" data-max-size="25" />
-                    <small class="form-field-error" data-validation-message></small>
-                  </label>
-                  <label>
-                    Notes for Admin
-                    <textarea name="note" rows="2" placeholder="Explain what this upload covers."></textarea>
-                  </label>
-                  <button type="submit" class="btn btn-primary btn-sm">Submit for approval</button>
-                  <p class="text-xs text-muted mb-0">Admin verifies, tags, and versions files before wider access.</p>
-                </form>
-              </aside>
-            </div>
-          </section>
-          <?php endif; ?>
-
-          <?php if ($currentView === 'subsidy'): ?>
-          <section id="subsidy" class="dashboard-section" data-section>
-            <h2>PM Surya Ghar subsidy workflow</h2>
-            <p class="dashboard-section-sub">
-              Help customers progress through the subsidy stages. Mark Applied or Inspected once documents are complete; Admin
-              advances cases to Redeemed after validating every upload.
-            </p>
-            <div class="subsidy-layout" data-subsidy-board>
-              <?php if (empty($subsidyCases)): ?>
-              <p class="empty-state">No subsidy cases are in progress. Submit a case to begin tracking the workflow.</p>
-              <?php else: ?>
-              <?php foreach ($subsidyCases as $case): ?>
-              <article class="subsidy-card dashboard-panel" data-subsidy-case="<?= htmlspecialchars($case['id'], ENT_QUOTES) ?>">
-                <header>
-                  <h3><?= htmlspecialchars($case['customer'], ENT_QUOTES) ?></h3>
-                  <p class="text-sm text-muted">Case <?= htmlspecialchars($case['id'], ENT_QUOTES) ?> · <?= htmlspecialchars($case['capacity'], ENT_QUOTES) ?></p>
-                </header>
-                <ul class="subsidy-stages">
-                  <?php foreach ($case['stages'] as $stageKey => $stage): ?>
-                  <?php $completed = !empty($stage['completed']); ?>
-                  <li
-                    class="subsidy-stage<?= $completed ? ' is-complete' : '' ?>"
-                    data-subsidy-stage="<?= htmlspecialchars($stageKey, ENT_QUOTES) ?>"
-                    data-stage-label="<?= htmlspecialchars($stage['label'], ENT_QUOTES) ?>"
-                    <?= $completed ? ' data-subsidy-completed="true"' : '' ?>
-                  >
-                    <div>
-                      <strong><?= htmlspecialchars($stage['label'], ENT_QUOTES) ?></strong>
-                      <?php if (!empty($stage['completedAt'])): ?>
-                      <span class="text-xs text-muted">Completed <?= htmlspecialchars(date('d M', strtotime($stage['completedAt'])), ENT_QUOTES) ?></span>
-                      <?php endif; ?>
-                    </div>
-                    <?php if ($stageKey !== 'redeemed'): ?>
-                    <button
-                      type="button"
-                      class="btn btn-secondary btn-sm"
-                      data-subsidy-action
-                      data-subsidy-stage="<?= htmlspecialchars($stageKey, ENT_QUOTES) ?>"
-                      data-subsidy-case="<?= htmlspecialchars($case['id'], ENT_QUOTES) ?>"
-                      data-stage-label="<?= htmlspecialchars($stage['label'], ENT_QUOTES) ?>"
-                      <?= $completed ? 'disabled' : '' ?>
-                    ><?= $completed ? 'Completed' : 'Mark complete' ?></button>
-                    <?php else: ?>
-                    <span class="text-xs text-muted">Admin approval required</span>
-                    <?php endif; ?>
-                  </li>
-                  <?php endforeach; ?>
-                </ul>
-                <?php if (!empty($case['note'])): ?>
-                <p class="subsidy-note"><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i> <?= htmlspecialchars($case['note'], ENT_QUOTES) ?></p>
-                <?php endif; ?>
-              </article>
-              <?php endforeach; ?>
-              <?php endif; ?>
-            </div>
-            <aside class="dashboard-panel subsidy-activity">
-              <h3>Workflow updates</h3>
-              <ol data-subsidy-activity>
-                <?php if (empty($subsidyActivity)): ?>
-                <li class="text-muted">Workflow history will build here once you log subsidy updates.</li>
-                <?php else: ?>
-                <?php foreach ($subsidyActivity as $entry): ?>
-                <li>
-                  <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
-                  <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
-                </li>
-                <?php endforeach; ?>
-                <?php endif; ?>
-              </ol>
-            </aside>
-          </section>
-          <?php endif; ?>
-
-          <?php if ($currentView === 'warranty'): ?>
-          <section id="warranty" class="dashboard-section" data-section>
-            <h2>Warranty &amp; AMC tracker</h2>
-            <p class="dashboard-section-sub">
-              Monitor service schedules, upload geo-tagged evidence, and highlight issues before they become escalations. Overdue
-              visits appear with alerts until Admin marks them resolved.
-            </p>
-            <div class="warranty-layout">
-              <div class="dashboard-table-wrapper warranty-table">
-                <table class="dashboard-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Customer</th>
-                      <th scope="col">Asset</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">Next visit</th>
-                      <th scope="col">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php if (empty($warrantyAssets)): ?>
-                    <tr>
-                      <td colspan="5" class="text-center text-muted">No warranty or AMC assets assigned yet. Admin-approved assets will appear here.</td>
-                    </tr>
-                    <?php else: ?>
-                    <?php foreach ($warrantyAssets as $asset): ?>
-                    <tr
-                      data-warranty-row
-                      data-warranty-id="<?= htmlspecialchars($asset['id'], ENT_QUOTES) ?>"
-                      data-warranty-status="<?= htmlspecialchars($asset['status'], ENT_QUOTES) ?>"
-                      data-warranty-customer="<?= htmlspecialchars($asset['customer'], ENT_QUOTES) ?>"
-                      data-warranty-asset="<?= htmlspecialchars($asset['asset'], ENT_QUOTES) ?>"
-                    >
-                      <td>
-                        <strong><?= htmlspecialchars($asset['customer'], ENT_QUOTES) ?></strong>
-                        <span class="text-xs text-muted d-block">
-                          <?php if (!empty($asset['lastVisit'])): ?>
-                          Last visit <?= htmlspecialchars(date('d M Y', strtotime($asset['lastVisit'])), ENT_QUOTES) ?>
-                          <?php else: ?>
-                          Last visit not recorded
-                          <?php endif; ?>
-                        </span>
-                      </td>
-                      <td>
-                        <strong><?= htmlspecialchars($asset['asset'], ENT_QUOTES) ?></strong>
-                        <span class="text-xs text-muted d-block"><?= htmlspecialchars($asset['warranty'], ENT_QUOTES) ?></span>
-                      </td>
-                      <td>
-                        <span class="dashboard-status dashboard-status--<?= htmlspecialchars($asset['tone'] ?? 'progress', ENT_QUOTES) ?>" data-warranty-status-label>
-                          <?= htmlspecialchars($asset['statusLabel'], ENT_QUOTES) ?>
-                        </span>
-                      </td>
-                      <td><?= htmlspecialchars($asset['nextVisit'], ENT_QUOTES) ?></td>
-                      <td>
-                        <button type="button" class="btn btn-secondary btn-sm" data-warranty-log>
-                          <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
-                          Log service update
-                        </button>
-                      </td>
-                    </tr>
-                    <?php endforeach; ?>
-                    <?php endif; ?>
-                  </tbody>
-                </table>
-              </div>
-              <aside class="dashboard-panel warranty-activity">
-                <h3>Service visit history</h3>
-                <ol data-warranty-activity>
-                  <?php if (empty($warrantyActivity)): ?>
-                  <li class="text-muted">Service history will log here when you add updates.</li>
-                  <?php else: ?>
-                  <?php foreach ($warrantyActivity as $entry): ?>
-                  <li>
-                    <time datetime="<?= htmlspecialchars($entry['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></time>
-                    <p><?= htmlspecialchars($entry['message'], ENT_QUOTES) ?></p>
-                  </li>
-                  <?php endforeach; ?>
-                  <?php endif; ?>
-                </ol>
-              </aside>
-            </div>
-          </section>
-          <?php endif; ?>
-
-          <?php if ($currentView === 'communication'): ?>
-          <section id="communication" class="dashboard-section" data-section>
-            <h2>Communication log &amp; follow-ups</h2>
-            <p class="dashboard-section-sub">
-              Maintain an auditable log of calls, emails, and visits. Entries stay visible to Admin, and the system records key
-              ticket or task notes automatically.
-            </p>
-            <div class="communication-layout">
+            <div class="dashboard-profile-grid">
               <article class="dashboard-panel">
-                <h3>Add log entry</h3>
-                <form class="communication-form" data-communication-form>
-                  <label>
-                    Customer / ticket
-                    <select name="customer" required>
-                      <option value="" disabled selected>Select customer</option>
-                      <?php if (empty($documentUploadCustomers)): ?>
-                      <option value="" disabled>No customers available</option>
-                      <?php else: ?>
-                      <?php foreach ($documentUploadCustomers as $customer): ?>
-                      <option value="<?= htmlspecialchars($customer, ENT_QUOTES) ?>"><?= htmlspecialchars($customer, ENT_QUOTES) ?></option>
-                      <?php endforeach; ?>
-                      <?php endif; ?>
-                    </select>
-                  </label>
-                  <label>
-                    Channel
-                    <select name="channel" required>
-                      <option value="call">Call</option>
-                      <option value="email">Email</option>
-                      <option value="visit">Visit</option>
-                    </select>
-                  </label>
-                  <label>
-                    Summary
-                    <textarea
-                      name="summary"
-                      rows="3"
-                      placeholder="Document the conversation, commitments, or next steps."
-                      required
-                    ></textarea>
-                  </label>
-                  <button type="submit" class="btn btn-primary btn-sm">Save communication</button>
-                  <p class="text-xs text-muted mb-0">Admins can review these logs anytime.</p>
-                </form>
-              </article>
-              <article class="dashboard-panel communication-history">
-                <h3>Recent communication</h3>
-                <ul class="communication-log" data-communication-log>
-                  <?php if (empty($communicationLogs)): ?>
-                  <li class="text-muted">Add a call, email, or visit log to see it listed here.</li>
-                  <?php else: ?>
-                  <?php foreach ($communicationLogs as $log): ?>
-                  <li>
-                    <div class="communication-log-meta">
-                      <span class="communication-channel communication-channel--<?= htmlspecialchars(strtolower($log['channel']), ENT_QUOTES) ?>">
-                        <?= htmlspecialchars($log['channel'], ENT_QUOTES) ?>
-                      </span>
-                      <time datetime="<?= htmlspecialchars($log['time'], ENT_QUOTES) ?>"><?= htmlspecialchars($log['label'], ENT_QUOTES) ?></time>
-                    </div>
-                    <p><?= htmlspecialchars($log['summary'], ENT_QUOTES) ?></p>
-                  </li>
-                  <?php endforeach; ?>
-                  <?php endif; ?>
-                </ul>
-              </article>
-            </div>
-          </section>
-          <?php endif; ?>
-
-          <?php if ($currentView === 'ai-assist'): ?>
-          <section id="ai-assist" class="dashboard-section" data-section>
-            <h2>AI assistance (Gemini)</h2>
-            <p class="dashboard-section-sub">
-              Generate quick summaries, follow-up drafts, or image captions using Admin-approved Gemini models. Requests are
-              logged for compliance before content is shared with customers.
-            </p>
-            <div class="ai-layout">
-              <article class="dashboard-panel">
-                <h3>Request suggestion</h3>
-                <?php if (!$geminiProfile['enabled']): ?>
-                <div class="dashboard-inline-status dashboard-inline-status--warning" data-ai-disabled-banner>
-                  <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <h3>Account details</h3>
+                <dl class="profile-summary">
                   <div>
-                    <strong>Gemini assistant is offline</strong>
-                    <p>Admin has disabled Gemini usage. You can still prepare prompts, but generation is unavailable.</p>
+                    <dt>Name</dt>
+                    <dd><?= htmlspecialchars($employeeName, ENT_QUOTES) ?></dd>
                   </div>
-                </div>
-                <?php endif; ?>
-                <form class="ai-form" data-ai-form data-ai-enabled="<?= $geminiProfile['enabled'] ? 'true' : 'false' ?>">
-                  <label>
-                    Choose tool
-                    <select name="purpose" required>
-                      <option value="summary">Service summary</option>
-                      <option value="followup">Follow-up message</option>
-                      <option value="caption">Image caption</option>
-                    </select>
-                  </label>
-                  <label>
-                    Context / highlights
-                    <textarea name="context" rows="3" placeholder="Describe the service outcome or request from Admin."></textarea>
-                  </label>
-                  <div class="ai-actions">
-                    <button type="submit" class="btn btn-primary btn-sm" data-ai-generate="text">Generate text</button>
-                    <button type="button" class="btn btn-ghost btn-sm" data-ai-generate-image>Cover image</button>
-                    <button type="button" class="btn btn-ghost btn-sm" data-ai-generate-audio>Audio note</button>
+                  <div>
+                    <dt>Email</dt>
+                    <dd><?= htmlspecialchars($user['email'] ?? 'Not set', ENT_QUOTES) ?></dd>
                   </div>
-                  <p class="text-xs text-muted mb-0">All prompts route through Admin-configured Gemini models. Activity is logged for compliance.</p>
-                </form>
+                  <div>
+                    <dt>Role</dt>
+                    <dd><?= htmlspecialchars($employeeRole, ENT_QUOTES) ?></dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd><?= htmlspecialchars($employeeStatusLabel, ENT_QUOTES) ?></dd>
+                  </div>
+                  <div>
+                    <dt>Access notes</dt>
+                    <dd><?= htmlspecialchars($employeeAccess, ENT_QUOTES) ?></dd>
+                  </div>
+                </dl>
               </article>
-              <article class="dashboard-panel ai-output-panel">
-                <h3>AI output</h3>
-                <div class="ai-output" data-ai-output aria-live="polite">Select a tool and provide optional context to begin.</div>
-                <figure class="ai-output-media" data-ai-image-wrapper hidden>
-                  <img src="" alt="" data-ai-image />
-                  <figcaption data-ai-image-caption></figcaption>
-                </figure>
-                <div class="ai-output-media" data-ai-audio-wrapper hidden>
-                  <audio controls data-ai-audio></audio>
-                  <p class="text-xs text-muted" data-ai-audio-caption></p>
+
+              <article class="dashboard-panel dashboard-panel--muted">
+                <h3>Security snapshot</h3>
+                <ul class="profile-security">
+                  <li><i class="fa-solid fa-key" aria-hidden="true"></i> Passwords are hashed and never stored in plain text.</li>
+                  <li><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Sessions regenerate on login and expire after inactivity.</li>
+                  <li><i class="fa-solid fa-hand" aria-hidden="true"></i> CSRF protection covers every data-changing action.</li>
+                  <?php if ($syncSnapshot !== null): ?>
+                  <li><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Last data sync: <?= htmlspecialchars($syncSnapshot, ENT_QUOTES) ?></li>
+                  <?php endif; ?>
+                </ul>
+              </article>
+
+              <article class="dashboard-panel">
+                <h3>Need an update?</h3>
+                <p class="text-sm">
+                  Contact Admin if your contact information changes or you require additional module access. Every change request is audited.
+                </p>
+                <a class="btn btn-secondary btn-sm" href="mailto:<?= htmlspecialchars($supportEmail, ENT_QUOTES) ?>">Email support</a>
+              </article>
+            </div>
+          </section>
+          <?php endif; ?>
+
+          <?php if ($currentView === 'requests'): ?>
+          <section id="requests" class="dashboard-section" data-section>
+            <h2>Requests</h2>
+            <p class="dashboard-section-sub">
+              Track the status of any hardware, access, or policy requests you have raised with Admin.
+            </p>
+            <div class="dashboard-profile-grid">
+              <article class="dashboard-panel">
+                <h3>Submitted requests</h3>
+                <div class="dashboard-table-wrapper">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <?php if (empty($employeeRequests)): ?>
+                      <tr>
+                        <td colspan="4" class="text-muted">You have not logged any requests yet.</td>
+                      </tr>
+                      <?php else: ?>
+                      <?php foreach ($employeeRequests as $request): ?>
+                      <tr>
+                        <td><?= htmlspecialchars($request['subject'] ?? 'Request', ENT_QUOTES) ?></td>
+                        <td><?= htmlspecialchars(ucwords(str_replace('_', ' ', $request['type'] ?? 'general')), ENT_QUOTES) ?></td>
+                        <td><span class="dashboard-status"><?= htmlspecialchars(ucwords($request['status'] ?? 'pending'), ENT_QUOTES) ?></span></td>
+                        <td><?= htmlspecialchars($request['updated_at'] ?? '—', ENT_QUOTES) ?></td>
+                      </tr>
+                      <?php endforeach; ?>
+                      <?php endif; ?>
+                    </tbody>
+                  </table>
                 </div>
+              </article>
+
+              <article class="dashboard-panel dashboard-panel--muted">
+                <h3>Raise a new request</h3>
+                <p class="text-sm">
+                  Email Admin with detailed context for faster triage. Include customer reference numbers whenever applicable.
+                </p>
+                <a class="btn btn-secondary btn-sm" href="mailto:<?= htmlspecialchars($supportEmail, ENT_QUOTES) ?>">Contact Admin</a>
               </article>
             </div>
           </section>

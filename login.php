@@ -88,6 +88,9 @@ $routeFor = static function (string $path) use ($prefix): string {
 $roleRoutes = [
     'admin' => $routeFor('admin-dashboard.php'),
     'employee' => $routeFor('employee-dashboard.php'),
+    'installer' => $routeFor('installer-dashboard.php'),
+    'referrer' => $routeFor('referrer-dashboard.php'),
+    'customer' => $routeFor('customer-dashboard.php'),
 ];
 $roleLabel = static function (string $role): string {
     $clean = trim(str_replace(['_', '-'], ' ', strtolower($role)));
@@ -446,10 +449,19 @@ if ($requestMethod === 'POST') {
                   <small>
                     <?php switch ($role) {
                         case 'admin':
-                            echo 'Manage operations, policies, approvals, and user permissions.';
+                            echo 'Manage oversight dashboards, service queues, and all user permissions.';
                             break;
                         case 'employee':
-                            echo 'Access assignments, documents, and service updates authorised by Admin.';
+                            echo 'Work your leads, installations, complaints, reminders, and requests.';
+                            break;
+                        case 'installer':
+                            echo 'Review scheduled jobs, confirm AMC checklists, and submit site updates.';
+                            break;
+                        case 'referrer':
+                            echo 'Track shared leads, payouts, and collaborate with the sales team.';
+                            break;
+                        case 'customer':
+                            echo 'Follow installation progress, subsidy status, and service commitments.';
                             break;
                         default:
                             echo 'Use the credentials assigned to you to sign in securely.';
