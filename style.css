@@ -6217,6 +6217,10 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 
 @media (min-width: 1100px) {
   .dashboard-body {
+    grid-template-columns: 280px minmax(0, 1fr) 320px;
+  }
+
+  .dashboard-body.dashboard-body--employee {
     grid-template-columns: minmax(0, 1fr) 320px;
   }
 
@@ -6239,6 +6243,10 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
 
 @media (min-width: 1440px) {
   .dashboard-body {
+    grid-template-columns: 300px minmax(0, 1fr) 360px;
+  }
+
+  .dashboard-body.dashboard-body--employee {
     grid-template-columns: minmax(0, 1fr) 360px;
   }
 }
