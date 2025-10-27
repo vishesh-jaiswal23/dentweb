@@ -295,22 +295,36 @@ SQL
     $db->exec('CREATE INDEX IF NOT EXISTS idx_subsidy_tracker_reference ON subsidy_tracker(application_reference)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_subsidy_tracker_stage_date ON subsidy_tracker(stage_date DESC)');
 
+    $reminderColumns = $db->query("PRAGMA table_info('reminders')")->fetchAll(PDO::FETCH_COLUMN, 1);
+    if (!empty($reminderColumns) && !in_array('linked_id', $reminderColumns, true)) {
+        $db->exec('DROP TABLE reminders');
+        $reminderColumns = [];
+    }
+
     $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
-    module TEXT NOT NULL,
-    due_on TEXT,
-    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','done','dismissed')),
+    module TEXT NOT NULL CHECK(module IN ('lead','installation','complaint','subsidy','amc')),
+    linked_id INTEGER NOT NULL,
+    due_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'proposed' CHECK(status IN ('proposed','active','completed','cancelled')),
     notes TEXT,
+    decision_note TEXT,
+    proposer_id INTEGER NOT NULL,
+    approver_id INTEGER,
+    completed_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(proposer_id) REFERENCES users(id),
+    FOREIGN KEY(approver_id) REFERENCES users(id)
 )
 SQL
     );
 
     $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_status ON reminders(status)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_module ON reminders(module)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_due_at ON reminders(due_at)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_reminders_updated_at ON reminders(updated_at DESC)');
 
     $complaintColumns = $db->query("PRAGMA table_info('complaints')")->fetchAll(PDO::FETCH_COLUMN, 1);
@@ -2953,6 +2967,7 @@ function admin_overview_counts(PDO $db): array
     $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
     $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
+    $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active')")->fetchColumn();
 
     $pendingStmt = $db->query(<<<'SQL'
 WITH ranked AS (
@@ -2976,6 +2991,7 @@ SQL
         'installations' => $activeInstallations,
         'complaints' => $openComplaints,
         'subsidy' => $pendingSubsidy,
+        'reminders' => $activeReminders,
     ];
 }
 
@@ -3050,11 +3066,12 @@ function admin_today_highlights(PDO $db, int $limit = 12): array
         ]);
     }
 
-    $reminderStmt = $db->query('SELECT id, title, status, module, due_on, updated_at, created_at FROM reminders ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    $reminderStmt = $db->query('SELECT id, title, status, module, due_at, updated_at, created_at FROM reminders ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
     foreach ($reminderStmt->fetchAll() as $row) {
         $status = reminder_status_label($row['status'] ?? '');
-        $due = $row['due_on'] ? (' due ' . format_due_date($row['due_on'])) : '';
-        $title = sprintf('Reminder "%s" is %s%s', $row['title'], strtolower($status), $due);
+        $moduleLabel = reminder_module_label($row['module'] ?? '');
+        $due = $row['due_at'] ? (' · due ' . format_due_date($row['due_at'])) : '';
+        $title = sprintf('%s reminder "%s" is %s%s', $moduleLabel, $row['title'], strtolower($status), $due);
         $addEntry($row['updated_at'] ?: $row['created_at'], 'reminders', $title, [
             'id' => (int) $row['id'],
             'status' => $status,
@@ -3579,15 +3596,23 @@ function installation_admin_filter(PDO $db, string $filter): array
     return $rows;
 }
 
-function format_due_date(string $date): string
+function format_due_date(?string $value): string
 {
-    try {
-        $dt = new DateTimeImmutable($date, new DateTimeZone('UTC'));
-    } catch (Throwable $exception) {
-        return $date;
+    if (!$value) {
+        return '';
     }
 
-    return $dt->format('j M');
+    try {
+        $dt = new DateTimeImmutable($value, new DateTimeZone('UTC'));
+    } catch (Throwable $exception) {
+        try {
+            $dt = new DateTimeImmutable($value);
+        } catch (Throwable $inner) {
+            return $value;
+        }
+    }
+
+    return $dt->setTimezone(new DateTimeZone('Asia/Kolkata'))->format('j M · h:i A');
 }
 
 function lead_status_label(string $status): string
@@ -4533,14 +4558,288 @@ function admin_subsidy_tracker_summary(PDO $db, ?string $stageFilter = null, ?st
 function reminder_status_label(string $status): string
 {
     $map = [
-        'open' => 'Open',
-        'done' => 'Done',
-        'dismissed' => 'Dismissed',
+        'proposed' => 'Proposed',
+        'active' => 'Active',
+        'completed' => 'Completed',
+        'cancelled' => 'Cancelled',
     ];
 
     $normalized = strtolower(trim($status));
 
-    return $map[$normalized] ?? ucfirst($normalized ?: 'open');
+    return $map[$normalized] ?? ucfirst($normalized ?: 'Proposed');
+}
+
+function reminder_module_options(): array
+{
+    return [
+        'lead' => 'Lead',
+        'installation' => 'Installation',
+        'complaint' => 'Complaint',
+        'subsidy' => 'Subsidy',
+        'amc' => 'AMC',
+    ];
+}
+
+function reminder_module_label(string $module): string
+{
+    $options = reminder_module_options();
+    $normalized = strtolower(trim($module));
+
+    return $options[$normalized] ?? ucfirst($normalized ?: 'Item');
+}
+
+function admin_normalize_reminder_row(array $row): array
+{
+    $dueValue = $row['due_at'] ?? null;
+    $dueDisplay = '—';
+    $dueIso = '';
+    if ($dueValue) {
+        $due = null;
+        try {
+            $due = new DateTimeImmutable($dueValue, new DateTimeZone('UTC'));
+        } catch (Throwable $exception) {
+            try {
+                $due = new DateTimeImmutable((string) $dueValue);
+            } catch (Throwable $inner) {
+                $due = null;
+            }
+        }
+        if ($due instanceof DateTimeImmutable) {
+            $dueIst = $due->setTimezone(new DateTimeZone('Asia/Kolkata'));
+            $dueDisplay = $dueIst->format('d M Y · h:i A');
+            $dueIso = $dueIst->format(DateTimeInterface::ATOM);
+        } else {
+            $dueDisplay = (string) $dueValue;
+        }
+    }
+
+    return [
+        'id' => (int) ($row['id'] ?? 0),
+        'title' => (string) ($row['title'] ?? ''),
+        'module' => (string) ($row['module'] ?? ''),
+        'moduleLabel' => reminder_module_label($row['module'] ?? ''),
+        'linkedId' => isset($row['linked_id']) ? (int) $row['linked_id'] : 0,
+        'status' => (string) ($row['status'] ?? ''),
+        'statusLabel' => reminder_status_label($row['status'] ?? ''),
+        'notes' => (string) ($row['notes'] ?? ''),
+        'decisionNote' => (string) ($row['decision_note'] ?? ''),
+        'proposerId' => isset($row['proposer_id']) && $row['proposer_id'] !== null ? (int) $row['proposer_id'] : null,
+        'proposerName' => (string) ($row['proposer_name'] ?? ''),
+        'approverId' => isset($row['approver_id']) && $row['approver_id'] !== null ? (int) $row['approver_id'] : null,
+        'approverName' => (string) ($row['approver_name'] ?? ''),
+        'dueAt' => $dueValue !== null ? (string) $dueValue : '',
+        'dueDisplay' => $dueDisplay,
+        'dueIso' => $dueIso,
+        'createdAt' => (string) ($row['created_at'] ?? ''),
+        'updatedAt' => (string) ($row['updated_at'] ?? ''),
+        'completedAt' => (string) ($row['completed_at'] ?? ''),
+    ];
+}
+
+function admin_list_reminders(PDO $db, array $filters): array
+{
+    $status = strtolower(trim((string) ($filters['status'] ?? 'active')));
+    $module = strtolower(trim((string) ($filters['module'] ?? 'all')));
+    $fromDate = trim((string) ($filters['from'] ?? ''));
+    $toDate = trim((string) ($filters['to'] ?? ''));
+
+    $conditions = [];
+    $params = [];
+
+    if ($status !== '' && $status !== 'all') {
+        $conditions[] = 'reminders.status = :status';
+        $params[':status'] = $status;
+    }
+
+    if ($module !== '' && $module !== 'all') {
+        $conditions[] = 'reminders.module = :module';
+        $params[':module'] = $module;
+    }
+
+    $tzIst = new DateTimeZone('Asia/Kolkata');
+    if ($fromDate !== '') {
+        $from = DateTimeImmutable::createFromFormat('Y-m-d', $fromDate, $tzIst);
+        if ($from instanceof DateTimeImmutable) {
+            $conditions[] = 'reminders.due_at >= :from_date';
+            $params[':from_date'] = $from->setTime(0, 0, 0)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+        }
+    }
+
+    if ($toDate !== '') {
+        $to = DateTimeImmutable::createFromFormat('Y-m-d', $toDate, $tzIst);
+        if ($to instanceof DateTimeImmutable) {
+            $conditions[] = 'reminders.due_at <= :to_date';
+            $params[':to_date'] = $to->setTime(23, 59, 59)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+        }
+    }
+
+    $sql = 'SELECT reminders.*, proposer.full_name AS proposer_name, approver.full_name AS approver_name FROM reminders '
+        . 'LEFT JOIN users proposer ON reminders.proposer_id = proposer.id '
+        . 'LEFT JOIN users approver ON reminders.approver_id = approver.id';
+
+    if ($conditions) {
+        $sql .= ' WHERE ' . implode(' AND ', $conditions);
+    }
+
+    $sql .= ' ORDER BY reminders.due_at ASC, reminders.id ASC';
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
+    $items = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $items[] = admin_normalize_reminder_row($row);
+    }
+
+    return $items;
+}
+
+function admin_find_reminder(PDO $db, int $id): ?array
+{
+    if ($id <= 0) {
+        return null;
+    }
+
+    $stmt = $db->prepare(
+        'SELECT reminders.*, proposer.full_name AS proposer_name, approver.full_name AS approver_name '
+        . 'FROM reminders '
+        . 'LEFT JOIN users proposer ON reminders.proposer_id = proposer.id '
+        . 'LEFT JOIN users approver ON reminders.approver_id = approver.id '
+        . 'WHERE reminders.id = :id LIMIT 1'
+    );
+    $stmt->execute([':id' => $id]);
+
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return null;
+    }
+
+    return admin_normalize_reminder_row($row);
+}
+
+function admin_create_reminder(PDO $db, array $input, int $actorId): array
+{
+    $title = trim((string) ($input['title'] ?? ''));
+    if ($title === '') {
+        throw new RuntimeException('Title is required.');
+    }
+
+    $module = strtolower(trim((string) ($input['module'] ?? '')));
+    if (!array_key_exists($module, reminder_module_options())) {
+        throw new RuntimeException('Linked item type is invalid.');
+    }
+
+    $linkedId = (int) ($input['linked_id'] ?? 0);
+    if ($linkedId <= 0) {
+        throw new RuntimeException('Linked item ID is required.');
+    }
+
+    $dueAt = trim((string) ($input['due_at'] ?? ''));
+    if ($dueAt === '') {
+        throw new RuntimeException('Due date and time is required.');
+    }
+
+    $notes = trim((string) ($input['notes'] ?? ''));
+
+    $now = now_ist();
+    $stmt = $db->prepare('INSERT INTO reminders(title, module, linked_id, due_at, status, notes, decision_note, proposer_id, approver_id, completed_at, created_at, updated_at) VALUES(:title, :module, :linked_id, :due_at, :status, :notes, NULL, :proposer_id, :approver_id, NULL, :created_at, :updated_at)');
+    $stmt->execute([
+        ':title' => $title,
+        ':module' => $module,
+        ':linked_id' => $linkedId,
+        ':due_at' => $dueAt,
+        ':status' => 'active',
+        ':notes' => $notes !== '' ? $notes : null,
+        ':proposer_id' => $actorId,
+        ':approver_id' => $actorId,
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+
+    $reminderId = (int) $db->lastInsertId();
+    portal_log_action($db, $actorId, 'create', 'reminder', $reminderId, 'Reminder created via admin portal');
+
+    $created = admin_find_reminder($db, $reminderId);
+    if ($created === null) {
+        throw new RuntimeException('Reminder not found after save.');
+    }
+
+    return $created;
+}
+
+function admin_update_reminder_status(PDO $db, int $id, string $targetStatus, int $actorId, ?string $note = null): array
+{
+    $target = strtolower(trim($targetStatus));
+    if (!in_array($target, ['active', 'cancelled', 'completed'], true)) {
+        throw new RuntimeException('Unsupported reminder status change.');
+    }
+
+    $stmt = $db->prepare('SELECT * FROM reminders WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $id]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('Reminder not found.');
+    }
+
+    $currentStatus = strtolower((string) ($row['status'] ?? 'proposed'));
+    $now = now_ist();
+
+    if ($target === 'active') {
+        if ($currentStatus !== 'proposed') {
+            throw new RuntimeException('Only proposed reminders can be approved.');
+        }
+
+        $update = $db->prepare('UPDATE reminders SET status = :status, approver_id = :approver_id, decision_note = NULL, completed_at = NULL, updated_at = :updated_at WHERE id = :id');
+        $update->execute([
+            ':status' => 'active',
+            ':approver_id' => $actorId,
+            ':updated_at' => $now,
+            ':id' => $id,
+        ]);
+
+        portal_log_action($db, $actorId, 'status_change', 'reminder', $id, 'Reminder approved');
+    } elseif ($target === 'cancelled') {
+        if ($currentStatus !== 'proposed') {
+            throw new RuntimeException('Only proposed reminders can be rejected.');
+        }
+
+        $reason = trim((string) $note);
+        if ($reason === '') {
+            throw new RuntimeException('Rejection reason is required.');
+        }
+
+        $update = $db->prepare('UPDATE reminders SET status = :status, approver_id = :approver_id, decision_note = :decision_note, completed_at = NULL, updated_at = :updated_at WHERE id = :id');
+        $update->execute([
+            ':status' => 'cancelled',
+            ':approver_id' => $actorId,
+            ':decision_note' => $reason,
+            ':updated_at' => $now,
+            ':id' => $id,
+        ]);
+
+        portal_log_action($db, $actorId, 'status_change', 'reminder', $id, 'Reminder rejected');
+    } else { // completed
+        if ($currentStatus !== 'active') {
+            throw new RuntimeException('Only active reminders can be completed.');
+        }
+
+        $update = $db->prepare('UPDATE reminders SET status = :status, completed_at = :completed_at, updated_at = :updated_at WHERE id = :id');
+        $update->execute([
+            ':status' => 'completed',
+            ':completed_at' => $now,
+            ':updated_at' => $now,
+            ':id' => $id,
+        ]);
+
+        portal_log_action($db, $actorId, 'status_change', 'reminder', $id, 'Reminder marked completed');
+    }
+
+    $updated = admin_find_reminder($db, $id);
+    if ($updated === null) {
+        throw new RuntimeException('Reminder could not be reloaded.');
+    }
+
+    return $updated;
 }
 
 function admin_list_employees(PDO $db, string $status = 'active'): array

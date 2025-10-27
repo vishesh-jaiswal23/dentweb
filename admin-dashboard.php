@@ -71,6 +71,13 @@ $cardConfigs = [
         'description' => 'Applications awaiting approval or disbursal.',
         'link' => 'admin-subsidy-tracker.php?stage=pending',
     ],
+    [
+        'label' => 'Active Reminders',
+        'value' => $counts['reminders'],
+        'icon' => 'fa-bell',
+        'description' => 'Follow-ups awaiting admin attention.',
+        'link' => 'admin-reminders.php',
+    ],
 ];
 
 $moduleMeta = [
