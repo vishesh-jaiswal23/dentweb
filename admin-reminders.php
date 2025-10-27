@@ -111,6 +111,7 @@ $listFilters = [
 ];
 
 $reminders = admin_list_reminders($db, $listFilters);
+$pendingReminderRequests = admin_list_reminder_requests($db);
 
 $queryParams = [];
 if ($statusFilter !== 'active') {
@@ -263,6 +264,80 @@ function reminder_status_class(string $status): string
       </div>
     </header>
 
+    <section id="requests-center" class="admin-reminders__requests" aria-labelledby="requests-center-title">
+      <div class="admin-reminders__requests-header">
+        <div>
+          <h2 id="requests-center-title">Requests Center</h2>
+          <p>Reminder proposals awaiting admin approval.</p>
+        </div>
+      </div>
+      <?php if (empty($pendingReminderRequests)): ?>
+      <p class="admin-reminders__requests-empty">No reminder proposals pending review.</p>
+      <?php else: ?>
+      <div class="admin-reminders__requests-table-wrapper">
+        <table class="admin-reminders__requests-table">
+          <thead>
+            <tr>
+              <th scope="col">Request</th>
+              <th scope="col">Due</th>
+              <th scope="col">Linked item</th>
+              <th scope="col">Proposer</th>
+              <th scope="col">Notes</th>
+              <th scope="col" class="admin-reminders__requests-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($pendingReminderRequests as $request): ?>
+            <tr>
+              <td>
+                <p class="admin-reminders__requests-title"><?= htmlspecialchars($request['title'], ENT_QUOTES) ?></p>
+                <span class="admin-reminders__requests-type">Reminder Proposal</span>
+              </td>
+              <td>
+                <?php if ($request['dueIso'] !== ''): ?>
+                <time datetime="<?= htmlspecialchars($request['dueIso'], ENT_QUOTES) ?>"><?= htmlspecialchars($request['dueDisplay'], ENT_QUOTES) ?></time>
+                <?php else: ?>
+                —
+                <?php endif; ?>
+              </td>
+              <td><?= htmlspecialchars($request['moduleLabel'], ENT_QUOTES) ?> · #<?= htmlspecialchars((string) $request['linkedId'], ENT_QUOTES) ?></td>
+              <td><?= $request['proposerName'] !== '' ? htmlspecialchars($request['proposerName'], ENT_QUOTES) : '—' ?></td>
+              <td><?= $request['notes'] !== '' ? nl2br(htmlspecialchars($request['notes'], ENT_QUOTES)) : '<span class="admin-muted">No notes provided</span>' ?></td>
+              <td>
+                <div class="admin-reminders__requests-actions-grid">
+                  <form method="post">
+                    <input type="hidden" name="action" value="approve" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($adminCsrfToken, ENT_QUOTES) ?>" />
+                    <input type="hidden" name="reminder_id" value="<?= htmlspecialchars((string) $request['id'], ENT_QUOTES) ?>" />
+                    <input type="hidden" name="redirect_query" value="status=proposed&amp;focus=requests" />
+                    <button type="submit" class="btn btn-primary btn-sm">Approve</button>
+                  </form>
+                  <form method="post" class="admin-reminders__requests-reject">
+                    <input type="hidden" name="action" value="reject" />
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($adminCsrfToken, ENT_QUOTES) ?>" />
+                    <input type="hidden" name="reminder_id" value="<?= htmlspecialchars((string) $request['id'], ENT_QUOTES) ?>" />
+                    <input type="hidden" name="redirect_query" value="status=proposed&amp;focus=requests" />
+                    <label class="sr-only" for="reject-note-<?= (int) $request['id'] ?>">Rejection reason</label>
+                    <input
+                      id="reject-note-<?= (int) $request['id'] ?>"
+                      type="text"
+                      name="reason"
+                      required
+                      maxlength="280"
+                      placeholder="Reason"
+                    />
+                    <button type="submit" class="btn btn-secondary btn-sm">Reject</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+      <?php endif; ?>
+    </section>
+
     <section id="reminder-create" class="admin-reminders__create">
       <div class="admin-reminders__create-header">
         <h2>Quick add</h2>
@@ -334,7 +409,7 @@ function reminder_status_class(string $status): string
     </section>
 
     <section class="admin-reminders__layout">
-      <div class="admin-reminders__list" aria-label="Reminder list">
+      <div class="admin-reminders__list" id="reminder-list" aria-label="Reminder list">
         <?php if (empty($reminders)): ?>
         <p class="admin-reminders__empty">No reminders match the selected filters.</p>
         <?php else: ?>
