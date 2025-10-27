@@ -87,13 +87,29 @@ try {
             require_method('POST');
             respond_success(['document' => portal_save_document($db, read_json(), $actorId), 'documents' => portal_list_documents($db, 'admin')]);
             break;
+        case 'save-complaint':
+            require_method('POST');
+            respond_success(['complaint' => portal_save_complaint($db, read_json(), $actorId), 'complaints' => portal_all_complaints($db)]);
+            break;
+        case 'assign-complaint':
+            require_method('POST');
+            respond_success(['complaint' => portal_assign_complaint($db, read_json(), $actorId), 'complaints' => portal_all_complaints($db)]);
+            break;
+        case 'add-complaint-note':
+            require_method('POST');
+            respond_success(['complaint' => portal_add_complaint_note($db, read_json(), $actorId)]);
+            break;
+        case 'complaint-timeline':
+            require_method('GET');
+            respond_success(['timeline' => fetch_complaint_timeline($db, $_GET)]);
+            break;
         case 'fetch-audit':
             require_method('GET');
             respond_success(['audit' => recent_audit_logs($db)]);
             break;
         case 'fetch-complaints':
             require_method('GET');
-            respond_success(['complaints' => list_complaints($db)]);
+            respond_success(['complaints' => portal_all_complaints($db)]);
             break;
         case 'fetch-metrics':
             require_method('GET');
@@ -447,7 +463,7 @@ function bootstrap_payload(PDO $db): array
     return [
         'users' => list_users($db),
         'invitations' => list_invitations($db),
-        'complaints' => list_complaints($db),
+        'complaints' => portal_all_complaints($db),
         'audit' => recent_audit_logs($db),
         'metrics' => current_metrics($db),
         'loginPolicy' => fetch_login_policy($db),
@@ -480,10 +496,19 @@ function list_invitations(PDO $db): array
     return $stmt->fetchAll();
 }
 
-function list_complaints(PDO $db): array
+function fetch_complaint_timeline(PDO $db, array $query): array
 {
-    $stmt = $db->query('SELECT complaints.*, users.full_name AS assigned_to_name FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id ORDER BY complaints.created_at DESC');
-    return $stmt->fetchAll();
+    $reference = trim((string) ($query['reference'] ?? ''));
+    if ($reference === '') {
+        throw new RuntimeException('Reference is required.');
+    }
+    $complaintId = portal_find_complaint_id($db, $reference);
+    if ($complaintId === null) {
+        throw new RuntimeException('Complaint not found.');
+    }
+
+    $timeline = portal_fetch_complaint_updates($db, [$complaintId]);
+    return $timeline[$complaintId] ?? [];
 }
 
 function recent_audit_logs(PDO $db): array
@@ -617,8 +642,9 @@ function create_user(PDO $db, array $input): array
 
 function resolve_role_id(PDO $db, string $roleName): int
 {
+    $canonical = canonical_role_name($roleName);
     $stmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
-    $stmt->execute([':name' => $roleName]);
+    $stmt->execute([':name' => $canonical]);
     $roleId = $stmt->fetchColumn();
     if ($roleId === false) {
         throw new RuntimeException('Unknown role specified.');

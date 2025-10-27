@@ -4,6 +4,8 @@
   const config = window.DakshayaniEmployee || {};
   const API_BASE = config.apiBase || 'api/employee.php';
   const CSRF_TOKEN = config.csrfToken || '';
+  const currentUser = config.currentUser || {};
+  const isActive = (currentUser.status || 'active') === 'active';
 
   function api(action, { method = 'GET', body } = {}) {
     if (!API_BASE) {
@@ -29,6 +31,15 @@
         }
         return payload.data;
       });
+  }
+
+  function escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   const THEME_KEY = 'dakshayani-employee-theme';
@@ -98,6 +109,10 @@
     if (!id) return;
     notificationSummaryMap.set(id, item);
   });
+
+  if (!isActive) {
+    document.body.classList.add('is-employee-inactive');
+  }
 
   function formatTime(date) {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -909,71 +924,105 @@
 
   // Document vault ----------------------------------------------------------
   if (documentForm && documentList) {
+    const appendDocumentRow = (doc) => {
+      const row = document.createElement('tr');
+
+      const docCell = document.createElement('td');
+      const typeEl = document.createElement('strong');
+      typeEl.textContent = doc.name || 'Document';
+      docCell.appendChild(typeEl);
+      const fileEl = document.createElement('span');
+      fileEl.className = 'text-xs text-muted d-block';
+      fileEl.textContent = doc.reference || doc.linkedTo || 'Shared';
+      docCell.appendChild(fileEl);
+      if (Array.isArray(doc.tags)) {
+        doc.tags.forEach((tag) => {
+          const tagEl = document.createElement('span');
+          tagEl.className = 'text-xs text-muted d-block';
+          tagEl.textContent = tag;
+          docCell.appendChild(tagEl);
+        });
+      }
+      row.appendChild(docCell);
+
+      const customerCell = document.createElement('td');
+      customerCell.textContent = doc.reference || 'Shared';
+      row.appendChild(customerCell);
+
+      const statusCell = document.createElement('td');
+      const badge = document.createElement('span');
+      const shared = doc.visibility === 'both';
+      badge.className = `dashboard-status dashboard-status--${shared ? 'resolved' : 'progress'}`;
+      badge.textContent = shared ? 'Shared with Admin' : 'Pending Admin review';
+      statusCell.appendChild(badge);
+      row.appendChild(statusCell);
+
+      const uploadedCell = document.createElement('td');
+      if (doc.updatedAt) {
+        const uploadedDate = new Date((doc.updatedAt || '').replace(' ', 'T'));
+        if (!Number.isNaN(uploadedDate.getTime())) {
+          const timeEl = document.createElement('time');
+          timeEl.dateTime = uploadedDate.toISOString();
+          timeEl.textContent = formatDateTime(uploadedDate);
+          uploadedCell.appendChild(timeEl);
+        }
+      }
+      const byEl = document.createElement('span');
+      byEl.className = 'text-xs text-muted d-block';
+      byEl.textContent = `by ${doc.uploadedBy || 'You'}`;
+      uploadedCell.appendChild(byEl);
+      row.appendChild(uploadedCell);
+
+      const emptyState = documentList.querySelector('.text-muted');
+      if (emptyState && emptyState.closest('tr')) {
+        emptyState.closest('tr').remove();
+      }
+
+      documentList.prepend(row);
+    };
+
     documentForm.addEventListener('submit', (event) => {
       if (event.defaultPrevented) return;
       event.preventDefault();
+      if (!isActive) {
+        window.alert('Your account is inactive. Contact Admin to upload documents.');
+        return;
+      }
+
       const data = new FormData(documentForm);
       const customer = String(data.get('customer') || '').trim();
       const type = String(data.get('type') || '').trim();
       const filename = String(data.get('filename') || '').trim();
       const note = String(data.get('note') || '').trim();
       const sizeValue = String(data.get('file_size') || '').trim();
-      const sizeNumber = sizeValue ? Number.parseFloat(sizeValue) : null;
+
       if (!customer || !type || !filename) {
         window.alert('Please provide the customer, document type, and file name.');
         return;
       }
-      const row = document.createElement('tr');
 
-      const docCell = document.createElement('td');
-      const typeEl = document.createElement('strong');
-      typeEl.textContent = type;
-      docCell.appendChild(typeEl);
-      const fileEl = document.createElement('span');
-      fileEl.className = 'text-xs text-muted d-block';
-      fileEl.textContent = filename;
-      docCell.appendChild(fileEl);
-      if (Number.isFinite(sizeNumber)) {
-        const sizeEl = document.createElement('span');
-        sizeEl.className = 'text-xs text-muted d-block';
-        sizeEl.textContent = `${sizeNumber.toFixed(1)} MB`;
-        docCell.appendChild(sizeEl);
-      }
-      row.appendChild(docCell);
-
-      const customerCell = document.createElement('td');
-      customerCell.textContent = customer;
-      row.appendChild(customerCell);
-
-      const statusCell = document.createElement('td');
-      const badge = document.createElement('span');
-      badge.className = 'dashboard-status dashboard-status--waiting';
-      badge.textContent = 'Pending Admin review';
-      statusCell.appendChild(badge);
-      row.appendChild(statusCell);
-
-      const uploadedCell = document.createElement('td');
-      const now = new Date();
-      const timeEl = document.createElement('time');
-      timeEl.dateTime = now.toISOString();
-      timeEl.textContent = formatDateTime(now);
-      uploadedCell.appendChild(timeEl);
-      const byEl = document.createElement('span');
-      byEl.className = 'text-xs text-muted d-block';
-      byEl.textContent = 'by You';
-      uploadedCell.appendChild(byEl);
-      row.appendChild(uploadedCell);
-
-      documentList.prepend(row);
-      documentForm.reset();
-
-      const metaText = [customer, note || filename].filter(Boolean).join(' · ');
-      logCommunicationEntry('system', `${type} uploaded to document vault`, metaText, 'System');
-      const auditDetailParts = [type, customer];
-      if (Number.isFinite(sizeNumber)) {
-        auditDetailParts.push(`${sizeNumber.toFixed(1)} MB`);
-      }
-      recordAuditEvent('Document uploaded', auditDetailParts.join(' · '));
+      api('upload-document', {
+        method: 'POST',
+        body: {
+          customer,
+          type,
+          filename,
+          note,
+          fileSize: sizeValue,
+        },
+      })
+        .then(({ document }) => {
+          appendDocumentRow(document);
+          documentForm.reset();
+          const metaText = [customer, note || filename].filter(Boolean).join(' · ');
+          logCommunicationEntry('system', `${type} uploaded to document vault`, metaText, 'System');
+          recordAuditEvent('Document uploaded', `${type} · ${customer}`);
+          refreshSyncIndicator('Document upload');
+        })
+        .catch((error) => {
+          console.error(error);
+          window.alert(error.message || 'Unable to upload document right now.');
+        });
     });
   }
 

@@ -1762,6 +1762,119 @@ $subsidyApplications = [];
                 </ul>
               </article>
             </div>
+            <div class="dashboard-profile-grid">
+              <form class="dashboard-form" data-complaint-form>
+                <h3>Create or update ticket</h3>
+                <div class="dashboard-form-grid dashboard-form-grid--two">
+                  <label>
+                    Ticket reference
+                    <input type="text" name="reference" placeholder="Leave blank to auto-generate" />
+                  </label>
+                  <label>
+                    Ticket title
+                    <input type="text" name="title" placeholder="Service call from Ranchi" required />
+                  </label>
+                  <label>
+                    Status
+                    <select name="status">
+                      <option value="intake">Intake</option>
+                      <option value="triage">Triage</option>
+                      <option value="work">Work</option>
+                      <option value="resolution">Resolution</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                  </label>
+                  <label>
+                    Priority
+                    <select name="priority">
+                      <option value="medium" selected>Medium</option>
+                      <option value="high">High</option>
+                      <option value="low">Low</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
+                  </label>
+                  <label>
+                    Assign to employee
+                    <select name="assignedTo" data-complaint-assignee>
+                      <option value="">Unassigned</option>
+                    </select>
+                  </label>
+                  <label>
+                    SLA target (DD-MM-YYYY)
+                    <input type="text" name="slaDue" placeholder="DD-MM-YYYY" />
+                  </label>
+                </div>
+                <label>
+                  Description
+                  <textarea
+                    name="description"
+                    rows="3"
+                    placeholder="Capture customer statement, affected equipment, and any troubleshooting performed."
+                  ></textarea>
+                </label>
+                <p class="dashboard-form-note">
+                  <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  Leave the reference blank to generate a new SR code. Using an existing reference updates that ticket in place.
+                </p>
+                <div>
+                  <button type="submit" class="btn btn-secondary">Save ticket</button>
+                  <button type="reset" class="btn btn-ghost">Clear</button>
+                </div>
+                <div class="dashboard-inline-status" data-complaint-form-status hidden></div>
+              </form>
+
+              <article class="dashboard-form dashboard-form--table">
+                <h3>Ticket register</h3>
+                <div class="dashboard-table-wrapper" role="region" aria-live="polite">
+                  <table class="dashboard-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Reference</th>
+                        <th scope="col">Summary</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">SLA</th>
+                        <th scope="col">Assignee</th>
+                        <th scope="col">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody data-complaint-table>
+                      <tr class="dashboard-empty-row">
+                        <td colspan="6">No complaints logged yet.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="dashboard-form dashboard-form--list">
+                <h3>Ticket timeline</h3>
+                <p class="dashboard-form-note" data-complaint-timeline-note>
+                  <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  Select a ticket from the register to review its activity log and append notes.
+                </p>
+                <div class="ticket-timeline" data-complaint-timeline-wrapper hidden>
+                  <ol data-complaint-timeline></ol>
+                </div>
+                <form class="dashboard-inline-form" data-complaint-note-form hidden>
+                  <h4>Add internal note</h4>
+                  <div class="dashboard-inline-fields">
+                    <label>
+                      Note for employees
+                      <textarea
+                        name="note"
+                        rows="3"
+                        placeholder="Share troubleshooting guidance or customer commitments."
+                        required
+                      ></textarea>
+                    </label>
+                  </div>
+                  <div>
+                    <button type="submit" class="btn btn-secondary btn-sm">Log note</button>
+                  </div>
+                  <div class="dashboard-inline-status" data-complaint-note-status hidden></div>
+                </form>
+              </article>
+            </div>
           </section>
 
           <section class="dashboard-section" id="governance" role="tabpanel" data-tab-panel hidden>
