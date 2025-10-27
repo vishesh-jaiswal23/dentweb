@@ -61,24 +61,18 @@ $roleRoutes = [
     'referrer' => $routeFor('referrer-dashboard.html'),
 ];
 
-$error = '';
+$error = $bootstrapError;
 $success = '';
 $selectedRole = $_POST['role'] ?? 'admin';
 $emailValue = $_POST['email'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $csrfToken = $_POST['csrf_token'] ?? '';
-    if (!verify_csrf_token($csrfToken)) {
-        $error = 'Your session expired. Please refresh and try again.';
+    if ($bootstrapError !== '') {
+        $error = $bootstrapError;
     } else {
-        $selectedRole = $_POST['role'] ?? 'admin';
-        $email = trim($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
-
-        if (!isset($roleRoutes[$selectedRole])) {
-            $error = 'Select a valid portal to continue.';
-        } elseif ($email === '' || $password === '') {
-            $error = 'Enter both your email ID and password.';
+        $csrfToken = $_POST['csrf_token'] ?? '';
+        if (!verify_csrf_token($csrfToken)) {
+            $error = 'Your session expired. Please refresh and try again.';
         } else {
             $user = null;
             try {

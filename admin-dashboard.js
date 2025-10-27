@@ -1725,7 +1725,7 @@
           coverImage: payload.coverImage,
           coverImageAlt: payload.coverImageAlt,
           tags: payload.tags,
-          status: 'published',
+          status: 'pending',
         });
         handleAutoblogSuccess(localPost, {
           descriptor,
@@ -3423,14 +3423,18 @@
     upsertBlogPost(normalized);
     renderBlogPosts();
     updateBlogActions();
-    state.aiAutoblog = {
-      ...(state.aiAutoblog || {}),
+    const previousAutoblog = state.aiAutoblog || {};
+    const nextAutoblogState = {
+      ...previousAutoblog,
       enabled: true,
       theme: normalizedTheme,
       time: scheduleTime,
-      lastPublishedAt: new Date().toISOString(),
       lastRandomTheme: normalizedTheme === 'random' ? actualTheme : null,
     };
+    if (!fallback) {
+      nextAutoblogState.lastPublishedAt = new Date().toISOString();
+    }
+    state.aiAutoblog = nextAutoblogState;
     const tone = fallback ? 'info' : 'success';
     const title = fallback ? 'Auto-blog cached offline' : 'Schedule active';
     const message = fallback
