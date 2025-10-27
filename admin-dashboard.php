@@ -48,7 +48,7 @@ $cardConfigs = [
         'value' => $counts['leads'],
         'icon' => 'fa-user-plus',
         'description' => 'Enquiries that still require qualification or hand-off.',
-        'link' => 'admin-records.php?module=leads&filter=new',
+        'link' => 'admin-leads.php',
     ],
     [
         'label' => 'Ongoing Installations',

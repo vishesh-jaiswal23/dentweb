@@ -176,18 +176,84 @@ CREATE TABLE IF NOT EXISTS crm_leads (
     phone TEXT,
     email TEXT,
     source TEXT,
-    status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','contacted','qualified','lost','converted')),
+    status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','visited','quotation','converted','lost')),
     assigned_to INTEGER,
+    created_by INTEGER,
+    site_location TEXT,
+    site_details TEXT,
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
-    FOREIGN KEY(assigned_to) REFERENCES users(id)
+    FOREIGN KEY(assigned_to) REFERENCES users(id),
+    FOREIGN KEY(created_by) REFERENCES users(id)
 )
 SQL
     );
 
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_status ON crm_leads(status)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_updated_at ON crm_leads(updated_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS lead_visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    employee_id INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    photo_name TEXT,
+    photo_mime TEXT,
+    photo_data TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
+    FOREIGN KEY(employee_id) REFERENCES users(id)
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_visits_lead ON lead_visits(lead_id)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_visits_created_at ON lead_visits(created_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS lead_stage_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    actor_id INTEGER,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
+    FOREIGN KEY(actor_id) REFERENCES users(id)
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_stage_logs_lead ON lead_stage_logs(lead_id)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_stage_logs_created_at ON lead_stage_logs(created_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS lead_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    employee_id INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    estimate_amount REAL,
+    document_name TEXT,
+    document_mime TEXT,
+    document_data TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+    review_note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    approved_at TEXT,
+    approved_by INTEGER,
+    FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
+    FOREIGN KEY(employee_id) REFERENCES users(id),
+    FOREIGN KEY(approved_by) REFERENCES users(id)
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_lead ON lead_proposals(lead_id)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_status ON lead_proposals(status)');
 
     $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS installations (
@@ -751,6 +817,7 @@ function apply_schema_patches(PDO $db): void
     upgrade_blog_posts_table($db);
     ensure_login_policy_row($db);
     ensure_portal_tables($db);
+    ensure_lead_tables($db);
 }
 
 function upgrade_users_table(PDO $db): void
@@ -1340,6 +1407,144 @@ SQL
         );
     }
 }
+
+function ensure_lead_tables(PDO $db): void
+{
+    $schema = (string) $db->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads'")->fetchColumn();
+    if ($schema === '') {
+        return;
+    }
+
+    $requiresRebuild = str_contains($schema, "'contacted'") || str_contains($schema, "'qualified'") || !str_contains($schema, 'site_location') || !str_contains($schema, 'created_by');
+
+    if ($requiresRebuild) {
+        $db->beginTransaction();
+        try {
+            $db->exec('ALTER TABLE crm_leads RENAME TO crm_leads_backup');
+            $db->exec(<<<'SQL'
+CREATE TABLE crm_leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    email TEXT,
+    source TEXT,
+    status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','visited','quotation','converted','lost')),
+    assigned_to INTEGER,
+    created_by INTEGER,
+    site_location TEXT,
+    site_details TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(assigned_to) REFERENCES users(id),
+    FOREIGN KEY(created_by) REFERENCES users(id)
+)
+SQL
+            );
+            $db->exec(<<<'SQL'
+INSERT INTO crm_leads (id, name, phone, email, source, status, assigned_to, created_by, site_location, site_details, notes, created_at, updated_at)
+SELECT id, name, phone, email, source,
+       CASE
+           WHEN status IN ('new','visited','quotation','converted','lost') THEN status
+           WHEN status = 'contacted' THEN 'visited'
+           WHEN status = 'qualified' THEN 'quotation'
+           ELSE 'new'
+       END AS status,
+       assigned_to,
+       NULL AS created_by,
+       NULL AS site_location,
+       NULL AS site_details,
+       notes,
+       created_at,
+       updated_at
+FROM crm_leads_backup
+SQL
+            );
+            $db->exec('DROP TABLE crm_leads_backup');
+        } catch (Throwable $exception) {
+            $db->rollBack();
+            throw $exception;
+        }
+        $db->commit();
+    }
+
+    $columns = $db->query('PRAGMA table_info(crm_leads)')->fetchAll(PDO::FETCH_COLUMN, 1);
+    if (!in_array('created_by', $columns, true)) {
+        $db->exec('ALTER TABLE crm_leads ADD COLUMN created_by INTEGER');
+    }
+    if (!in_array('site_location', $columns, true)) {
+        $db->exec('ALTER TABLE crm_leads ADD COLUMN site_location TEXT');
+    }
+    if (!in_array('site_details', $columns, true)) {
+        $db->exec('ALTER TABLE crm_leads ADD COLUMN site_details TEXT');
+    }
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_status ON crm_leads(status)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_updated_at ON crm_leads(updated_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS lead_visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    employee_id INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    photo_name TEXT,
+    photo_mime TEXT,
+    photo_data TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
+    FOREIGN KEY(employee_id) REFERENCES users(id)
+)
+SQL
+    );
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_visits_lead ON lead_visits(lead_id)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_visits_created_at ON lead_visits(created_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS lead_stage_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    actor_id INTEGER,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
+    FOREIGN KEY(actor_id) REFERENCES users(id)
+)
+SQL
+    );
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_stage_logs_lead ON lead_stage_logs(lead_id)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_stage_logs_created_at ON lead_stage_logs(created_at DESC)');
+
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS lead_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER NOT NULL,
+    employee_id INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    estimate_amount REAL,
+    document_name TEXT,
+    document_mime TEXT,
+    document_data TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+    review_note TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    approved_at TEXT,
+    approved_by INTEGER,
+    FOREIGN KEY(lead_id) REFERENCES crm_leads(id) ON DELETE CASCADE,
+    FOREIGN KEY(employee_id) REFERENCES users(id),
+    FOREIGN KEY(approved_by) REFERENCES users(id)
+)
+SQL
+    );
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_lead ON lead_proposals(lead_id)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_status ON lead_proposals(status)');
+}
+
+
+
+
+
 
 function seed_portal_defaults(PDO $db): void
 {
@@ -2342,16 +2547,611 @@ function lead_status_label(string $status): string
 {
     $map = [
         'new' => 'New',
-        'contacted' => 'Contacted',
-        'qualified' => 'Qualified',
-        'lost' => 'Lost',
+        'visited' => 'Visited',
+        'quotation' => 'Quotation',
         'converted' => 'Converted',
+        'lost' => 'Lost',
     ];
 
     $normalized = strtolower(trim($status));
 
     return $map[$normalized] ?? ucfirst($normalized ?: 'New');
 }
+
+
+function lead_stage_order(): array
+{
+    return [
+        'new' => 0,
+        'visited' => 1,
+        'quotation' => 2,
+        'converted' => 3,
+        'lost' => 4,
+    ];
+}
+
+function lead_stage_index(string $status): int
+{
+    $order = lead_stage_order();
+    $normalized = strtolower(trim($status));
+
+    return $order[$normalized] ?? 99;
+}
+
+function lead_next_stage(string $status): ?string
+{
+    $sequence = ['new', 'visited', 'quotation', 'converted'];
+    $normalized = strtolower(trim($status));
+    foreach ($sequence as $index => $stage) {
+        if ($stage === $normalized) {
+            return $sequence[$index + 1] ?? null;
+        }
+    }
+
+    return null;
+}
+
+function lead_fetch(PDO $db, int $leadId): array
+{
+    $stmt = $db->prepare('SELECT * FROM crm_leads WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $leadId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        throw new RuntimeException('Lead not found.');
+    }
+
+    return $row;
+}
+
+function lead_record_stage_change(PDO $db, int $leadId, string $from, string $to, int $actorId, ?string $note = null): void
+{
+    $stmt = $db->prepare('INSERT INTO lead_stage_logs(lead_id, actor_id, from_status, to_status, note, created_at) VALUES(:lead_id, :actor_id, :from_status, :to_status, :note, :created_at)');
+    $stmt->execute([
+        ':lead_id' => $leadId,
+        ':actor_id' => $actorId ?: null,
+        ':from_status' => $from !== '' ? strtolower($from) : null,
+        ':to_status' => strtolower($to),
+        ':note' => $note !== null && $note !== '' ? $note : null,
+        ':created_at' => now_ist(),
+    ]);
+}
+
+function lead_has_pending_proposal(PDO $db, int $leadId): bool
+{
+    $stmt = $db->prepare("SELECT COUNT(*) FROM lead_proposals WHERE lead_id = :lead_id AND status = 'pending'");
+    $stmt->execute([':lead_id' => $leadId]);
+
+    return ((int) $stmt->fetchColumn()) > 0;
+}
+
+function lead_has_approved_proposal(PDO $db, int $leadId): bool
+{
+    $stmt = $db->prepare("SELECT COUNT(*) FROM lead_proposals WHERE lead_id = :lead_id AND status = 'approved'");
+    $stmt->execute([':lead_id' => $leadId]);
+
+    return ((int) $stmt->fetchColumn()) > 0;
+}
+
+function lead_change_stage(PDO $db, int $leadId, string $targetStage, int $actorId, string $actorRole, string $note = ''): array
+{
+    $allowedStages = array_keys(lead_stage_order());
+    $target = strtolower(trim($targetStage));
+    if (!in_array($target, $allowedStages, true)) {
+        throw new RuntimeException('Unsupported lead stage.');
+    }
+
+    $lead = lead_fetch($db, $leadId);
+    $current = strtolower((string) ($lead['status'] ?? 'new'));
+    if ($current === $target) {
+        return $lead;
+    }
+
+    if (in_array($current, ['converted', 'lost'], true)) {
+        throw new RuntimeException('Finalized leads cannot change stages.');
+    }
+
+    $actorRole = strtolower(trim($actorRole));
+    if ($actorRole === 'employee') {
+        $next = lead_next_stage($current);
+        if ($next === null || $next !== $target || $target === 'converted') {
+            throw new RuntimeException('Employees can only advance leads to the next stage.');
+        }
+    } else {
+        if ($target === 'converted' && !lead_has_approved_proposal($db, $leadId)) {
+            throw new RuntimeException('Approve a proposal before marking the lead as converted.');
+        }
+        if (in_array($target, ['new', 'visited', 'quotation'], true) && lead_stage_index($target) < lead_stage_index($current)) {
+            throw new RuntimeException('Leads cannot be moved backwards in this workflow.');
+        }
+    }
+
+    $stmt = $db->prepare('UPDATE crm_leads SET status = :status, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':status' => $target,
+        ':updated_at' => now_ist(),
+        ':id' => $leadId,
+    ]);
+
+    lead_record_stage_change($db, $leadId, $current, $target, $actorId, $note);
+
+    return lead_fetch($db, $leadId);
+}
+
+function lead_extract_file_upload(?array $file, array $allowedMime, int $maxBytes): ?array
+{
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+
+    $error = (int) ($file['error'] ?? UPLOAD_ERR_OK);
+    if ($error !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Failed to upload the file.');
+    }
+
+    $size = (int) ($file['size'] ?? 0);
+    if ($maxBytes > 0 && $size > $maxBytes) {
+        throw new RuntimeException('The uploaded file is too large.');
+    }
+
+    $tmp = (string) ($file['tmp_name'] ?? '');
+    if ($tmp === '' || !is_uploaded_file($tmp)) {
+        throw new RuntimeException('Invalid file upload payload.');
+    }
+
+    $data = file_get_contents($tmp);
+    if ($data === false) {
+        throw new RuntimeException('Unable to read uploaded file.');
+    }
+
+    $mimeDetector = function_exists('finfo_open') ? new finfo(FILEINFO_MIME_TYPE) : null;
+    $mime = $mimeDetector ? ($mimeDetector->file($tmp) ?: '') : '';
+    if ($mime === '' && isset($file['type']) && is_string($file['type'])) {
+        $mime = $file['type'];
+    }
+    if (!in_array($mime, $allowedMime, true)) {
+        throw new RuntimeException('Unsupported file type.');
+    }
+
+    $name = trim((string) ($file['name'] ?? 'upload'));
+    if ($name === '') {
+        $name = 'upload';
+    }
+
+    return [
+        'name' => $name,
+        'mime' => $mime,
+        'data' => base64_encode($data),
+    ];
+}
+
+function lead_fetch_visits_grouped(PDO $db, array $leadIds): array
+{
+    if (empty($leadIds)) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($leadIds), '?'));
+    $stmt = $db->prepare(<<<'SQL'
+SELECT v.*, u.full_name AS employee_name
+FROM lead_visits v
+LEFT JOIN users u ON v.employee_id = u.id
+WHERE v.lead_id IN ($placeholders)
+ORDER BY v.created_at DESC
+SQL
+    );
+    $stmt->execute(array_map('intval', $leadIds));
+
+    $grouped = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $leadId = (int) $row['lead_id'];
+        $photoDataUrl = null;
+        if (!empty($row['photo_data']) && !empty($row['photo_mime'])) {
+            $photoDataUrl = 'data:' . $row['photo_mime'] . ';base64,' . $row['photo_data'];
+        }
+        $grouped[$leadId][] = [
+            'id' => (int) $row['id'],
+            'note' => (string) ($row['note'] ?? ''),
+            'createdAt' => (string) ($row['created_at'] ?? ''),
+            'employeeId' => $row['employee_id'] !== null ? (int) $row['employee_id'] : null,
+            'employeeName' => (string) ($row['employee_name'] ?? ''),
+            'photoName' => (string) ($row['photo_name'] ?? ''),
+            'photoMime' => (string) ($row['photo_mime'] ?? ''),
+            'photoDataUrl' => $photoDataUrl,
+        ];
+    }
+
+    return $grouped;
+}
+
+function lead_fetch_proposals_grouped(PDO $db, array $leadIds): array
+{
+    if (empty($leadIds)) {
+        return [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($leadIds), '?'));
+    $stmt = $db->prepare(<<<'SQL'
+SELECT p.*, submitter.full_name AS employee_name, approver.full_name AS approved_name
+FROM lead_proposals p
+LEFT JOIN users submitter ON p.employee_id = submitter.id
+LEFT JOIN users approver ON p.approved_by = approver.id
+WHERE p.lead_id IN ($placeholders)
+ORDER BY p.created_at DESC
+SQL
+    );
+    $stmt->execute(array_map('intval', $leadIds));
+
+    $grouped = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $leadId = (int) $row['lead_id'];
+        $documentUrl = null;
+        if (!empty($row['document_data']) && !empty($row['document_mime'])) {
+            $documentUrl = 'data:' . $row['document_mime'] . ';base64,' . $row['document_data'];
+        }
+        $grouped[$leadId][] = [
+            'id' => (int) $row['id'],
+            'summary' => (string) ($row['summary'] ?? ''),
+            'estimate' => isset($row['estimate_amount']) ? (float) $row['estimate_amount'] : null,
+            'status' => strtolower((string) ($row['status'] ?? 'pending')),
+            'createdAt' => (string) ($row['created_at'] ?? ''),
+            'employeeId' => $row['employee_id'] !== null ? (int) $row['employee_id'] : null,
+            'employeeName' => (string) ($row['employee_name'] ?? ''),
+            'documentName' => (string) ($row['document_name'] ?? ''),
+            'documentMime' => (string) ($row['document_mime'] ?? ''),
+            'documentUrl' => $documentUrl,
+            'reviewNote' => (string) ($row['review_note'] ?? ''),
+            'approvedAt' => (string) ($row['approved_at'] ?? ''),
+            'approvedById' => $row['approved_by'] !== null ? (int) $row['approved_by'] : null,
+            'approvedByName' => (string) ($row['approved_name'] ?? ''),
+        ];
+    }
+
+    return $grouped;
+}
+
+function lead_hydrate_rows(PDO $db, array $rows): array
+{
+    if (empty($rows)) {
+        return [];
+    }
+
+    $leadIds = array_map(static fn ($row) => (int) ($row['id'] ?? 0), $rows);
+    $visits = lead_fetch_visits_grouped($db, $leadIds);
+    $proposals = lead_fetch_proposals_grouped($db, $leadIds);
+    $order = lead_stage_order();
+
+    $hydrated = [];
+    foreach ($rows as $row) {
+        $id = (int) ($row['id'] ?? 0);
+        if ($id <= 0) {
+            continue;
+        }
+        $status = strtolower((string) ($row['status'] ?? 'new'));
+        $leadProposals = $proposals[$id] ?? [];
+        $pending = null;
+        $hasPending = false;
+        $hasApproved = false;
+        foreach ($leadProposals as $proposal) {
+            if ($proposal['status'] === 'pending' && $pending === null) {
+                $pending = $proposal;
+                $hasPending = true;
+            }
+            if ($proposal['status'] === 'approved') {
+                $hasApproved = true;
+            }
+        }
+
+        $hydrated[] = [
+            'id' => $id,
+            'name' => (string) ($row['name'] ?? ''),
+            'phone' => trim((string) ($row['phone'] ?? '')),
+            'email' => trim((string) ($row['email'] ?? '')),
+            'source' => trim((string) ($row['source'] ?? '')),
+            'status' => $status,
+            'statusLabel' => lead_status_label($status),
+            'stageIndex' => $order[$status] ?? 99,
+            'assignedId' => isset($row['assigned_to']) && $row['assigned_to'] !== null ? (int) $row['assigned_to'] : null,
+            'assignedName' => (string) ($row['assigned_name'] ?? ''),
+            'createdById' => isset($row['created_by']) && $row['created_by'] !== null ? (int) $row['created_by'] : null,
+            'createdName' => (string) ($row['created_name'] ?? ''),
+            'siteLocation' => trim((string) ($row['site_location'] ?? '')),
+            'siteDetails' => trim((string) ($row['site_details'] ?? '')),
+            'notes' => (string) ($row['notes'] ?? ''),
+            'createdAt' => (string) ($row['created_at'] ?? ''),
+            'updatedAt' => (string) ($row['updated_at'] ?? ''),
+            'visits' => $visits[$id] ?? [],
+            'proposals' => $leadProposals,
+            'hasPendingProposal' => $hasPending,
+            'pendingProposal' => $pending,
+            'hasApprovedProposal' => $hasApproved,
+            'latestVisit' => ($visits[$id] ?? [])[0] ?? null,
+        ];
+    }
+
+    return $hydrated;
+}
+
+function admin_active_employees(PDO $db): array
+{
+    $stmt = $db->query("SELECT users.id, users.full_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee' AND users.status = 'active' ORDER BY users.full_name");
+    $result = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $result[] = [
+            'id' => (int) $row['id'],
+            'name' => (string) ($row['full_name'] ?? ''),
+        ];
+    }
+
+    return $result;
+}
+
+function admin_create_lead(PDO $db, array $input, int $actorId): array
+{
+    $name = trim((string) ($input['name'] ?? ''));
+    if ($name === '') {
+        throw new RuntimeException('Lead name is required.');
+    }
+
+    $phone = trim((string) ($input['phone'] ?? ''));
+    $email = trim((string) ($input['email'] ?? ''));
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('Enter a valid email address.');
+    }
+
+    $source = trim((string) ($input['source'] ?? ''));
+    $siteLocation = trim((string) ($input['site_location'] ?? ''));
+    $siteDetails = trim((string) ($input['site_details'] ?? ''));
+    $notes = trim((string) ($input['notes'] ?? ''));
+    $assignedTo = isset($input['assigned_to']) && $input['assigned_to'] !== '' ? (int) $input['assigned_to'] : null;
+    if ($assignedTo !== null && $assignedTo > 0) {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE users.id = :id AND roles.name = 'employee' AND users.status = 'active'");
+        $stmt->execute([':id' => $assignedTo]);
+        if ((int) $stmt->fetchColumn() === 0) {
+            throw new RuntimeException('Selected employee is not available.');
+        }
+    } else {
+        $assignedTo = null;
+    }
+
+    $stmt = $db->prepare('INSERT INTO crm_leads(name, phone, email, source, status, assigned_to, created_by, site_location, site_details, notes, created_at, updated_at) VALUES(:name, :phone, :email, :source, :status, :assigned_to, :created_by, :site_location, :site_details, :notes, :created_at, :updated_at)');
+    $now = now_ist();
+    $stmt->execute([
+        ':name' => $name,
+        ':phone' => $phone !== '' ? $phone : null,
+        ':email' => $email !== '' ? $email : null,
+        ':source' => $source !== '' ? $source : null,
+        ':status' => 'new',
+        ':assigned_to' => $assignedTo,
+        ':created_by' => $actorId ?: null,
+        ':site_location' => $siteLocation !== '' ? $siteLocation : null,
+        ':site_details' => $siteDetails !== '' ? $siteDetails : null,
+        ':notes' => $notes !== '' ? $notes : null,
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+    $leadId = (int) $db->lastInsertId();
+
+    return lead_fetch($db, $leadId);
+}
+
+function admin_assign_lead(PDO $db, int $leadId, ?int $employeeId, int $actorId): array
+{
+    if ($employeeId !== null && $employeeId > 0) {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE users.id = :id AND roles.name = 'employee' AND users.status = 'active'");
+        $stmt->execute([':id' => $employeeId]);
+        if ((int) $stmt->fetchColumn() === 0) {
+            throw new RuntimeException('Selected employee is not available.');
+        }
+    }
+
+    $stmt = $db->prepare('UPDATE crm_leads SET assigned_to = :assigned_to, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':assigned_to' => $employeeId ?: null,
+        ':updated_at' => now_ist(),
+        ':id' => $leadId,
+    ]);
+
+    return lead_fetch($db, $leadId);
+}
+
+function admin_update_lead_stage(PDO $db, int $leadId, string $stage, int $actorId, string $note = ''): array
+{
+    return lead_change_stage($db, $leadId, $stage, $actorId, 'admin', $note);
+}
+
+function admin_fetch_lead_overview(PDO $db): array
+{
+    $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
+    $stmt = $db->query("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+
+    return lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function employee_list_leads(PDO $db, int $employeeId): array
+{
+    $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
+    $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id WHERE l.assigned_to = :employee_id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $stmt->execute([':employee_id' => $employeeId]);
+
+    $leads = lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
+    foreach ($leads as &$lead) {
+        $lead['nextStage'] = lead_next_stage($lead['status']);
+        $lead['canAdvance'] = in_array($lead['status'], ['new', 'visited'], true) && !in_array($lead['status'], ['converted', 'lost'], true);
+        if ($lead['canAdvance']) {
+            if ($lead['status'] === 'visited') {
+                $lead['nextStage'] = 'quotation';
+            } elseif ($lead['status'] === 'new') {
+                $lead['nextStage'] = 'visited';
+            }
+        }
+        $lead['canSubmitProposal'] = $lead['status'] === 'quotation' && !$lead['hasPendingProposal'];
+    }
+    unset($lead);
+
+    return $leads;
+}
+
+function employee_add_lead_visit(PDO $db, array $input, int $employeeId): array
+{
+    $leadId = (int) ($input['lead_id'] ?? 0);
+    if ($leadId <= 0) {
+        throw new RuntimeException('Lead reference is required.');
+    }
+
+    $note = trim((string) ($input['note'] ?? ''));
+    if ($note === '') {
+        throw new RuntimeException('Visit note cannot be empty.');
+    }
+
+    $lead = lead_fetch($db, $leadId);
+    if ((int) ($lead['assigned_to'] ?? 0) !== $employeeId) {
+        throw new RuntimeException('You are not assigned to this lead.');
+    }
+    $status = strtolower((string) ($lead['status'] ?? 'new'));
+    if (in_array($status, ['converted', 'lost'], true)) {
+        throw new RuntimeException('Closed leads cannot accept new visits.');
+    }
+
+    $photo = lead_extract_file_upload($input['photo'] ?? null, ['image/jpeg', 'image/png', 'image/gif'], 5 * 1024 * 1024);
+    $stmt = $db->prepare('INSERT INTO lead_visits(lead_id, employee_id, note, photo_name, photo_mime, photo_data, created_at) VALUES(:lead_id, :employee_id, :note, :photo_name, :photo_mime, :photo_data, :created_at)');
+    $stmt->execute([
+        ':lead_id' => $leadId,
+        ':employee_id' => $employeeId,
+        ':note' => $note,
+        ':photo_name' => $photo['name'] ?? null,
+        ':photo_mime' => $photo['mime'] ?? null,
+        ':photo_data' => $photo['data'] ?? null,
+        ':created_at' => now_ist(),
+    ]);
+
+    $db->prepare('UPDATE crm_leads SET updated_at = :updated_at WHERE id = :id')->execute([
+        ':updated_at' => now_ist(),
+        ':id' => $leadId,
+    ]);
+
+    return lead_fetch($db, $leadId);
+}
+
+function employee_progress_lead(PDO $db, int $leadId, string $stage, int $employeeId): array
+{
+    $lead = lead_fetch($db, $leadId);
+    if ((int) ($lead['assigned_to'] ?? 0) !== $employeeId) {
+        throw new RuntimeException('You are not assigned to this lead.');
+    }
+
+    return lead_change_stage($db, $leadId, $stage, $employeeId, 'employee');
+}
+
+function employee_submit_lead_proposal(PDO $db, array $input, int $employeeId): array
+{
+    $leadId = (int) ($input['lead_id'] ?? 0);
+    if ($leadId <= 0) {
+        throw new RuntimeException('Lead reference is required.');
+    }
+
+    $summary = trim((string) ($input['summary'] ?? ''));
+    if ($summary === '') {
+        throw new RuntimeException('Proposal summary is required.');
+    }
+
+    $lead = lead_fetch($db, $leadId);
+    if ((int) ($lead['assigned_to'] ?? 0) !== $employeeId) {
+        throw new RuntimeException('You are not assigned to this lead.');
+    }
+
+    $status = strtolower((string) ($lead['status'] ?? 'new'));
+    if ($status !== 'quotation') {
+        throw new RuntimeException('Proposals can only be submitted at the quotation stage.');
+    }
+
+    if (lead_has_pending_proposal($db, $leadId)) {
+        throw new RuntimeException('A proposal is already pending review.');
+    }
+
+    $estimateRaw = trim((string) ($input['estimate'] ?? ''));
+    $estimate = $estimateRaw !== '' ? (float) $estimateRaw : null;
+    $document = lead_extract_file_upload($input['document'] ?? null, ['application/pdf', 'image/jpeg', 'image/png'], 8 * 1024 * 1024);
+
+    $stmt = $db->prepare('INSERT INTO lead_proposals(lead_id, employee_id, summary, estimate_amount, document_name, document_mime, document_data, status, created_at) VALUES(:lead_id, :employee_id, :summary, :estimate_amount, :document_name, :document_mime, :document_data, :status, :created_at)');
+    $stmt->execute([
+        ':lead_id' => $leadId,
+        ':employee_id' => $employeeId,
+        ':summary' => $summary,
+        ':estimate_amount' => $estimate,
+        ':document_name' => $document['name'] ?? null,
+        ':document_mime' => $document['mime'] ?? null,
+        ':document_data' => $document['data'] ?? null,
+        ':status' => 'pending',
+        ':created_at' => now_ist(),
+    ]);
+
+    $db->prepare('UPDATE crm_leads SET updated_at = :updated_at WHERE id = :id')->execute([
+        ':updated_at' => now_ist(),
+        ':id' => $leadId,
+    ]);
+
+    return lead_fetch($db, $leadId);
+}
+
+function admin_approve_lead_proposal(PDO $db, int $proposalId, int $actorId): array
+{
+    $stmt = $db->prepare('SELECT * FROM lead_proposals WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $proposalId]);
+    $proposal = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$proposal) {
+        throw new RuntimeException('Proposal not found.');
+    }
+    if (($proposal['status'] ?? 'pending') !== 'pending') {
+        throw new RuntimeException('Only pending proposals can be approved.');
+    }
+
+    $update = $db->prepare("UPDATE lead_proposals SET status = 'approved', approved_at = :approved_at, approved_by = :approved_by, review_note = :review_note WHERE id = :id");
+    $update->execute([
+        ':approved_at' => now_ist(),
+        ':approved_by' => $actorId ?: null,
+        ':review_note' => null,
+        ':id' => $proposalId,
+    ]);
+
+    $leadId = (int) $proposal['lead_id'];
+    lead_change_stage($db, $leadId, 'converted', $actorId, 'admin', 'Proposal #' . $proposalId . ' approved');
+
+    return lead_fetch($db, $leadId);
+}
+
+function admin_reject_lead_proposal(PDO $db, int $proposalId, int $actorId, string $note = ''): array
+{
+    $stmt = $db->prepare('SELECT * FROM lead_proposals WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $proposalId]);
+    $proposal = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$proposal) {
+        throw new RuntimeException('Proposal not found.');
+    }
+    if (($proposal['status'] ?? 'pending') !== 'pending') {
+        throw new RuntimeException('Only pending proposals can be reviewed.');
+    }
+
+    $db->prepare("UPDATE lead_proposals SET status = 'rejected', approved_at = :approved_at, approved_by = :approved_by, review_note = :review_note WHERE id = :id")->execute([
+        ':approved_at' => now_ist(),
+        ':approved_by' => $actorId ?: null,
+        ':review_note' => $note !== '' ? $note : null,
+        ':id' => $proposalId,
+    ]);
+
+    $leadId = (int) $proposal['lead_id'];
+    $db->prepare('UPDATE crm_leads SET updated_at = :updated_at WHERE id = :id')->execute([
+        ':updated_at' => now_ist(),
+        ':id' => $leadId,
+    ]);
+
+    return lead_fetch($db, $leadId);
+}
+
+function admin_mark_lead_lost(PDO $db, int $leadId, int $actorId, string $note = ''): array
+{
+    return lead_change_stage($db, $leadId, 'lost', $actorId, 'admin', $note);
+}
+
 
 function installation_status_label(string $status): string
 {
@@ -2425,12 +3225,13 @@ function admin_list_employees(PDO $db, string $status = 'active'): array
 function admin_list_leads(PDO $db, string $status = 'new'): array
 {
     $status = strtolower(trim($status));
+    $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
     if ($status === 'all') {
-        $stmt = $db->query('SELECT name, phone, email, status, source, assigned_to, created_at, updated_at FROM crm_leads ORDER BY COALESCE(updated_at, created_at) DESC');
+        $stmt = $db->query("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
         return $stmt->fetchAll();
     }
 
-    $stmt = $db->prepare('SELECT name, phone, email, status, source, assigned_to, created_at, updated_at FROM crm_leads WHERE status = :status ORDER BY COALESCE(updated_at, created_at) DESC');
+    $stmt = $db->prepare("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id WHERE l.status = :status ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
     $stmt->execute([':status' => $status]);
 
     return $stmt->fetchAll();
