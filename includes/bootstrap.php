@@ -10,6 +10,10 @@ function get_db(): PDO
         return $db;
     }
 
+    if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
+        throw new RuntimeException('The SQLite PDO driver is not installed.');
+    }
+
     $storageDir = __DIR__ . '/../storage';
     if (!is_dir($storageDir)) {
         mkdir($storageDir, 0775, true);
@@ -17,10 +21,14 @@ function get_db(): PDO
 
     $dbPath = $storageDir . '/app.sqlite';
 
-    $db = new PDO('sqlite:' . $dbPath, null, null, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    try {
+        $db = new PDO('sqlite:' . $dbPath, null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+    } catch (PDOException $exception) {
+        throw new RuntimeException('Failed to initialise the application database.', 0, $exception);
+    }
     $db->exec('PRAGMA foreign_keys = ON');
 
     initialize_schema($db);

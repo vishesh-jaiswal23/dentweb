@@ -35,6 +35,13 @@ function blog_sanitize_html(string $html): string
         'pre' => ['class'],
     ];
 
+    if (!class_exists('DOMDocument')) {
+        $plain = blog_extract_plain_text($html);
+        return $plain === ''
+            ? ''
+            : nl2br(htmlspecialchars($plain, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8'));
+    }
+
     $document = new DOMDocument();
     libxml_use_internal_errors(true);
     $document->loadHTML('<?xml encoding="utf-8" ?><div>' . $html . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);

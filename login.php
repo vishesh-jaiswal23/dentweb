@@ -4,8 +4,55 @@ declare(strict_types=1);
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/bootstrap.php';
 
+$supportEmail = null;
+if (defined('ADMIN_EMAIL') && filter_var(ADMIN_EMAIL, FILTER_VALIDATE_EMAIL)) {
+    $supportEmail = ADMIN_EMAIL;
+} else {
+    $emailCandidates = [
+        $_ENV['ADMIN_EMAIL'] ?? null,
+        $_SERVER['ADMIN_EMAIL'] ?? null,
+    ];
+
+    $envEmail = getenv('ADMIN_EMAIL');
+    if (is_string($envEmail)) {
+        $emailCandidates[] = $envEmail;
+    }
+
+    foreach ($emailCandidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
+        $candidate = trim($candidate);
+        if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            $supportEmail = $candidate;
+            break;
+        }
+    }
+
+    if ($supportEmail === null) {
+        $supportEmail = 'support@dakshayani.in';
+    }
+
+    if (!defined('ADMIN_EMAIL')) {
+        define('ADMIN_EMAIL', $supportEmail);
+    }
+}
+
+$supportEmail = (string) $supportEmail;
+
 start_session();
-$db = get_db();
+
+$bootstrapError = '';
+$db = null;
+try {
+    $db = get_db();
+} catch (Throwable $exception) {
+    $bootstrapError = 'The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
+    if ($supportEmail !== '') {
+        $bootstrapError .= ' Reach out to ' . $supportEmail . ' for assistance.';
+    }
+    error_log('Login bootstrap failed: ' . $exception->getMessage());
+}
 
 $scriptDir = str_replace('\\', '/', dirname($_SERVER['PHP_SELF'] ?? ''));
 if ($scriptDir === '/' || $scriptDir === '.') {
@@ -26,38 +73,42 @@ $roleRoutes = [
     'referrer' => $routeFor('referrer-dashboard.html'),
 ];
 
-$error = '';
+$error = $bootstrapError;
 $success = '';
 $selectedRole = $_POST['role'] ?? 'admin';
 $emailValue = $_POST['email'] ?? '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $csrfToken = $_POST['csrf_token'] ?? '';
-    if (!verify_csrf_token($csrfToken)) {
-        $error = 'Your session expired. Please refresh and try again.';
+    if ($bootstrapError !== '') {
+        $error = $bootstrapError;
     } else {
-        $selectedRole = $_POST['role'] ?? 'admin';
-        $email = trim($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
-
-        if (!isset($roleRoutes[$selectedRole])) {
-            $error = 'Select a valid portal to continue.';
-        } elseif ($email === '' || $password === '') {
-            $error = 'Enter both your email ID and password.';
+        $csrfToken = $_POST['csrf_token'] ?? '';
+        if (!verify_csrf_token($csrfToken)) {
+            $error = 'Your session expired. Please refresh and try again.';
         } else {
-            $user = authenticate_user($email, $password, $selectedRole);
-            if (!$user) {
-                $error = 'The provided credentials were incorrect or the account is inactive.';
+            $selectedRole = $_POST['role'] ?? 'admin';
+            $email = trim($_POST['email'] ?? '');
+            $password = $_POST['password'] ?? '';
+
+            if (!isset($roleRoutes[$selectedRole])) {
+                $error = 'Select a valid portal to continue.';
+            } elseif ($email === '' || $password === '') {
+                $error = 'Enter both your email ID and password.';
             } else {
-                $_SESSION['user'] = [
-                    'id' => $user['id'],
-                    'full_name' => $user['full_name'],
-                    'email' => $user['email'],
-                    'role_name' => $user['role_name'],
-                ];
-                $success = 'Login successful. Redirecting…';
-                header('Location: ' . $roleRoutes[$selectedRole]);
-                exit;
+                $user = authenticate_user($email, $password, $selectedRole);
+                if (!$user) {
+                    $error = 'The provided credentials were incorrect or the account is inactive.';
+                } else {
+                    $_SESSION['user'] = [
+                        'id' => $user['id'],
+                        'full_name' => $user['full_name'],
+                        'email' => $user['email'],
+                        'role_name' => $user['role_name'],
+                    ];
+                    $success = 'Login successful. Redirecting…';
+                    header('Location: ' . $roleRoutes[$selectedRole]);
+                    exit;
+                }
             }
         }
     }
@@ -181,6 +232,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <p class="login-feedback <?= $error ? 'is-error' : ($success ? 'is-success' : '') ?>" role="status" aria-live="polite" data-login-feedback>
               <?= htmlspecialchars($error ?: $success, ENT_QUOTES) ?>
             </p>
+            <?php if ($supportEmail !== ''): ?>
+            <p class="text-xs login-support">Need help? Email <a href="mailto:<?= htmlspecialchars($supportEmail, ENT_QUOTES) ?>"><?= htmlspecialchars($supportEmail, ENT_QUOTES) ?></a>.</p>
+            <?php endif; ?>
           </form>
         </div>
 
