@@ -165,6 +165,10 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
         </div>
       </div>
       <div class="admin-overview__actions">
+        <a href="admin-ai.php" class="btn btn-secondary">
+          <i class="fa-solid fa-robot" aria-hidden="true"></i>
+          AI Studio
+        </a>
         <button type="button" class="btn btn-ghost" data-theme-toggle>
           <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
           Theme

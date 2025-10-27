@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/../includes/ai.php';
 
 header('Content-Type: application/json');
 
@@ -53,13 +54,26 @@ try {
             require_method('POST');
             respond_success(reject_invitation($db, read_json()));
             break;
+        case 'get-gemini':
+            require_method('GET');
+            respond_success(['gemini' => gemini_settings_admin_view($db)]);
+            break;
         case 'update-gemini':
             require_method('POST');
-            respond_success(update_gemini_settings($db, read_json()));
+            $payload = read_json();
+            $view = gemini_save_settings($db, $payload);
+            $description = $view['enabled'] ? 'Gemini provider enabled/updated' : 'Gemini provider settings updated';
+            audit('update_gemini', 'settings', 0, $description);
+            respond_success(['gemini' => $view]);
             break;
         case 'test-gemini':
             require_method('POST');
-            respond_success(test_gemini_connection(read_json()));
+            $payload = read_json();
+            respond_success(['test' => gemini_test_connection($db, $payload['apiKey'] ?? null)]);
+            break;
+        case 'generate-blog-draft':
+            require_method('POST');
+            respond_success(gemini_generate_blog_draft($db, read_json(), $actor, $actorId));
             break;
         case 'change-password':
             require_method('POST');
@@ -519,6 +533,8 @@ function build_research_excerpt(string $articleHtml, string $headline): string
 
 function bootstrap_payload(PDO $db): array
 {
+    $blogPosts = blog_admin_list($db);
+
     return [
         'users' => list_users($db),
         'invitations' => list_invitations($db),
@@ -526,19 +542,15 @@ function bootstrap_payload(PDO $db): array
         'audit' => recent_audit_logs($db),
         'metrics' => current_metrics($db),
         'loginPolicy' => fetch_login_policy($db),
-        'gemini' => [
-            'apiKey' => get_setting('gemini_api_key', $db) ?? '',
-            'textModel' => get_setting('gemini_text_model', $db) ?? 'gemini-2.5-flash',
-            'imageModel' => get_setting('gemini_image_model', $db) ?? 'gemini-2.5-flash-image',
-            'ttsModel' => get_setting('gemini_tts_model', $db) ?? 'gemini-2.5-flash-preview-tts',
-        ],
+        'gemini' => gemini_settings_admin_view($db),
+        'geminiDrafts' => gemini_prepare_drafts($blogPosts),
         'tasks' => [
             'items' => portal_list_tasks($db),
             'team' => portal_list_team($db),
         ],
         'documents' => portal_list_documents($db, 'admin'),
         'blog' => [
-            'posts' => blog_admin_list($db),
+            'posts' => $blogPosts,
         ],
     ];
 }
@@ -877,75 +889,6 @@ function reject_invitation(PDO $db, array $input): array
     $stmt->execute([':id' => $inviteId]);
     audit('reject_invitation', 'invitation', $inviteId, sprintf('Invitation %d rejected', $inviteId));
     return ['invitation' => fetch_invitation($db, $inviteId), 'metrics' => current_metrics($db)];
-}
-
-function update_gemini_settings(PDO $db, array $input): array
-{
-    $apiKey = trim((string)($input['apiKey'] ?? ''));
-    $textModel = trim((string)($input['textModel'] ?? 'gemini-2.5-flash'));
-    $imageModel = trim((string)($input['imageModel'] ?? 'gemini-2.5-flash-image'));
-    $ttsModel = trim((string)($input['ttsModel'] ?? 'gemini-2.5-flash-preview-tts'));
-
-    if ($apiKey === '') {
-        throw new RuntimeException('The Gemini API key is required.');
-    }
-
-    set_setting('gemini_api_key', $apiKey, $db);
-    set_setting('gemini_text_model', $textModel, $db);
-    set_setting('gemini_image_model', $imageModel, $db);
-    set_setting('gemini_tts_model', $ttsModel, $db);
-
-    audit('update_gemini', 'settings', 0, 'Gemini provider credentials updated');
-
-    return ['gemini' => [
-        'apiKey' => $apiKey,
-        'textModel' => $textModel,
-        'imageModel' => $imageModel,
-        'ttsModel' => $ttsModel,
-    ]];
-}
-
-function test_gemini_connection(array $input): array
-{
-    $apiKey = trim((string)($input['apiKey'] ?? ''));
-    if ($apiKey === '') {
-        throw new RuntimeException('Provide an API key to test.');
-    }
-
-    if (!function_exists('curl_init')) {
-        throw new RuntimeException('PHP cURL extension is required to test Gemini connectivity.');
-    }
-
-    $endpoint = 'https://generativelanguage.googleapis.com/v1beta/models';
-    $query = http_build_query(['key' => $apiKey, 'pageSize' => 1]);
-    $url = $endpoint . '?' . $query;
-
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 15,
-    ]);
-
-    $responseBody = curl_exec($ch);
-    $error = curl_error($ch);
-    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($responseBody === false) {
-        throw new RuntimeException('Unable to reach Gemini services: ' . $error);
-    }
-
-    $payload = json_decode($responseBody, true);
-    if ($status >= 400) {
-        $message = $payload['error']['message'] ?? ('HTTP ' . $status);
-        throw new RuntimeException('Gemini responded with an error: ' . $message);
-    }
-
-    return [
-        'status' => 'ok',
-        'models' => $payload['models'] ?? [],
-        'testedAt' => (new DateTimeImmutable())->format(DateTimeInterface::ATOM),
-    ];
 }
 
 function change_password(PDO $db, array $input): array
