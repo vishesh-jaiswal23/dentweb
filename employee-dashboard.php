@@ -248,8 +248,7 @@ $parseDateTime = static function (?string $value) {
 
 $statusOptions = [
     'in_progress' => 'In Progress',
-    'awaiting_response' => 'Awaiting Response',
-    'resolved' => 'Resolved',
+    'awaiting_response' => 'Resolved (Pending Admin)',
     'escalated' => 'Escalated to Admin',
 ];
 
@@ -372,10 +371,10 @@ foreach ($tasks as $taskRow) {
 $tickets = [];
 $complaintStatusMap = [
     'intake' => ['key' => 'in_progress', 'label' => 'Intake review', 'tone' => 'progress'],
-    'triage' => ['key' => 'in_progress', 'label' => 'Admin triage', 'tone' => 'attention'],
+    'triage' => ['key' => 'escalated', 'label' => 'Admin triage', 'tone' => 'attention'],
     'work' => ['key' => 'in_progress', 'label' => 'In progress', 'tone' => 'progress'],
-    'resolution' => ['key' => 'awaiting_response', 'label' => 'Awaiting response', 'tone' => 'attention'],
-    'closed' => ['key' => 'resolved', 'label' => 'Resolved', 'tone' => 'resolved'],
+    'resolved' => ['key' => 'awaiting_response', 'label' => 'Pending admin review', 'tone' => 'attention'],
+    'closed' => ['key' => 'resolved', 'label' => 'Closed', 'tone' => 'resolved'],
 ];
 $ticketClosureByMonth = [];
 $resolutionDurationsByMonth = [];
@@ -458,10 +457,13 @@ foreach ($complaints as $complaint) {
         return strcmp($b['time'], $a['time']);
     });
 
+    $customerName = $complaint['customerName'] !== '' ? $complaint['customerName'] : $complaint['reference'];
+    $contactDisplay = $complaint['customerContact'] !== '' ? $complaint['customerContact'] : 'Shared via Admin';
+
     $tickets[] = [
         'id' => $complaint['reference'],
         'title' => $complaint['title'],
-        'customer' => $complaint['reference'],
+        'customer' => $customerName,
         'status' => $map['key'],
         'statusLabel' => $map['label'],
         'statusTone' => $map['tone'],
@@ -470,7 +472,7 @@ foreach ($complaints as $complaint) {
         'slaBadgeLabel' => $slaBadgeLabel,
         'slaBadgeTone' => $slaTone,
         'age' => $ageLabel,
-        'contact' => 'Shared via Admin',
+        'contact' => $contactDisplay,
         'noteIcon' => 'fa-solid fa-pen-to-square',
         'noteLabel' => 'Add note',
         'attachments' => $attachments,
@@ -509,7 +511,7 @@ foreach ($complaints as $complaint) {
                 $csatBucketsByMonth[$monthKey]['escalated']++;
             }
             break;
-        case 'resolution':
+        case 'resolved':
             $overallCsatBucket['awaiting']++;
             if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
                 $csatBucketsByMonth[$monthKey]['awaiting']++;

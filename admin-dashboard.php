@@ -61,8 +61,8 @@ $cardConfigs = [
         'label' => 'Open Complaints',
         'value' => $counts['complaints'],
         'icon' => 'fa-headset',
-        'description' => 'Tickets in intake, triage, or work queues.',
-        'link' => 'admin-records.php?module=complaints&filter=open',
+        'description' => 'Active complaints pending field work or admin approval.',
+        'link' => 'admin-complaints.php?filter=open',
     ],
     [
         'label' => 'Subsidy Pending',

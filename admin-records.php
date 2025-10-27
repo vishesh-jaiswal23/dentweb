@@ -121,28 +121,6 @@ $modules = [
             ];
         },
     ],
-    'complaints' => [
-        'title' => 'Complaints',
-        'description' => 'Track open service issues and escalations from customers.',
-        'defaultFilter' => 'open',
-        'filters' => [
-            'open' => 'Open (Intake/Triage/Work)',
-            'all' => 'All complaints',
-        ],
-        'columns' => ['Reference', 'Status', 'Priority', 'Created', 'Updated'],
-        'fetch' => static function (PDO $db, string $filter): array {
-            return admin_list_complaints($db, $filter);
-        },
-        'transform' => static function (array $row): array {
-            return [
-                $row['reference'] ?? '',
-                complaint_status_label($row['status'] ?? ''),
-                ucfirst((string) ($row['priority'] ?? '')),
-                format_admin_datetime($row['created_at'] ?? ''),
-                format_admin_datetime($row['updated_at'] ?? ''),
-            ];
-        },
-    ],
     'subsidy' => [
         'title' => 'Subsidy',
         'description' => 'Review the pipeline for PM Surya Ghar and other subsidy applications.',
