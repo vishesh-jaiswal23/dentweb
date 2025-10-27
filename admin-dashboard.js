@@ -131,8 +131,13 @@
     keywords: [],
     keywordsText: '',
     coverImage: '',
+    coverImageAlt: '',
     coverPrompt: '',
     coverAspect: '16:9',
+    excerpt: '',
+    research: null,
+    wordCount: 0,
+    readingTimeMinutes: null,
   };
 
   const state = {
@@ -865,7 +870,13 @@
   function updateBlogActions() {
     if (blogPublishButton) {
       blogPublishButton.disabled = !blogState.editingId;
-      blogPublishButton.textContent = blogState.editingStatus === 'published' ? 'Unpublish' : 'Publish';
+      if (blogState.editingStatus === 'published') {
+        blogPublishButton.textContent = 'Unpublish';
+      } else if (blogState.editingStatus === 'pending') {
+        blogPublishButton.textContent = 'Approve & publish';
+      } else {
+        blogPublishButton.textContent = 'Publish';
+      }
     }
     if (blogArchiveButton) {
       blogArchiveButton.disabled = !blogState.editingId || blogState.editingStatus === 'archived';
@@ -888,7 +899,7 @@
     posts.forEach((post) => {
       const tr = document.createElement('tr');
       const tags = post.tags.length ? `Tags: ${escapeHtml(post.tags.join(', '))}` : '';
-      const statusLabel = capitalize(post.status || 'draft');
+      const statusLabel = post.status === 'pending' ? 'Pending review' : capitalize(post.status || 'draft');
       const updated = post.updatedAt ? formatDateOnly(post.updatedAt) : '--';
       const published = post.publishedAt ? formatDateOnly(post.publishedAt) : '--';
       const actions = [];
@@ -1214,26 +1225,41 @@
     container.innerHTML = draft;
     const heading = container.querySelector('h1, h2, h3, h4');
     const title = (metadata?.topic || heading?.textContent || 'AI Blog Post').trim() || 'AI Blog Post';
-    const excerpt = buildExcerptFromHtml(draft, metadata?.outline || title);
+    const excerpt = metadata?.excerpt
+      ? String(metadata.excerpt).trim()
+      : buildExcerptFromHtml(draft, metadata?.outline || title);
     return { title, excerpt, body: draft };
   }
 
-  function ensureAiCoverImage({ title, prompt, aspect } = {}) {
+  function ensureAiCoverImage({ title, prompt, aspect, alt } = {}) {
     const effectivePrompt = (prompt || state.ai.coverPrompt || title || 'Solar rooftop insights').toString().trim();
     const effectiveAspect = aspect || state.ai.coverAspect || '16:9';
+    const effectiveAlt = alt || state.ai.coverImageAlt || `Gemini generated cover for ${effectivePrompt}`;
     if (
       state.ai.coverImage &&
       state.ai.coverPrompt === effectivePrompt &&
       state.ai.coverAspect === effectiveAspect
     ) {
+      if (!state.ai.coverImageAlt && effectiveAlt) {
+        state.ai = { ...state.ai, coverImageAlt: effectiveAlt };
+      }
+      if (aiImageNode && effectiveAlt) {
+        aiImageNode.alt = effectiveAlt;
+      }
       return state.ai.coverImage;
     }
     const imageData = createImageData(effectivePrompt, effectiveAspect);
     if (aiImageNode) {
       aiImageNode.src = imageData;
-      aiImageNode.alt = `Gemini generated cover for ${effectivePrompt}`;
+      aiImageNode.alt = effectiveAlt;
     }
-    state.ai = { ...state.ai, coverImage: imageData, coverPrompt: effectivePrompt, coverAspect: effectiveAspect };
+    state.ai = {
+      ...state.ai,
+      coverImage: imageData,
+      coverPrompt: effectivePrompt,
+      coverAspect: effectiveAspect,
+      coverImageAlt: effectiveAlt,
+    };
     return imageData;
   }
 
@@ -1260,6 +1286,219 @@
     return `${capitalize(theme)} topics`;
   }
 
+  function readAiFormOptions() {
+    if (!aiBlogForm) return null;
+    const formData = new FormData(aiBlogForm);
+    const topic = (formData.get('topic') || '').toString().trim();
+    const tone = (formData.get('tone') || 'informative').toString();
+    const lengthValue = Number(formData.get('length') || 650);
+    const length = Number.isFinite(lengthValue) ? Math.max(200, Math.min(1500, lengthValue)) : 650;
+    const keywordsText = (formData.get('keywords') || '').toString();
+    const keywords = parseKeywords(keywordsText);
+    const outlineText = (formData.get('outline') || '').toString();
+    const outline = outlineText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return { topic, tone, length, keywords, keywordsText, outline, outlineText };
+  }
+
+  function renderAiDraftPreview({ draftHtml, research, readingTimeMinutes, wordCount } = {}) {
+    if (!aiBlogPreview) return;
+    const effectiveResearch = research || state.ai.research || {};
+    const summaryBlocks = [];
+    const metaPieces = [];
+    const readingMinutes = readingTimeMinutes || state.ai.readingTimeMinutes;
+    const totalWords = wordCount || state.ai.wordCount;
+    if (readingMinutes) {
+      metaPieces.push(`${readingMinutes} min read`);
+    }
+    if (totalWords) {
+      metaPieces.push(`${totalWords} words`);
+    }
+    if (metaPieces.length) {
+      summaryBlocks.push(`<p class="dashboard-muted">${escapeHtml(metaPieces.join(' · '))}</p>`);
+    }
+    if (effectiveResearch.brief) {
+      summaryBlocks.push(`<p>${escapeHtml(effectiveResearch.brief)}</p>`);
+    }
+    const highlightBullets = [];
+    (effectiveResearch.sections || []).forEach((section) => {
+      const heading = section?.heading;
+      const insight = section?.insight;
+      if (heading && insight) {
+        highlightBullets.push(`${heading}: ${insight}`);
+      }
+    });
+    if (highlightBullets.length) {
+      summaryBlocks.push(
+        `<div><p><strong>Highlights</strong></p><ul>${highlightBullets
+          .slice(0, 3)
+          .map((bullet) => `<li>${escapeHtml(bullet)}</li>`)
+          .join('')}</ul></div>`
+      );
+    }
+    if (Array.isArray(effectiveResearch.takeaways) && effectiveResearch.takeaways.length) {
+      summaryBlocks.push(
+        `<div><p><strong>Action prompts</strong></p><ul>${effectiveResearch.takeaways
+          .map((item) => `<li>${escapeHtml(item)}</li>`)
+          .join('')}</ul></div>`
+      );
+    }
+    if (effectiveResearch.sources?.length) {
+      summaryBlocks.push(
+        `<p class="dashboard-muted">Sources: ${escapeHtml(effectiveResearch.sources.join('; '))}</p>`
+      );
+    }
+    if (effectiveResearch.preparedBy) {
+      summaryBlocks.push(
+        `<p class="dashboard-muted">Prepared by ${escapeHtml(effectiveResearch.preparedBy)}</p>`
+      );
+    }
+    const summaryHtml = summaryBlocks.length
+      ? `<section class="dashboard-ai-brief"><h4>Gemini research summary</h4>${summaryBlocks.join('')}</section>`
+      : '';
+    const articleHtml = draftHtml || state.ai.draft || '';
+    aiBlogPreview.innerHTML =
+      summaryHtml +
+      (articleHtml
+        ? articleHtml
+        : '<p class="dashboard-muted">Draft output will appear here for preview and editing.</p>');
+  }
+
+  function applyAiResearchResult(result = {}, formOptions = {}, intent = 'draft') {
+    const normalizedTitle = (result.title || formOptions.topic || state.ai.topic || 'AI Blog Post').trim();
+    const keywords = Array.isArray(result.keywords) && result.keywords.length
+      ? result.keywords
+      : formOptions.keywords?.length
+      ? formOptions.keywords
+      : state.ai.keywords;
+    const keywordsArray = Array.isArray(keywords) ? keywords : state.ai.keywords;
+    const keywordsTextValue = Array.isArray(result.keywords) && result.keywords.length
+      ? result.keywords.join(', ')
+      : formOptions.keywordsText ?? state.ai.keywordsText ?? '';
+    const outlineText = formOptions.outlineText ?? state.ai.outline ?? '';
+    const draftHtml = result.draftHtml || state.ai.draft || '';
+    const excerpt = result.excerpt || state.ai.excerpt || buildExcerptFromHtml(draftHtml, outlineText || normalizedTitle);
+    const research = result.research || state.ai.research;
+    const wordCount = Number(result.wordCount || state.ai.wordCount || 0);
+    const readingTimeMinutes = Number(result.readingTimeMinutes || state.ai.readingTimeMinutes || 0) || null;
+    const cover = result.cover || {};
+    const coverImage = cover.image || state.ai.coverImage || '';
+    const coverPrompt = cover.prompt || formOptions.topic || state.ai.coverPrompt || normalizedTitle;
+    const coverAspect = cover.aspect || state.ai.coverAspect || '16:9';
+    const coverAlt = cover.alt || state.ai.coverImageAlt || `Gemini generated illustration for ${normalizedTitle}`;
+
+    state.ai = {
+      ...state.ai,
+      draft: draftHtml,
+      topic: normalizedTitle,
+      tone: formOptions.tone || state.ai.tone,
+      length: formOptions.length || state.ai.length,
+      outline: outlineText,
+      keywords: keywordsArray,
+      keywordsText: keywordsTextValue,
+      coverPrompt,
+      coverAspect,
+      coverImage: coverImage || state.ai.coverImage,
+      coverImageAlt: coverAlt,
+      excerpt,
+      research,
+      wordCount,
+      readingTimeMinutes,
+    };
+
+    if (coverImage) {
+      if (aiImageNode) {
+        aiImageNode.src = coverImage;
+        aiImageNode.alt = coverAlt;
+      }
+    } else {
+      ensureAiCoverImage({ title: normalizedTitle, prompt: coverPrompt, aspect: coverAspect, alt: coverAlt });
+    }
+
+    if (aiImagePrompt) {
+      aiImagePrompt.value = coverPrompt;
+    }
+
+    const topicField = aiBlogForm?.querySelector('[data-ai-topic]');
+    if (topicField && result.title) {
+      topicField.value = result.title;
+    }
+
+    const keywordsField = aiBlogForm?.querySelector('[name="keywords"]');
+    if (keywordsField) {
+      keywordsField.value = keywordsTextValue;
+    }
+
+    renderInlineStatus(
+      aiImageStatus,
+      'success',
+      'Cover paired automatically',
+      `Gemini rendered artwork for “${normalizedTitle}”.`
+    );
+
+    renderAiDraftPreview({
+      draftHtml,
+      research,
+      readingTimeMinutes,
+      wordCount,
+    });
+  }
+
+  function requestAiDraft(formOptions, { intent = 'draft' } = {}) {
+    if (!formOptions || !formOptions.topic) {
+      showToast('Idea required', 'Describe what you want Gemini to cover before generating a draft.', 'warning');
+      return Promise.reject(new Error('Topic missing'));
+    }
+    const payload = {
+      topic: formOptions.topic,
+      tone: formOptions.tone,
+      length: formOptions.length,
+      keywords: formOptions.keywords,
+      outline: formOptions.outline,
+    };
+    const isResearch = intent === 'research';
+    renderInlineStatus(
+      aiStatus,
+      'progress',
+      isResearch ? 'Researching topic…' : 'Generating draft…',
+      isResearch
+        ? 'Gemini is gathering insights and preparing a starter outline.'
+        : 'Gemini is composing the draft with the latest insights.'
+    );
+    return api('research-blog-topic', { method: 'POST', body: payload })
+      .then(({ research }) => {
+        applyAiResearchResult(research || {}, formOptions, intent);
+        const title = (research?.title || formOptions.topic || 'AI blog post').trim();
+        renderInlineStatus(
+          aiStatus,
+          'success',
+          isResearch ? 'Research complete' : 'Draft ready for review',
+          isResearch
+            ? 'Gemini prepared insights, an outline, and a starter draft.'
+            : 'Gemini prepared the article and paired a cover image. Review it before routing to Blog Publishing.'
+        );
+        showToast(
+          isResearch ? 'Research prepared' : 'Draft generated',
+          `Gemini drafted “${title}” with fresh insights.`,
+          'success'
+        );
+        return research;
+      })
+      .catch((error) => {
+        renderInlineStatus(
+          aiStatus,
+          'error',
+          'Gemini request failed',
+          error.message || 'Unable to generate AI-assisted content.'
+        );
+        clearInlineStatus(aiImageStatus);
+        showToast('Gemini unavailable', error.message || 'Unable to generate AI-assisted content right now.', 'error');
+        throw error;
+      });
+  }
+
   function queueAiDraftForReview() {
     const details = extractAiDraftDetails();
     if (!details) {
@@ -1268,8 +1507,12 @@
     }
     const prompt = (state.ai.coverPrompt || aiImagePrompt?.value || `${details.title} solar insights`).toString().trim();
     const aspect = state.ai.coverAspect || aiImageAspect?.value || '16:9';
-    const coverImage = ensureAiCoverImage({ title: details.title, prompt, aspect });
-    const excerpt = details.excerpt || buildExcerptFromHtml(details.body, details.title);
+    const coverAlt = state.ai.coverImageAlt || `Gemini generated illustration for ${details.title}`;
+    const coverImage = ensureAiCoverImage({ title: details.title, prompt, aspect, alt: coverAlt });
+    const excerpt =
+      state.ai.excerpt && state.ai.excerpt.trim()
+        ? state.ai.excerpt.trim()
+        : details.excerpt || buildExcerptFromHtml(details.body, details.title);
     const tags = state.ai.keywords && state.ai.keywords.length ? state.ai.keywords : parseKeywords(state.ai.keywordsText);
     const payload = {
       title: details.title,
@@ -1277,12 +1520,17 @@
       body: details.body,
       authorName: config.currentUser?.name || 'AI Content Studio',
       coverImage,
-      coverImageAlt: `Gemini generated illustration for ${details.title}`,
+      coverImageAlt: coverAlt,
       coverPrompt: prompt,
       tags,
-      status: 'draft',
+      status: 'pending',
     };
-    renderInlineStatus(aiStatus, 'progress', 'Sending draft for review', 'Routing the Gemini article to Blog Publishing.');
+    renderInlineStatus(
+      aiStatus,
+      'progress',
+      'Sending draft to Blog Publishing',
+      'Routing the Gemini article for editorial approval.'
+    );
     api('save-blog-post', { method: 'POST', body: payload })
       .then(({ post }) => {
         const normalized = normalizeBlogPost(post);
@@ -1295,7 +1543,7 @@
         renderInlineStatus(
           aiStatus,
           'success',
-          'Draft queued for review',
+          'Draft queued for Blog Publishing',
           'Open Blog Publishing to approve and go live.'
         );
         activateTab('blog');
@@ -1305,7 +1553,7 @@
           'AI draft received',
           `“${normalized.title}” is ready for editorial review before publishing.`
         );
-        showToast('Draft sent to review', `“${normalized.title}” is now waiting in Blog Publishing.`, 'success');
+        showToast('Draft sent to Blog Publishing', `“${normalized.title}” is now waiting for approval.`, 'success');
       })
       .catch((error) => {
         renderInlineStatus(aiStatus, 'error', 'Queue failed', error.message || 'Unable to hand off the draft.');
@@ -2085,65 +2333,27 @@
 
   aiBlogForm?.addEventListener('submit', (event) => {
     event.preventDefault();
-    const formData = new FormData(aiBlogForm);
-    const topic = (formData.get('topic') || '').toString().trim();
-    if (!topic) {
+    const options = readAiFormOptions();
+    if (!options || !options.topic) {
       showToast('Idea required', 'Describe what you want Gemini to cover before generating a draft.', 'warning');
       return;
     }
-    const tone = (formData.get('tone') || 'informative').toString();
-    const length = Number(formData.get('length') || 600);
-    const keywordsInput = (formData.get('keywords') || '').toString();
-    const keywords = parseKeywords(keywordsInput);
-    const outline = (formData.get('outline') || '').toString();
-    const draft = buildBlogDraft({ topic, tone, length, keywords, outline });
-    if (aiBlogPreview) {
-      aiBlogPreview.innerHTML = draft;
-    }
-    const promptFallback = (aiImagePrompt?.value || topic || 'Solar leadership story').toString().trim();
-    const aspectFallback = aiImageAspect?.value || state.ai.coverAspect || '16:9';
-    state.ai = {
-      ...state.ai,
-      draft,
-      topic,
-      tone,
-      length,
-      outline,
-      keywords,
-      keywordsText: keywordsInput,
-      coverPrompt: promptFallback,
-      coverAspect: aspectFallback,
-    };
-    const coverImage = ensureAiCoverImage({ title: topic, prompt: promptFallback, aspect: aspectFallback });
-    if (aiImagePrompt) {
-      aiImagePrompt.value = promptFallback;
-    }
-    if (coverImage && aiImageNode) {
-      aiImageNode.alt = `Gemini generated cover for ${topic}`;
-    }
-    renderInlineStatus(
-      aiImageStatus,
-      'success',
-      'Cover paired automatically',
-      `Gemini rendered artwork for “${topic}”.`
-    );
-    renderInlineStatus(
-      aiStatus,
-      'success',
-      'Draft ready for review',
-      'Gemini prepared the article and cover. Review it before routing to Blog Publishing.'
-    );
-    showToast('Draft & cover generated', `Gemini drafted “${topic}” and paired a cover image.`, 'success');
+    requestAiDraft(options, { intent: 'draft' }).catch(() => {});
   });
 
   aiBlogForm?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-action]');
     if (!button) return;
-    if (button.dataset.action === 'clear-blog') {
-      state.ai = { ...DEFAULT_AI_STATE };
-      if (aiBlogPreview) {
-        aiBlogPreview.innerHTML = '<p class="dashboard-muted">Draft output will appear here for preview and editing.</p>';
+    if (button.dataset.action === 'research-topic') {
+      const options = readAiFormOptions();
+      if (!options || !options.topic) {
+        showToast('Idea required', 'Describe what you want Gemini to research before generating a draft.', 'warning');
+        return;
       }
+      requestAiDraft(options, { intent: 'research' }).catch(() => {});
+    } else if (button.dataset.action === 'clear-blog') {
+      state.ai = { ...DEFAULT_AI_STATE };
+      renderAiDraftPreview({ draftHtml: '', research: null });
       if (aiImagePrompt) {
         aiImagePrompt.value = 'Sunlit rooftop solar panels in Ranchi';
       }
@@ -2247,11 +2457,12 @@
     const prompt = (aiImagePrompt?.value || state.ai.topic || 'Solar rooftop in Jharkhand').toString().trim();
     const aspect = aiImageAspect?.value || state.ai.coverAspect || '16:9';
     const imageData = createImageData(prompt, aspect);
+    const imageAlt = `Gemini generated cover for ${prompt}`;
     if (aiImageNode) {
       aiImageNode.src = imageData;
-      aiImageNode.alt = `Gemini generated cover for ${prompt}`;
+      aiImageNode.alt = imageAlt;
     }
-    state.ai = { ...state.ai, coverImage: imageData, coverPrompt: prompt, coverAspect: aspect };
+    state.ai = { ...state.ai, coverImage: imageData, coverPrompt: prompt, coverAspect: aspect, coverImageAlt: imageAlt };
     renderInlineStatus(aiImageStatus, 'success', 'Cover refreshed', `Prompt: ${prompt}`);
     showToast('Cover image regenerated', 'Gemini rendered a new banner-ready cover.', 'success');
   });

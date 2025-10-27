@@ -1981,14 +1981,20 @@ for ($i = 0; $i < 14; $i++) {
                 <div class="dashboard-form-grid dashboard-form-grid--two">
                   <label>
                     Describe what you want to post about
-                    <input
-                      type="text"
-                      name="topic"
-                      value="Solar Benefits in Jharkhand"
-                      placeholder="Share the idea, audience, or outcome you want Gemini to cover"
-                      required
-                      data-ai-topic
-                    />
+                    <div class="dashboard-input-with-action">
+                      <input
+                        type="text"
+                        name="topic"
+                        value="Solar Benefits in Jharkhand"
+                        placeholder="Share the idea, audience, or outcome you want Gemini to cover"
+                        required
+                        data-ai-topic
+                      />
+                      <button type="button" class="btn btn-outline" data-action="research-topic">
+                        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                        Research
+                      </button>
+                    </div>
                   </label>
                   <label>
                     Tone
@@ -2017,7 +2023,7 @@ for ($i = 0; $i < 14; $i++) {
                   <button type="button" class="btn btn-ghost" data-action="clear-blog">Clear</button>
                   <button type="button" class="btn btn-tertiary" data-action="publish-blog">
                     <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
-                    Publish to blog
+                    Push to Blog Publishing
                   </button>
                 </div>
                 <div class="dashboard-ai-preview" data-ai-blog-preview>

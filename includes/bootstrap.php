@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS blog_posts (
     cover_image TEXT,
     cover_image_alt TEXT,
     author_name TEXT,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','archived')),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','pending','published','archived')),
     published_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -302,6 +302,7 @@ function set_setting(string $key, string $value, ?PDO $db = null): void
 function apply_schema_patches(PDO $db): void
 {
     upgrade_users_table($db);
+    upgrade_blog_posts_table($db);
     ensure_login_policy_row($db);
 }
 
@@ -327,6 +328,54 @@ function upgrade_users_table(PDO $db): void
     $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)');
 
     ensure_blog_indexes($db);
+}
+
+function upgrade_blog_posts_table(PDO $db): void
+{
+    $schema = (string) $db->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'blog_posts'")->fetchColumn();
+    if ($schema === '') {
+        return;
+    }
+
+    if (str_contains($schema, "'pending'")) {
+        ensure_blog_indexes($db);
+        return;
+    }
+
+    $db->beginTransaction();
+    try {
+        $db->exec('ALTER TABLE blog_posts RENAME TO blog_posts_backup');
+        $db->exec(<<<'SQL'
+CREATE TABLE blog_posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    excerpt TEXT,
+    body_html TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    cover_image TEXT,
+    cover_image_alt TEXT,
+    author_name TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','pending','published','archived')),
+    published_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+SQL
+        );
+        $db->exec(<<<'SQL'
+INSERT INTO blog_posts (id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at)
+SELECT id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at
+FROM blog_posts_backup
+SQL
+        );
+        $db->exec('DROP TABLE blog_posts_backup');
+        ensure_blog_indexes($db);
+        $db->commit();
+    } catch (Throwable $exception) {
+        $db->rollBack();
+        throw $exception;
+    }
 }
 
 function ensure_login_policy_row(PDO $db): void

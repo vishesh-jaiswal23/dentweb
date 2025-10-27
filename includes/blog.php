@@ -457,7 +457,7 @@ function blog_save_post(PDO $db, array $input, int $actorId): array
     if ($title === '') {
         throw new RuntimeException('Title is required.');
     }
-    if (!in_array($status, ['draft', 'published', 'archived'], true)) {
+    if (!in_array($status, ['draft', 'pending', 'published', 'archived'], true)) {
         $status = 'draft';
     }
 
