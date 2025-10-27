@@ -43,7 +43,52 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$performanceMetrics = [];
+$performanceMetrics = [
+    [
+        'id' => 'tickets-closed',
+        'label' => 'Tickets resolved this month',
+        'value' => 12,
+        'precision' => 0,
+        'unit' => 'tickets',
+        'target' => 18,
+        'trend' => '+3 vs last month',
+        'history' => [7, 9, 10, 12],
+        'description' => 'Closed tickets synced instantly to the Admin portal.',
+    ],
+    [
+        'id' => 'resolution-time',
+        'label' => 'Avg. resolution time',
+        'value' => 1.5,
+        'precision' => 1,
+        'unit' => 'days',
+        'target' => 2.0,
+        'trend' => '-0.4 days vs last month',
+        'history' => [2.3, 2.1, 1.9, 1.5],
+        'description' => 'Customer complaints resolved within SLA timers.',
+    ],
+    [
+        'id' => 'amc-compliance',
+        'label' => 'AMC compliance rate',
+        'value' => 94,
+        'precision' => 0,
+        'unit' => '%',
+        'target' => 100,
+        'trend' => '+6 pts vs last quarter',
+        'history' => [82, 88, 91, 94],
+        'description' => 'Preventive visits completed before expiry.',
+    ],
+    [
+        'id' => 'csat-score',
+        'label' => 'Customer satisfaction',
+        'value' => 4.6,
+        'precision' => 1,
+        'unit' => '★',
+        'target' => 5,
+        'trend' => '+0.3 vs last survey',
+        'history' => [3.9, 4.1, 4.3, 4.6],
+        'description' => 'Feedback collected from resolved service tickets.',
+    ],
+];
 
 $tickets = [];
 
@@ -99,7 +144,87 @@ $warrantyActivity = [];
 
 $communicationLogs = [];
 
-$notifications = [];
+$notifications = [
+    [
+        'id' => 'N-1042',
+        'tone' => 'info',
+        'icon' => 'fa-solid fa-ticket',
+        'title' => 'New ticket assigned',
+        'message' => 'Ticket SR-219 is now in your queue.',
+        'time' => '2024-06-18T09:20:00+05:30',
+        'link' => '#complaints',
+        'isRead' => false,
+        'category' => 'ticket',
+    ],
+    [
+        'id' => 'N-1043',
+        'tone' => 'warning',
+        'icon' => 'fa-solid fa-clock',
+        'title' => 'SLA warning',
+        'message' => 'Complaint SR-205 is nearing its 24h SLA.',
+        'time' => '2024-06-18T08:45:00+05:30',
+        'link' => '#complaints',
+        'isRead' => false,
+        'category' => 'sla',
+    ],
+    [
+        'id' => 'N-1044',
+        'tone' => 'info',
+        'icon' => 'fa-solid fa-list-check',
+        'title' => 'Task deadline',
+        'message' => 'Safety inspection checklist due today.',
+        'time' => '2024-06-18T07:05:00+05:30',
+        'link' => '#tasks',
+        'isRead' => true,
+        'category' => 'task',
+    ],
+    [
+        'id' => 'N-1045',
+        'tone' => 'info',
+        'icon' => 'fa-solid fa-bell-concierge',
+        'title' => 'AMC visit reminder',
+        'message' => 'AMC visit for Customer Asha Devi due tomorrow.',
+        'time' => '2024-06-18T06:30:00+05:30',
+        'link' => '#warranty',
+        'isRead' => false,
+        'category' => 'amc',
+    ],
+];
+
+$unreadNotificationCount = count(array_filter($notifications, static fn (array $notice): bool => empty($notice['isRead'])));
+
+$complianceFlags = [];
+
+$auditTrail = [
+    [
+        'time' => '2024-06-17T18:40:00+05:30',
+        'label' => 'Resolved 14 complaints',
+        'detail' => '3 escalations handled with Admin support.',
+    ],
+    [
+        'time' => '2024-06-17T15:10:00+05:30',
+        'label' => 'Uploaded AMC evidence',
+        'detail' => 'Photos for Green Heights inverter sync to Admin vault.',
+    ],
+    [
+        'time' => '2024-06-17T10:05:00+05:30',
+        'label' => 'Filed subsidy progression',
+        'detail' => 'Customer R-212 moved to Inspection stage.',
+    ],
+];
+
+$employeeProfile = [
+    'email' => trim((string) ($user['email'] ?? 'employee@dakshayani.example')),
+    'phone' => trim((string) ($user['phone'] ?? '9876543210')),
+    'photo' => trim((string) ($user['photo'] ?? '')),
+    'lastUpdated' => '2024-06-10T11:25:00+05:30',
+];
+
+$syncStatus = [
+    'label' => 'Realtime sync with Admin portal',
+    'lastSync' => '2024-06-18T09:18:00+05:30',
+    'latency' => '12s',
+];
 
 $activeComplaintsCount = count(array_filter($tickets, static function (array $ticket): bool {
     return ($ticket['status'] ?? '') !== 'resolved';
@@ -272,7 +397,7 @@ $attachmentIcon = static function (string $filename): string {
           <button type="button" class="employee-header-button" data-open-notifications>
             <i class="fa-solid fa-bell" aria-hidden="true"></i>
             <span>Notifications</span>
-            <span class="employee-header-count" data-notification-count><?= count($notifications) ?></span>
+            <span class="employee-header-count" data-notification-count><?= (int) $unreadNotificationCount ?></span>
           </button>
           <a class="employee-header-button" href="#tasks" data-scroll-my-work>
             <i class="fa-solid fa-list-check" aria-hidden="true"></i>
@@ -323,6 +448,139 @@ $attachmentIcon = static function (string $filename): string {
         </nav>
       </header>
 
+      <div class="dashboard-overlays">
+        <section class="dashboard-drawer" data-notification-panel hidden aria-hidden="true">
+          <header class="dashboard-drawer__header">
+            <div>
+              <h2>Notifications &amp; alerts</h2>
+              <p class="text-xs text-muted mb-0">Review ticket assignments, SLA warnings, and AMC reminders pushed by Admin.</p>
+            </div>
+            <div class="dashboard-drawer__actions">
+              <button type="button" class="btn btn-ghost btn-sm" data-notification-mark-all>Mark all read</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-close-notifications aria-label="Close notifications panel">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+              </button>
+            </div>
+          </header>
+          <ul class="notification-list" data-notification-list>
+            <?php if (empty($notifications)): ?>
+            <li class="notification-list__empty">Notifications from Admin will appear here.</li>
+            <?php else: ?>
+            <?php foreach ($notifications as $notice): ?>
+            <?php
+            $noticeTime = strtotime($notice['time'] ?? '') ?: null;
+            $isRead = !empty($notice['isRead']);
+            ?>
+            <li
+              class="notification-item<?= $isRead ? ' is-read' : '' ?>"
+              data-notification-item
+              data-notification-id="<?= htmlspecialchars($notice['id'], ENT_QUOTES) ?>"
+              data-notification-read="<?= $isRead ? 'true' : 'false' ?>"
+              data-notification-category="<?= htmlspecialchars($notice['category'] ?? 'general', ENT_QUOTES) ?>"
+            >
+              <span class="notification-item__icon"><i class="<?= htmlspecialchars($notice['icon'], ENT_QUOTES) ?>" aria-hidden="true"></i></span>
+              <div class="notification-item__content">
+                <p class="notification-item__title"><?= htmlspecialchars($notice['title'], ENT_QUOTES) ?></p>
+                <p class="notification-item__message"><?= htmlspecialchars($notice['message'], ENT_QUOTES) ?></p>
+                <?php if ($noticeTime !== null): ?>
+                <time datetime="<?= htmlspecialchars(date('c', $noticeTime), ENT_QUOTES) ?>" class="notification-item__time">
+                  <?= htmlspecialchars(date('d M · H:i', $noticeTime), ENT_QUOTES) ?>
+                </time>
+                <?php endif; ?>
+              </div>
+              <div class="notification-item__actions">
+                <button type="button" class="btn btn-ghost btn-sm" data-notification-action="toggle">
+                  <?= $isRead ? 'Mark unread' : 'Mark read' ?>
+                </button>
+                <?php if (!empty($notice['link'])): ?>
+                <a class="btn btn-secondary btn-sm" href="<?= htmlspecialchars($notice['link'], ENT_QUOTES) ?>" data-notification-action="follow">
+                  View
+                </a>
+                <?php endif; ?>
+              </div>
+            </li>
+            <?php endforeach; ?>
+            <?php endif; ?>
+          </ul>
+        </section>
+
+        <section class="dashboard-drawer dashboard-drawer--profile" data-profile-panel hidden aria-hidden="true">
+          <header class="dashboard-drawer__header">
+            <div>
+              <h2>Profile &amp; feedback</h2>
+              <p class="text-xs text-muted mb-0">Only photo, phone, and password are editable. All changes sync to Admin for approval.</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" data-close-profile aria-label="Close profile panel">
+              <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+          </header>
+          <div class="dashboard-drawer__content">
+            <form class="profile-form" data-profile-form data-validate-form data-compliance-source="Profile update">
+              <fieldset>
+                <legend class="text-sm text-muted">Your details</legend>
+                <label>
+                  Email
+                  <input type="email" name="email" value="<?= htmlspecialchars($employeeProfile['email'], ENT_QUOTES) ?>" readonly />
+                </label>
+                <label>
+                  Profile photo URL
+                  <input type="url" name="photo" placeholder="https://example.com/photo.jpg" value="<?= htmlspecialchars($employeeProfile['photo'], ENT_QUOTES) ?>" />
+                  <small class="form-field-hint">External links are stored after Admin moderation.</small>
+                </label>
+                <label>
+                  Phone number
+                  <input type="tel" name="phone" value="<?= htmlspecialchars($employeeProfile['phone'], ENT_QUOTES) ?>" required data-validate="phone" />
+                  <small class="form-field-error" data-validation-message></small>
+                </label>
+                <label>
+                  Update password
+                  <input type="password" name="password" placeholder="Minimum 12 characters" minlength="12" autocomplete="new-password" />
+                  <small class="form-field-hint">Passwords sync with Admin policy. Leave blank to keep existing credentials.</small>
+                </label>
+                <label>
+                  Next compliance review
+                  <input type="date" name="compliance_review" data-validate="date" />
+                  <small class="form-field-error" data-validation-message></small>
+                </label>
+              </fieldset>
+              <?php $profileUpdatedAt = strtotime($employeeProfile['lastUpdated']); ?>
+              <p class="text-xs text-muted">Last updated <?= $profileUpdatedAt ? htmlspecialchars(date('d M · H:i', $profileUpdatedAt), ENT_QUOTES) : '—' ?>. Admin audit required before changes go live.</p>
+              <div class="profile-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Save profile</button>
+                <span class="profile-alert" data-profile-alert role="status" aria-live="polite"></span>
+              </div>
+            </form>
+
+            <section class="profile-feedback">
+              <h3>Feedback &amp; support requests</h3>
+              <form class="feedback-form" data-feedback-form data-validate-form data-compliance-source="Employee feedback">
+                <label>
+                  Subject
+                  <input type="text" name="subject" placeholder="e.g., Request access to new task module" required />
+                </label>
+                <label>
+                  Message to Admin
+                  <textarea name="message" rows="3" placeholder="Describe your request or share improvement ideas." required></textarea>
+                </label>
+                <label>
+                  Requires Admin follow-up?
+                  <select name="follow_up" data-validate="yesno">
+                    <option value="No" selected>No</option>
+                    <option value="Yes">Yes</option>
+                  </select>
+                  <small class="form-field-error" data-validation-message></small>
+                </label>
+                <button type="submit" class="btn btn-secondary btn-sm">Send to Admin</button>
+                <span class="profile-alert" data-feedback-alert role="status" aria-live="polite"></span>
+              </form>
+              <ul class="feedback-log" data-feedback-log>
+                <li class="text-muted" data-feedback-empty>No feedback submitted yet. Use the form to reach Admin directly.</li>
+              </ul>
+            </section>
+          </div>
+        </section>
+      </div>
+
       <div class="dashboard-body">
         <div class="dashboard-main">
           <section id="overview" class="dashboard-section" data-section>
@@ -342,21 +600,85 @@ $attachmentIcon = static function (string $filename): string {
                 </div>
               </article>
               <?php endforeach; ?>
-              <article class="dashboard-card dashboard-card--neutral dashboard-card--metrics">
+              <article class="dashboard-card dashboard-card--neutral dashboard-card--analytics">
                 <div class="dashboard-card-icon"><i class="fa-solid fa-bolt" aria-hidden="true"></i></div>
-                <div>
-                  <p class="dashboard-card-title">Performance metrics</p>
-                  <ul class="dashboard-card-metrics">
+                <div class="dashboard-card-body">
+                  <div class="dashboard-card-heading">
+                    <p class="dashboard-card-title">Performance analytics</p>
+                    <p class="dashboard-card-meta">Realtime metrics pulled from the Admin data lake for your scope.</p>
+                  </div>
+                  <div class="analytics-metric-grid">
                     <?php if (empty($performanceMetrics)): ?>
-                    <li class="text-muted">Performance metrics will appear after your activity is tracked.</li>
+                    <p class="text-muted mb-0">Performance metrics will appear after your activity is tracked.</p>
                     <?php else: ?>
                     <?php foreach ($performanceMetrics as $metric): ?>
-                    <li><strong><?= htmlspecialchars($metric['value'], ENT_QUOTES) ?></strong> <?= htmlspecialchars($metric['label'], ENT_QUOTES) ?></li>
+                    <?php
+                    $valueNumber = is_numeric($metric['value']) ? (float) $metric['value'] : null;
+                    $precision = (int) ($metric['precision'] ?? 0);
+                    if ($valueNumber !== null) {
+                        $formattedValue = number_format($valueNumber, $precision, '.', '');
+                        if ($precision > 0) {
+                            $formattedValue = rtrim(rtrim($formattedValue, '0'), '.');
+                        }
+                    } else {
+                        $formattedValue = (string) $metric['value'];
+                    }
+                    $unit = (string) ($metric['unit'] ?? '');
+                    $targetNumber = is_numeric($metric['target'] ?? null) ? (float) $metric['target'] : null;
+                    $historyPoints = array_map(
+                        static fn ($point) => is_numeric($point) ? (string) $point : null,
+                        $metric['history'] ?? []
+                    );
+                    $historyPoints = array_values(array_filter($historyPoints, static fn ($point) => $point !== null));
+                    $historyAttribute = htmlspecialchars(implode(',', $historyPoints), ENT_QUOTES);
+                    ?>
+                    <div
+                      class="analytics-metric"
+                      data-analytics-card
+                      data-metric-id="<?= htmlspecialchars($metric['id'], ENT_QUOTES) ?>"
+                      data-metric-value="<?= htmlspecialchars((string) ($valueNumber ?? $metric['value']), ENT_QUOTES) ?>"
+                      data-metric-target="<?= htmlspecialchars((string) ($targetNumber ?? ''), ENT_QUOTES) ?>"
+                      data-metric-unit="<?= htmlspecialchars($unit, ENT_QUOTES) ?>"
+                      data-metric-trend="<?= htmlspecialchars($metric['trend'], ENT_QUOTES) ?>"
+                      data-metric-history="<?= $historyAttribute ?>"
+                    >
+                      <div class="analytics-metric__header">
+                        <p class="analytics-metric__label"><?= htmlspecialchars($metric['label'], ENT_QUOTES) ?></p>
+                        <span class="analytics-metric__value">
+                          <?= htmlspecialchars($formattedValue, ENT_QUOTES) ?>
+                          <?php if ($unit !== ''): ?><span class="analytics-metric__unit"><?= htmlspecialchars($unit, ENT_QUOTES) ?></span><?php endif; ?>
+                        </span>
+                      </div>
+                      <p class="analytics-metric__trend"><?= htmlspecialchars($metric['trend'], ENT_QUOTES) ?></p>
+                      <div
+                        class="analytics-metric__progress"
+                        data-metric-progress
+                        role="progressbar"
+                        aria-label="<?= htmlspecialchars($metric['label'] . ' progress', ENT_QUOTES) ?>"
+                      ></div>
+                      <div class="analytics-metric__sparkline" data-metric-sparkline aria-hidden="true"></div>
+                      <p class="analytics-metric__description"><?= htmlspecialchars($metric['description'], ENT_QUOTES) ?></p>
+                    </div>
                     <?php endforeach; ?>
                     <?php endif; ?>
-                  </ul>
+                  </div>
+                  <footer class="analytics-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" data-download-report data-report-period="2024-06">
+                      <i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i>
+                      Download monthly report
+                    </button>
+                    <p class="text-xs text-muted mb-0">
+                      Admin console aggregates every employee’s analytics for consolidated leadership dashboards.
+                    </p>
+                  </footer>
                 </div>
               </article>
+            </div>
+            <div class="dashboard-panel dashboard-panel--muted dashboard-panel--analytics-note">
+              <p class="mb-0">
+                <strong>Example:</strong> Tickets resolved this month: 12 · Avg Resolution Time: 1.5 days. Admin dashboards show your
+                contribution alongside the service team’s consolidated performance.
+              </p>
             </div>
           </section>
 
@@ -596,7 +918,7 @@ $attachmentIcon = static function (string $filename): string {
 
                 <article class="dashboard-panel dashboard-panel--muted">
                   <h2>Submit new prospect</h2>
-                  <form class="lead-intake-form" data-lead-intake>
+                  <form class="lead-intake-form" data-lead-intake data-validate-form data-compliance-source="Lead intake">
                     <label>
                       Prospect name
                       <input type="text" name="prospect" placeholder="e.g., Sunrise Enclave" required />
@@ -606,8 +928,19 @@ $attachmentIcon = static function (string $filename): string {
                       <input type="text" name="location" placeholder="City / landmark" required />
                     </label>
                     <label>
+                      Pincode
+                      <input type="text" name="pincode" placeholder="6-digit service area" required data-validate="pincode" maxlength="6" />
+                      <small class="form-field-error" data-validation-message></small>
+                    </label>
+                    <label>
                       Contact number
-                      <input type="tel" name="contact" placeholder="10-digit mobile" required pattern="[0-9]{10}" />
+                      <input type="tel" name="contact" placeholder="10-digit mobile" required pattern="[0-9]{10}" data-validate="phone" />
+                      <small class="form-field-error" data-validation-message></small>
+                    </label>
+                    <label>
+                      Preferred visit date
+                      <input type="date" name="visit_date" data-validate="date" />
+                      <small class="form-field-error" data-validation-message></small>
                     </label>
                     <button type="submit" class="btn btn-secondary btn-sm">Send for approval</button>
                   </form>
@@ -770,7 +1103,7 @@ $attachmentIcon = static function (string $filename): string {
               </div>
               <aside class="document-panel dashboard-panel">
                 <h3>Upload to shared vault</h3>
-                <form class="document-form" data-document-form>
+                <form class="document-form" data-document-form data-validate-form data-compliance-source="Document upload">
                   <label>
                     Customer
                     <select name="customer" required>
@@ -790,7 +1123,13 @@ $attachmentIcon = static function (string $filename): string {
                   </label>
                   <label>
                     File name
-                    <input type="text" name="filename" placeholder="example-file.jpg" required />
+                    <input type="text" name="filename" placeholder="example-file.jpg" required data-validate="filename" data-allowed-ext="pdf,jpg,jpeg,png,doc,docx" />
+                    <small class="form-field-error" data-validation-message></small>
+                  </label>
+                  <label>
+                    File size (MB)
+                    <input type="number" name="file_size" step="0.1" min="0" max="50" placeholder="e.g., 3.5" data-validate="filesize" data-max-size="25" />
+                    <small class="form-field-error" data-validation-message></small>
                   </label>
                   <label>
                     Notes for Admin
@@ -1067,22 +1406,104 @@ $attachmentIcon = static function (string $filename): string {
             </ul>
           </article>
           <article class="dashboard-panel">
-            <h2>Notifications</h2>
-            <ul class="dashboard-notifications">
+            <div class="dashboard-panel-header">
+              <h2>Notifications</h2>
+              <span class="badge badge-count" data-notification-count-secondary><?= (int) $unreadNotificationCount ?></span>
+            </div>
+            <ul class="dashboard-notifications" data-notification-summary>
               <?php if (empty($notifications)): ?>
               <li class="text-muted">Notifications from Admin will appear here.</li>
               <?php else: ?>
               <?php foreach ($notifications as $notice): ?>
-              <li class="dashboard-notification dashboard-notification--<?= htmlspecialchars($notice['tone'], ENT_QUOTES) ?>">
+              <?php
+              $noticeTime = strtotime($notice['time'] ?? '') ?: null;
+              $isRead = !empty($notice['isRead']);
+              ?>
+              <li
+                class="dashboard-notification dashboard-notification--<?= htmlspecialchars($notice['tone'], ENT_QUOTES) ?><?= $isRead ? ' is-read' : ' is-unread' ?>"
+                data-notification-summary-item
+                data-notification-id="<?= htmlspecialchars($notice['id'], ENT_QUOTES) ?>"
+                data-notification-read="<?= $isRead ? 'true' : 'false' ?>"
+              >
                 <i class="<?= htmlspecialchars($notice['icon'], ENT_QUOTES) ?>" aria-hidden="true"></i>
                 <div>
                   <p><?= htmlspecialchars($notice['title'], ENT_QUOTES) ?></p>
                   <span><?= htmlspecialchars($notice['message'], ENT_QUOTES) ?></span>
+                  <?php if ($noticeTime !== null): ?>
+                  <time datetime="<?= htmlspecialchars(date('c', $noticeTime), ENT_QUOTES) ?>" class="text-xs text-muted d-block">
+                    <?= htmlspecialchars(date('d M · H:i', $noticeTime), ENT_QUOTES) ?>
+                  </time>
+                  <?php endif; ?>
                 </div>
               </li>
               <?php endforeach; ?>
               <?php endif; ?>
             </ul>
+          </article>
+          <article class="dashboard-panel dashboard-panel--muted dashboard-panel--compliance">
+            <div class="dashboard-panel-header">
+              <h2>Data integrity &amp; compliance</h2>
+              <span class="badge badge-count" data-compliance-count><?= count($complianceFlags) ?></span>
+            </div>
+            <p class="text-xs text-muted">
+              Validation enforced: phone format, date limits, Yes/No selections, pincode accuracy, and file size caps. Violations
+              are blocked and flagged for Admin review.
+            </p>
+            <ul class="compliance-flags" data-compliance-flags>
+              <?php if (empty($complianceFlags)): ?>
+              <li class="text-muted">No issues flagged. Continue submitting complete, validated records.</li>
+              <?php else: ?>
+              <?php foreach ($complianceFlags as $flag): ?>
+              <li>
+                <strong><?= htmlspecialchars($flag['source'], ENT_QUOTES) ?></strong>
+                <span><?= htmlspecialchars($flag['message'], ENT_QUOTES) ?></span>
+                <?php if (!empty($flag['time'])): ?>
+                <time datetime="<?= htmlspecialchars($flag['time'], ENT_QUOTES) ?>">
+                  <?= htmlspecialchars(date('d M · H:i', strtotime($flag['time'])), ENT_QUOTES) ?>
+                </time>
+                <?php endif; ?>
+              </li>
+              <?php endforeach; ?>
+              <?php endif; ?>
+            </ul>
+          </article>
+          <article class="dashboard-panel dashboard-panel--muted dashboard-panel--audit">
+            <h2>Audit trail &amp; accountability</h2>
+            <p class="text-xs text-muted">
+              Every ticket update, upload, and note is timestamped. Admin reviews your complete history on demand.
+            </p>
+            <ol class="audit-log" data-audit-log>
+              <?php if (empty($auditTrail)): ?>
+              <li class="text-muted">Your activity log will populate as you update records.</li>
+              <?php else: ?>
+              <?php foreach ($auditTrail as $entry): ?>
+              <?php $auditTime = strtotime($entry['time'] ?? '') ?: null; ?>
+              <li>
+                <?php if ($auditTime !== null): ?>
+                <time datetime="<?= htmlspecialchars(date('c', $auditTime), ENT_QUOTES) ?>">
+                  <?= htmlspecialchars(date('d M · H:i', $auditTime), ENT_QUOTES) ?>
+                </time>
+                <?php endif; ?>
+                <p>
+                  <strong><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></strong>
+                  <?php if (!empty($entry['detail'])): ?>
+                  <span class="text-xs text-muted d-block"><?= htmlspecialchars($entry['detail'], ENT_QUOTES) ?></span>
+                  <?php endif; ?>
+                </p>
+              </li>
+              <?php endforeach; ?>
+              <?php endif; ?>
+            </ol>
+            <?php $syncTime = strtotime($syncStatus['lastSync'] ?? '') ?: null; ?>
+            <p
+              class="sync-indicator"
+              data-sync-indicator
+              data-sync-label="<?= htmlspecialchars($syncStatus['label'], ENT_QUOTES) ?>"
+              data-last-sync="<?= htmlspecialchars($syncStatus['lastSync'], ENT_QUOTES) ?>"
+            >
+              <?= htmlspecialchars($syncStatus['label'], ENT_QUOTES) ?> · Last update
+              <?= $syncTime ? htmlspecialchars(date('d M · H:i', $syncTime), ENT_QUOTES) : '—' ?> (Latency <?= htmlspecialchars($syncStatus['latency'], ENT_QUOTES) ?>)
+            </p>
           </article>
           <article class="dashboard-panel dashboard-panel--muted">
             <h2>Quick references</h2>
