@@ -86,14 +86,14 @@ try {
                 'complaints' => portal_employee_complaints($db, $userId),
             ]);
             break;
-        case 'upload-document':
+        case 'upload-complaint-document':
             require_method('POST');
             $payload = read_json();
             $reference = (string) ($payload['reference'] ?? '');
             if ($reference === '') {
                 throw new RuntimeException('Complaint reference is required for uploads.');
             }
-            $result = portal_employee_submit_document($db, $userId, $reference, $payload);
+            $result = portal_employee_submit_complaint_document($db, $userId, $reference, $payload);
             respond_success($result + [
                 'complaints' => portal_employee_complaints($db, $userId),
             ]);
