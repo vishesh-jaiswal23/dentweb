@@ -50,6 +50,10 @@ $taskTeam = [];
 $taskItems = [];
 $documents = [];
 
+$taskTeam = portal_list_team($db);
+$taskItems = portal_list_tasks($db);
+$documents = portal_list_documents($db, 'admin');
+
 $blogPosts = blog_admin_list($db);
 
 $dataQuality = [
