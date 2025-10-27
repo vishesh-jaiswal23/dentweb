@@ -66,6 +66,10 @@ $roleRoutes = [
     'admin' => $routeFor('admin-dashboard.php'),
     'employee' => $routeFor('employee-dashboard.php'),
 ];
+$roleLabel = static function (string $role): string {
+    $clean = trim(str_replace(['_', '-'], ' ', strtolower($role)));
+    return $clean === '' ? 'Selected' : ucwords($clean);
+};
 
 $error = $bootstrapError;
 $success = '';
@@ -123,7 +127,35 @@ if ($requestMethod === 'POST') {
 
             if (empty($error)) {
                 if (!$user) {
-                    $error = 'The provided credentials were incorrect or the account is inactive.';
+                    $profile = find_account_profile($email);
+                    if ($profile === null) {
+                        $error = 'We could not find an account registered with that email ID or username.';
+                    } else {
+                        $status = strtolower((string) ($profile['status'] ?? 'active'));
+                        if ($status !== 'active') {
+                            $error = $status === 'pending'
+                                ? 'Your account is pending administrator approval. Please contact the admin team to activate it.'
+                                : 'Your account is currently inactive. Please contact an administrator to restore access.';
+                        } else {
+                            $actualRole = (string) ($profile['role_name'] ?? '');
+                            if ($actualRole !== '' && $actualRole !== $selectedRole) {
+                                if (array_key_exists($actualRole, $roleRoutes)) {
+                                    $selectedRole = $actualRole;
+                                    $error = sprintf(
+                                        'These credentials belong to the %s portal. The portal selection has been updated—please review and sign in again.',
+                                        $roleLabel($actualRole)
+                                    );
+                                } else {
+                                    $error = sprintf(
+                                        'These credentials are linked to the %s portal, which is not available from this login page. Please contact support for assistance.',
+                                        $roleLabel($actualRole)
+                                    );
+                                }
+                            } else {
+                                $error = 'The password entered was incorrect. Please try again.';
+                            }
+                        }
+                    }
                 } else {
                     session_regenerate_id(true);
                     $_SESSION['user'] = [
