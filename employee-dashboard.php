@@ -43,52 +43,7 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$performanceMetrics = [
-    [
-        'id' => 'tickets-closed',
-        'label' => 'Tickets resolved this month',
-        'value' => 12,
-        'precision' => 0,
-        'unit' => 'tickets',
-        'target' => 18,
-        'trend' => '+3 vs last month',
-        'history' => [7, 9, 10, 12],
-        'description' => 'Closed tickets synced instantly to the Admin portal.',
-    ],
-    [
-        'id' => 'resolution-time',
-        'label' => 'Avg. resolution time',
-        'value' => 1.5,
-        'precision' => 1,
-        'unit' => 'days',
-        'target' => 2.0,
-        'trend' => '-0.4 days vs last month',
-        'history' => [2.3, 2.1, 1.9, 1.5],
-        'description' => 'Customer complaints resolved within SLA timers.',
-    ],
-    [
-        'id' => 'amc-compliance',
-        'label' => 'AMC compliance rate',
-        'value' => 94,
-        'precision' => 0,
-        'unit' => '%',
-        'target' => 100,
-        'trend' => '+6 pts vs last quarter',
-        'history' => [82, 88, 91, 94],
-        'description' => 'Preventive visits completed before expiry.',
-    ],
-    [
-        'id' => 'csat-score',
-        'label' => 'Customer satisfaction',
-        'value' => 4.6,
-        'precision' => 1,
-        'unit' => '★',
-        'target' => 5,
-        'trend' => '+0.3 vs last survey',
-        'history' => [3.9, 4.1, 4.3, 4.6],
-        'description' => 'Feedback collected from resolved service tickets.',
-    ],
-];
+$performanceMetrics = [];
 
 $tickets = [];
 
@@ -144,86 +99,25 @@ $warrantyActivity = [];
 
 $communicationLogs = [];
 
-$notifications = [
-    [
-        'id' => 'N-1042',
-        'tone' => 'info',
-        'icon' => 'fa-solid fa-ticket',
-        'title' => 'New ticket assigned',
-        'message' => 'Ticket SR-219 is now in your queue.',
-        'time' => '2024-06-18T09:20:00+05:30',
-        'link' => '#complaints',
-        'isRead' => false,
-        'category' => 'ticket',
-    ],
-    [
-        'id' => 'N-1043',
-        'tone' => 'warning',
-        'icon' => 'fa-solid fa-clock',
-        'title' => 'SLA warning',
-        'message' => 'Complaint SR-205 is nearing its 24h SLA.',
-        'time' => '2024-06-18T08:45:00+05:30',
-        'link' => '#complaints',
-        'isRead' => false,
-        'category' => 'sla',
-    ],
-    [
-        'id' => 'N-1044',
-        'tone' => 'info',
-        'icon' => 'fa-solid fa-list-check',
-        'title' => 'Task deadline',
-        'message' => 'Safety inspection checklist due today.',
-        'time' => '2024-06-18T07:05:00+05:30',
-        'link' => '#tasks',
-        'isRead' => true,
-        'category' => 'task',
-    ],
-    [
-        'id' => 'N-1045',
-        'tone' => 'info',
-        'icon' => 'fa-solid fa-bell-concierge',
-        'title' => 'AMC visit reminder',
-        'message' => 'AMC visit for Customer Asha Devi due tomorrow.',
-        'time' => '2024-06-18T06:30:00+05:30',
-        'link' => '#warranty',
-        'isRead' => false,
-        'category' => 'amc',
-    ],
-];
+$notifications = [];
 
 $unreadNotificationCount = count(array_filter($notifications, static fn (array $notice): bool => empty($notice['isRead'])));
 
 $complianceFlags = [];
 
-$auditTrail = [
-    [
-        'time' => '2024-06-17T18:40:00+05:30',
-        'label' => 'Resolved 14 complaints',
-        'detail' => '3 escalations handled with Admin support.',
-    ],
-    [
-        'time' => '2024-06-17T15:10:00+05:30',
-        'label' => 'Uploaded AMC evidence',
-        'detail' => 'Photos for Green Heights inverter sync to Admin vault.',
-    ],
-    [
-        'time' => '2024-06-17T10:05:00+05:30',
-        'label' => 'Filed subsidy progression',
-        'detail' => 'Customer R-212 moved to Inspection stage.',
-    ],
-];
+$auditTrail = [];
 
 $employeeProfile = [
-    'email' => trim((string) ($user['email'] ?? 'employee@dakshayani.example')),
-    'phone' => trim((string) ($user['phone'] ?? '9876543210')),
+    'email' => trim((string) ($user['email'] ?? '')),
+    'phone' => trim((string) ($user['phone'] ?? '')),
     'photo' => trim((string) ($user['photo'] ?? '')),
-    'lastUpdated' => '2024-06-10T11:25:00+05:30',
+    'lastUpdated' => trim((string) ($user['profile_updated_at'] ?? '')),
 ];
 
 $syncStatus = [
     'label' => 'Realtime sync with Admin portal',
-    'lastSync' => '2024-06-18T09:18:00+05:30',
-    'latency' => '12s',
+    'lastSync' => '',
+    'latency' => '',
 ];
 
 $activeComplaintsCount = count(array_filter($tickets, static function (array $ticket): bool {
@@ -543,7 +437,10 @@ $attachmentIcon = static function (string $filename): string {
                   <small class="form-field-error" data-validation-message></small>
                 </label>
               </fieldset>
-              <?php $profileUpdatedAt = strtotime($employeeProfile['lastUpdated']); ?>
+              <?php
+              $profileUpdatedRaw = trim((string) ($employeeProfile['lastUpdated'] ?? ''));
+              $profileUpdatedAt = $profileUpdatedRaw !== '' ? strtotime($profileUpdatedRaw) : false;
+              ?>
               <p class="text-xs text-muted">Last updated <?= $profileUpdatedAt ? htmlspecialchars(date('d M · H:i', $profileUpdatedAt), ENT_QUOTES) : '—' ?>. Admin audit required before changes go live.</p>
               <div class="profile-actions">
                 <button type="submit" class="btn btn-primary btn-sm">Save profile</button>
@@ -663,24 +560,24 @@ $attachmentIcon = static function (string $filename): string {
                     <?php endif; ?>
                   </div>
                   <footer class="analytics-actions">
-                    <button type="button" class="btn btn-secondary btn-sm" data-download-report data-report-period="2024-06">
-                      <i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i>
-                      Download monthly report
-                    </button>
-                    <p class="text-xs text-muted mb-0">
-                      Admin console aggregates every employee’s analytics for consolidated leadership dashboards.
-                    </p>
-                  </footer>
-                </div>
-              </article>
-            </div>
-            <div class="dashboard-panel dashboard-panel--muted dashboard-panel--analytics-note">
-              <p class="mb-0">
-                <strong>Example:</strong> Tickets resolved this month: 12 · Avg Resolution Time: 1.5 days. Admin dashboards show your
-                contribution alongside the service team’s consolidated performance.
-              </p>
-            </div>
-          </section>
+                      <button type="button" class="btn btn-secondary btn-sm" data-download-report data-report-period="">
+                        <i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i>
+                        Download monthly report
+                      </button>
+                      <p class="text-xs text-muted mb-0">
+                        Admin console aggregates every employee’s analytics for consolidated leadership dashboards.
+                      </p>
+                    </footer>
+                  </div>
+                </article>
+              </div>
+              <div class="dashboard-panel dashboard-panel--muted dashboard-panel--analytics-note">
+                <p class="mb-0">
+                  Analytics will display once Admin shares performance data for your queue. Check back after your first
+                  assignments are completed.
+                </p>
+              </div>
+            </section>
 
           <section id="complaints" class="dashboard-section" data-section>
             <h2>Complaints &amp; service workflow</h2>
@@ -1494,7 +1391,10 @@ $attachmentIcon = static function (string $filename): string {
               <?php endforeach; ?>
               <?php endif; ?>
             </ol>
-            <?php $syncTime = strtotime($syncStatus['lastSync'] ?? '') ?: null; ?>
+            <?php
+            $syncLastRaw = trim((string) ($syncStatus['lastSync'] ?? ''));
+            $syncTime = $syncLastRaw !== '' ? strtotime($syncLastRaw) : null;
+            ?>
             <p
               class="sync-indicator"
               data-sync-indicator
