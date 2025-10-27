@@ -5333,7 +5333,7 @@ body[data-festival-theme] .hero-highlight {
   transition: background 0.2s ease, color 0.2s ease;
   background: none;
   border: none;
-  width: 100%;
+  width: auto;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
