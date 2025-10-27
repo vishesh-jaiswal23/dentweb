@@ -11,7 +11,7 @@ $db = get_db();
 $rolesStmt = $db->query('SELECT id, name FROM roles ORDER BY name');
 $availableRoles = $rolesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-$customerCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'customer'")->fetchColumn();
+$employeeCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee'")->fetchColumn();
 $pendingInvites = (int) $db->query("SELECT COUNT(*) FROM invitations WHERE status = 'pending'")->fetchColumn();
 $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status IN ('intake','triage','work')")->fetchColumn();
 $systemMetrics = $db->query('SELECT name, value FROM system_metrics')->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -280,14 +280,14 @@ $subsidyApplications = [];
         <div class="dashboard-main">
           <section class="dashboard-section" id="overview" role="tabpanel" data-tab-panel>
             <h2>Operational overview</h2>
-            <p class="dashboard-section-sub">Real-time KPIs from leads, customers, service tickets, AMC and subsidy queues.</p>
+            <p class="dashboard-section-sub">Real-time KPIs from onboarding, employees, service tickets, AMC and subsidy queues.</p>
             <div class="dashboard-cards">
               <article class="dashboard-card dashboard-card--neutral">
                 <div class="dashboard-card-icon" aria-hidden="true"><i class="fa-solid fa-solar-panel"></i></div>
                 <div>
-                  <p class="dashboard-card-title">Active customers</p>
-                  <p class="dashboard-card-value" data-metric="customers"><?= htmlspecialchars((string) $customerCount, ENT_QUOTES) ?></p>
-                  <p class="dashboard-card-meta">Counts update automatically when new customer logins are activated.</p>
+                  <p class="dashboard-card-title">Active employees</p>
+                  <p class="dashboard-card-value" data-metric="employees"><?= htmlspecialchars((string) $employeeCount, ENT_QUOTES) ?></p>
+                  <p class="dashboard-card-meta">Counts update automatically when Admin activates an employee account.</p>
                 </div>
               </article>
               <article class="dashboard-card dashboard-card--positive">
@@ -2030,7 +2030,8 @@ $subsidyApplications = [];
     gemini: <?= json_encode($geminiSettings) ?>,
     metrics: <?= json_encode([
       'counts' => [
-        'customers' => $customerCount,
+        'employees' => $employeeCount,
+        'customers' => $employeeCount,
         'pendingInvitations' => $pendingInvites,
         'openComplaints' => $openComplaints,
         'subsidyPipeline' => $subsidyPipeline,

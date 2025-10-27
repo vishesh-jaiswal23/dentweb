@@ -520,14 +520,15 @@ function recent_audit_logs(PDO $db): array
 
 function current_metrics(PDO $db): array
 {
-    $customerCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'customer'")->fetchColumn();
+    $employeeCount = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee'")->fetchColumn();
     $pendingInvites = (int) $db->query("SELECT COUNT(*) FROM invitations WHERE status = 'pending'")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status IN ('intake','triage','work')")->fetchColumn();
     $metrics = $db->query('SELECT name, value FROM system_metrics')->fetchAll(PDO::FETCH_KEY_PAIR);
 
     return [
         'counts' => [
-            'customers' => $customerCount,
+            'employees' => $employeeCount,
+            'customers' => $employeeCount,
             'pendingInvitations' => $pendingInvites,
             'openComplaints' => $openComplaints,
             'subsidyPipeline' => $metrics['subsidy_pipeline'] ?? '0',
@@ -591,12 +592,14 @@ function create_user(PDO $db, array $input): array
     $email = strtolower(trim((string)($input['email'] ?? '')));
     $username = trim((string)($input['username'] ?? ''));
     $password = (string)($input['password'] ?? '');
-    $roleName = strtolower(trim((string)($input['role'] ?? '')));
+    $requestedRole = strtolower(trim((string)($input['role'] ?? '')));
     $permissions = trim((string)($input['permissions'] ?? ''));
 
-    if ($fullName === '' || $email === '' || $username === '' || $password === '' || $roleName === '') {
+    if ($fullName === '' || $email === '' || $username === '' || $password === '' || $requestedRole === '') {
         throw new RuntimeException('All required fields must be supplied.');
     }
+
+    $roleName = normalize_role_name($requestedRole);
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new RuntimeException('Enter a valid email address.');
@@ -635,16 +638,41 @@ function create_user(PDO $db, array $input): array
     }
 
     $userId = (int)$db->lastInsertId();
-    audit('create_user', 'user', $userId, sprintf('User %s (%s) created with role %s', $fullName, $email, $roleName));
+    $auditMessage = sprintf('User %s (%s) created with role %s', $fullName, $email, $roleName);
+    if ($roleName !== $requestedRole) {
+        $auditMessage .= sprintf(' (requested %s)', $requestedRole);
+    }
+    audit('create_user', 'user', $userId, $auditMessage);
 
     return ['user' => fetch_user($db, $userId), 'metrics' => current_metrics($db)];
 }
 
+function normalize_role_name(string $roleName): string
+{
+    $key = strtolower(trim($roleName));
+    $map = [
+        'admin' => 'admin',
+        'administrator' => 'admin',
+        'employee' => 'employee',
+        'staff' => 'employee',
+        'team' => 'employee',
+        'installer' => 'employee',
+        'referrer' => 'employee',
+        'customer' => 'employee',
+    ];
+
+    if (!array_key_exists($key, $map)) {
+        throw new RuntimeException('Unknown role specified.');
+    }
+
+    return $map[$key];
+}
+
 function resolve_role_id(PDO $db, string $roleName): int
 {
-    $canonical = canonical_role_name($roleName);
+    $normalized = normalize_role_name($roleName);
     $stmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
-    $stmt->execute([':name' => $canonical]);
+    $stmt->execute([':name' => $normalized]);
     $roleId = $stmt->fetchColumn();
     if ($roleId === false) {
         throw new RuntimeException('Unknown role specified.');
@@ -684,16 +712,17 @@ function create_invitation(PDO $db, array $input): array
 {
     $name = trim((string)($input['name'] ?? ''));
     $email = strtolower(trim((string)($input['email'] ?? '')));
-    $roleName = strtolower(trim((string)($input['role'] ?? '')));
+    $requestedRole = strtolower(trim((string)($input['role'] ?? '')));
     $submittedBy = trim((string)($input['submittedBy'] ?? ''));
 
-    if ($name === '' || $email === '' || $roleName === '' || $submittedBy === '') {
+    if ($name === '' || $email === '' || $requestedRole === '' || $submittedBy === '') {
         throw new RuntimeException('Complete all invitation fields.');
     }
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         throw new RuntimeException('Enter a valid email address.');
     }
 
+    $roleName = normalize_role_name($requestedRole);
     $roleId = resolve_role_id($db, $roleName);
     $token = bin2hex(random_bytes(16));
     $currentUser = current_user();
@@ -708,7 +737,11 @@ function create_invitation(PDO $db, array $input): array
     ]);
 
     $inviteId = (int)$db->lastInsertId();
-    audit('create_invitation', 'invitation', $inviteId, sprintf('Invitation recorded for %s (%s)', $name, $email));
+    $inviteAudit = sprintf('Invitation recorded for %s (%s) with role %s', $name, $email, $roleName);
+    if ($roleName !== $requestedRole) {
+        $inviteAudit .= sprintf(' (requested %s)', $requestedRole);
+    }
+    audit('create_invitation', 'invitation', $inviteId, $inviteAudit);
     return ['invitation' => fetch_invitation($db, $inviteId), 'metrics' => current_metrics($db)];
 }
 
