@@ -8,29 +8,31 @@ if (!isset($bootstrapError) || !is_string($bootstrapError)) {
     $bootstrapError = '';
 }
 
-$supportEmail = null;
-if (defined('ADMIN_EMAIL')) {
-    $configuredEmail = constant('ADMIN_EMAIL');
-    if (is_string($configuredEmail) && filter_var($configuredEmail, FILTER_VALIDATE_EMAIL)) {
-        $supportEmail = $configuredEmail;
-    }
-}
+/**
+ * Resolve the best support email without triggering fatals on undefined constants.
+ */
+$resolveSupportEmail = static function (): string {
+    $supportEmail = '';
 
-if ($supportEmail === null) {
+    $constants = get_defined_constants(true);
+    if (isset($constants['user']['ADMIN_EMAIL']) && is_string($constants['user']['ADMIN_EMAIL'])) {
+        $candidate = trim($constants['user']['ADMIN_EMAIL']);
+        if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
+            return $candidate;
+        }
+    }
+
     $emailCandidates = [
         $_ENV['ADMIN_EMAIL'] ?? null,
         $_SERVER['ADMIN_EMAIL'] ?? null,
+        getenv('ADMIN_EMAIL') ?: null,
     ];
-
-    $envEmail = getenv('ADMIN_EMAIL');
-    if (is_string($envEmail)) {
-        $emailCandidates[] = $envEmail;
-    }
 
     foreach ($emailCandidates as $candidate) {
         if (!is_string($candidate)) {
             continue;
         }
+
         $candidate = trim($candidate);
         if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
             $supportEmail = $candidate;
@@ -38,16 +40,19 @@ if ($supportEmail === null) {
         }
     }
 
-    if ($supportEmail === null) {
+    if ($supportEmail === '') {
         $supportEmail = 'support@dakshayani.in';
     }
 }
 
-if (!defined('ADMIN_EMAIL') && is_string($supportEmail) && $supportEmail !== '') {
-    define('ADMIN_EMAIL', $supportEmail);
-}
+    if (!defined('ADMIN_EMAIL')) {
+        define('ADMIN_EMAIL', $supportEmail);
+    }
 
-$supportEmail = (string) $supportEmail;
+    return $supportEmail;
+};
+
+$supportEmail = $resolveSupportEmail();
 
 start_session();
 
@@ -96,7 +101,9 @@ if (!empty($_SESSION['offline_session_invalidated'])) {
     unset($_SESSION['offline_session_invalidated']);
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+$requestMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+
+if ($requestMethod === 'POST') {
     if ($bootstrapError !== '') {
         $error = $bootstrapError;
     } else {
