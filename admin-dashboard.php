@@ -710,11 +710,6 @@ for ($i = 0; $i < 14; $i++) {
               </button>
             </li>
           </ul>
-          <div class="dashboard-nav-footer">
-            <a class="dashboard-nav-link dashboard-nav-link--logout" href="<?= htmlspecialchars($logoutUrl, ENT_QUOTES) ?>">
-              <i class="fa-solid fa-door-open"></i> Sign out
-            </a>
-          </div>
         </nav>
 
         <div class="dashboard-main">
