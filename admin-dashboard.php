@@ -34,6 +34,14 @@ if (is_array($flashData)) {
 
 $counts = admin_overview_counts($db);
 $highlights = admin_today_highlights($db, 20);
+$reminderDueCounts = reminder_due_counts($db);
+
+$todayIst = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+$todayDate = $todayIst->format('Y-m-d');
+$yesterdayDate = $todayIst->modify('-1 day')->format('Y-m-d');
+
+$dueTodayLink = 'admin-reminders.php?status=active&from=' . urlencode($todayDate) . '&to=' . urlencode($todayDate) . '#reminder-list';
+$overdueLink = 'admin-reminders.php?status=active&to=' . urlencode($yesterdayDate) . '#reminder-list';
 
 $cardConfigs = [
     [
@@ -160,6 +168,20 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
         </a>
       </div>
     </header>
+
+    <section class="admin-overview__reminder-glance" aria-label="Reminder due states">
+      <h2 class="admin-overview__reminder-title">Reminder deadlines</h2>
+      <div class="admin-overview__reminder-chips">
+        <a class="reminder-chip" href="<?= htmlspecialchars($dueTodayLink, ENT_QUOTES) ?>">
+          <span class="reminder-chip__label">Due today</span>
+          <span class="reminder-chip__count"><?= number_format((int) ($reminderDueCounts['due_today'] ?? 0)) ?></span>
+        </a>
+        <a class="reminder-chip reminder-chip--danger" href="<?= htmlspecialchars($overdueLink, ENT_QUOTES) ?>">
+          <span class="reminder-chip__label">Overdue</span>
+          <span class="reminder-chip__count"><?= number_format((int) ($reminderDueCounts['overdue'] ?? 0)) ?></span>
+        </a>
+      </div>
+    </section>
 
     <section class="admin-overview__cards" aria-label="Operational summaries">
       <?php foreach ($cardConfigs as $card): ?>

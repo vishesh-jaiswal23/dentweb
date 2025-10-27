@@ -417,6 +417,21 @@ SQL
     );
 
     $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS reminder_status_banners (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    tone TEXT NOT NULL CHECK(tone IN ('info','success','warning','danger')),
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+)
+SQL
+    );
+
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_reminder_status_banners_user ON reminder_status_banners(user_id, created_at DESC)');
+
+    $db->exec(<<<'SQL'
 CREATE TABLE IF NOT EXISTS portal_notification_status (
     notification_id INTEGER NOT NULL,
     user_id INTEGER NOT NULL,
@@ -2513,6 +2528,66 @@ function portal_mark_notification(PDO $db, int $notificationId, int $userId, str
         ':status' => $status,
         ':updated_at' => now_ist(),
     ]);
+}
+
+function portal_store_reminder_banner(PDO $db, int $userId, string $tone, string $title, string $message): void
+{
+    if ($userId <= 0) {
+        return;
+    }
+
+    $allowedTones = ['info', 'success', 'warning', 'danger'];
+    if (!in_array($tone, $allowedTones, true)) {
+        $tone = 'info';
+    }
+
+    try {
+        $stmt = $db->prepare('INSERT INTO reminder_status_banners(user_id, tone, title, message, created_at) VALUES(:user_id, :tone, :title, :message, :created_at)');
+        $stmt->execute([
+            ':user_id' => $userId,
+            ':tone' => $tone,
+            ':title' => $title,
+            ':message' => $message,
+            ':created_at' => now_ist(),
+        ]);
+    } catch (Throwable $exception) {
+        error_log('Failed to queue reminder banner: ' . $exception->getMessage());
+    }
+}
+
+function portal_consume_reminder_banners(PDO $db, int $userId): array
+{
+    if ($userId <= 0) {
+        return [];
+    }
+
+    try {
+        $stmt = $db->prepare('SELECT id, tone, title, message FROM reminder_status_banners WHERE user_id = :user_id ORDER BY created_at DESC');
+        $stmt->execute([':user_id' => $userId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$rows) {
+            return [];
+        }
+
+        $ids = array_map(static fn (array $row): int => (int) $row['id'], $rows);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $delete = $db->prepare("DELETE FROM reminder_status_banners WHERE id IN ($placeholders)");
+        foreach ($ids as $index => $id) {
+            $delete->bindValue($index + 1, $id, PDO::PARAM_INT);
+        }
+        $delete->execute();
+
+        return array_map(static function (array $row): array {
+            return [
+                'tone' => $row['tone'] ?? 'info',
+                'title' => (string) ($row['title'] ?? 'Reminder update'),
+                'message' => (string) ($row['message'] ?? ''),
+            ];
+        }, $rows);
+    } catch (Throwable $exception) {
+        error_log('Failed to load reminder banners: ' . $exception->getMessage());
+        return [];
+    }
 }
 
 function portal_latest_sync(PDO $db, ?int $userId = null): ?string
@@ -5083,6 +5158,8 @@ function admin_update_reminder_status(PDO $db, int $id, string $targetStatus, in
     if ($updated === null) {
         throw new RuntimeException('Reminder could not be reloaded.');
     }
+
+    portal_notify_reminder_status($db, $updated, $target);
 
     return $updated;
 }
