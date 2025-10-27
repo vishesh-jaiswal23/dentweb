@@ -185,7 +185,7 @@ $subsidyApplications = [];
         </div>
       </header>
 
-      <div class="dashboard-body">
+      <div class="dashboard-body dashboard-body--nav-first">
         <nav class="dashboard-nav" aria-label="Admin navigation" role="tablist">
           <p class="dashboard-nav-title">Workspace</p>
           <ul>
