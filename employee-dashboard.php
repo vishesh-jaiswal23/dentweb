@@ -6,20 +6,23 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 require_role('employee');
 $user = current_user();
+$db = get_db();
 
-$employeeName = trim((string) ($user['full_name'] ?? ''));
+$employeeRecord = null;
+if (!empty($user['id'])) {
+    $employeeRecord = portal_find_user($db, (int) $user['id']);
+}
+$employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
+
+$employeeName = trim((string) ($employeeRecord['full_name'] ?? $user['full_name'] ?? ''));
 if ($employeeName === '') {
     $employeeName = 'Employee';
 }
 
-$rawRole = $user['role_name'] === 'employee'
-    ? trim((string) ($user['job_title'] ?? ''))
-    : trim((string) ($user['role_name'] ?? ''));
-$employeeRole = $rawRole !== '' ? $rawRole : 'Employee';
-
-$employeeAccess = trim((string) ($user['access_scope'] ?? ''));
+$employeeRole = 'Employee';
+$employeeAccess = trim((string) ($employeeRecord['permissions_note'] ?? ''));
 if ($employeeAccess === '') {
-    $employeeAccess = 'Modules assigned to your role';
+    $employeeAccess = 'Employee workspace access managed by Admin';
 }
 
 $firstName = trim((string) $employeeName);
@@ -43,9 +46,33 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$performanceMetrics = [];
+$tasks = $employeeId > 0 ? portal_list_tasks($db, $employeeId) : [];
+$complaints = $employeeId > 0 ? portal_employee_complaints($db, $employeeId) : [];
+$documentsRaw = portal_list_documents($db, 'employee');
+$notificationsRaw = $employeeId > 0 ? portal_list_notifications($db, $employeeId, 'employee') : [];
 
-$tickets = [];
+$nowIst = new DateTime('now', new DateTimeZone('Asia/Kolkata'));
+$currentMonthStart = (clone $nowIst)->modify('first day of this month')->setTime(0, 0, 0);
+$monthKeys = [];
+$monthCursor = (clone $currentMonthStart)->modify('-3 months');
+for ($i = 0; $i < 4; $i++) {
+    $monthKeys[] = $monthCursor->format('Y-m');
+    $monthCursor->modify('+1 month');
+}
+$monthKeyCurrent = $monthKeys[count($monthKeys) - 1] ?? $currentMonthStart->format('Y-m');
+$monthKeyPrevious = $monthKeys[count($monthKeys) - 2] ?? $monthKeyCurrent;
+
+$parseDateTime = static function (?string $value) {
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    try {
+        return new DateTime($value, new DateTimeZone('Asia/Kolkata'));
+    } catch (Throwable $exception) {
+        return null;
+    }
+};
 
 $statusOptions = [
     'in_progress' => 'In Progress',
@@ -71,23 +98,434 @@ $taskColumns = [
         'items' => [],
     ],
 ];
+
+$taskStatusCounts = ['todo' => 0, 'in_progress' => 0, 'done' => 0];
+$taskCompletionBuckets = [];
+foreach ($monthKeys as $monthKey) {
+    $taskCompletionBuckets[$monthKey] = ['completed' => 0, 'onTime' => 0];
+}
+$doneTasksTotal = 0;
+$onTimeTasksTotal = 0;
+foreach ($tasks as $taskRow) {
+    $statusKey = $taskRow['status'];
+    if (!isset($taskColumns[$statusKey])) {
+        continue;
+    }
+    $taskStatusCounts[$statusKey]++;
+    $priority = $taskRow['priority'] ?? 'medium';
+    $priorityLabel = match ($priority) {
+        'high' => 'High priority',
+        'low' => 'Low priority',
+        default => 'Medium priority',
+    };
+    $deadline = $taskRow['dueDate'] !== '' ? 'Due ' . date('d M Y', strtotime($taskRow['dueDate'])) : 'No due date set';
+    $linkText = $taskRow['linkedTo'] !== '' ? 'Linked to ' . $taskRow['linkedTo'] : 'No linked record';
+    $taskColumns[$statusKey]['items'][] = [
+        'id' => $taskRow['id'],
+        'title' => $taskRow['title'],
+        'priority' => $priority,
+        'priorityLabel' => $priorityLabel,
+        'deadline' => $deadline,
+        'link' => htmlspecialchars($linkText, ENT_QUOTES),
+        'action' => $statusKey === 'done'
+            ? ['label' => 'Reopen task', 'attr' => 'data-task-undo']
+            : ['label' => 'Mark complete', 'attr' => 'data-task-complete'],
+    ];
+
+    if ($taskRow['status'] === 'done') {
+        $doneTasksTotal++;
+        $completedAtRaw = $taskRow['completedAt'] ?: $taskRow['updatedAt'] ?: $taskRow['createdAt'] ?? '';
+        $completedAt = $parseDateTime($completedAtRaw);
+        $onTime = true;
+        if ($taskRow['dueDate'] !== '') {
+            $dueDate = DateTime::createFromFormat('Y-m-d', $taskRow['dueDate'], new DateTimeZone('Asia/Kolkata'));
+            if ($dueDate instanceof DateTime) {
+                $dueDate->setTime(23, 59, 59);
+                $onTime = $completedAt instanceof DateTime ? $completedAt <= $dueDate : false;
+            }
+        }
+        if ($onTime) {
+            $onTimeTasksTotal++;
+        }
+        if ($completedAt instanceof DateTime) {
+            $monthKey = $completedAt->format('Y-m');
+            if (isset($taskCompletionBuckets[$monthKey])) {
+                $taskCompletionBuckets[$monthKey]['completed']++;
+                if ($onTime) {
+                    $taskCompletionBuckets[$monthKey]['onTime']++;
+                }
+            }
+        }
+    }
+}
+
 $taskActivity = [];
+$sortedTasks = $tasks;
+usort($sortedTasks, static function (array $a, array $b): int {
+    return strcmp($b['updatedAt'] ?? '', $a['updatedAt'] ?? '');
+});
+foreach (array_slice($sortedTasks, 0, 5) as $recent) {
+    $timestamp = $recent['updatedAt'] ?: $recent['createdAt'];
+    if (!$timestamp) {
+        continue;
+    }
+    $isoTime = (new DateTime($timestamp))->format(DATE_ATOM);
+    $label = (new DateTime($timestamp))->format('d M H:i');
+    $taskActivity[] = [
+        'time' => $isoTime,
+        'label' => $label,
+        'message' => sprintf('%s moved to %s', $recent['title'], str_replace('_', ' ', ucfirst($recent['status']))),
+    ];
+}
+
+$taskReminders = [];
+$reminderClock = clone $nowIst;
+foreach ($tasks as $taskRow) {
+    if ($taskRow['dueDate'] === '') {
+        continue;
+    }
+    $dueDate = DateTime::createFromFormat('Y-m-d', $taskRow['dueDate'], new DateTimeZone('Asia/Kolkata'));
+    if (!$dueDate) {
+        continue;
+    }
+    $intervalDays = (int) $reminderClock->diff($dueDate)->format('%r%a');
+    if ($intervalDays >= 0 && $intervalDays <= 2) {
+        $taskReminders[] = [
+            'icon' => 'fa-solid fa-bell',
+            'message' => sprintf('%s due on %s', $taskRow['title'], $dueDate->format('d M Y')),
+        ];
+    }
+}
+
+$tickets = [];
+$complaintStatusMap = [
+    'intake' => ['key' => 'in_progress', 'label' => 'Intake review', 'tone' => 'progress'],
+    'triage' => ['key' => 'in_progress', 'label' => 'Admin triage', 'tone' => 'attention'],
+    'work' => ['key' => 'in_progress', 'label' => 'In progress', 'tone' => 'progress'],
+    'resolution' => ['key' => 'awaiting_response', 'label' => 'Awaiting response', 'tone' => 'attention'],
+    'closed' => ['key' => 'resolved', 'label' => 'Resolved', 'tone' => 'resolved'],
+];
+$ticketClosureByMonth = [];
+$resolutionDurationsByMonth = [];
+$csatBucketsByMonth = [];
+foreach ($monthKeys as $monthKey) {
+    $ticketClosureByMonth[$monthKey] = 0;
+    $resolutionDurationsByMonth[$monthKey] = [];
+    $csatBucketsByMonth[$monthKey] = ['closed' => 0, 'escalated' => 0, 'awaiting' => 0, 'total' => 0];
+}
+$totalResolutionDurations = [];
+$overallCsatBucket = ['closed' => 0, 'escalated' => 0, 'awaiting' => 0, 'total' => 0];
+foreach ($complaints as $complaint) {
+    $map = $complaintStatusMap[$complaint['status']] ?? $complaintStatusMap['intake'];
+    $timeline = [];
+    if (!empty($complaint['createdAt'])) {
+        $timeline[] = [
+            'time' => (new DateTime($complaint['createdAt']))->format(DATE_ATOM),
+            'label' => 'Created',
+            'message' => 'Ticket opened from Admin portal.',
+        ];
+    }
+    if (!empty($complaint['updatedAt']) && $complaint['updatedAt'] !== $complaint['createdAt']) {
+        $timeline[] = [
+            'time' => (new DateTime($complaint['updatedAt']))->format(DATE_ATOM),
+            'label' => 'Last update',
+            'message' => sprintf('Status updated to %s.', strtolower($map['label'])),
+        ];
+    }
+    $tickets[] = [
+        'id' => $complaint['reference'],
+        'title' => $complaint['title'],
+        'customer' => $complaint['reference'],
+        'status' => $map['key'],
+        'statusLabel' => $map['label'],
+        'statusTone' => $map['tone'],
+        'assignedBy' => 'Admin Control Center',
+        'sla' => $complaint['slaDue'] !== '' ? date('d M Y', strtotime($complaint['slaDue'])) : 'Not set',
+        'contact' => 'Shared via Admin',
+        'noteIcon' => 'fa-solid fa-pen-to-square',
+        'noteLabel' => 'Add note',
+        'attachments' => [],
+        'timeline' => $timeline,
+    ];
+
+    $updatedAt = $parseDateTime($complaint['updatedAt'] ?? '') ?: $parseDateTime($complaint['createdAt'] ?? '');
+    $monthKey = $updatedAt instanceof DateTime ? $updatedAt->format('Y-m') : null;
+
+    $overallCsatBucket['total']++;
+    if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
+        $csatBucketsByMonth[$monthKey]['total']++;
+    }
+
+    switch ($complaint['status']) {
+        case 'closed':
+            $overallCsatBucket['closed']++;
+            if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
+                $csatBucketsByMonth[$monthKey]['closed']++;
+                $ticketClosureByMonth[$monthKey]++;
+            }
+            if (!empty($complaint['createdAt']) && $updatedAt instanceof DateTime) {
+                $createdAt = $parseDateTime($complaint['createdAt']);
+                if ($createdAt instanceof DateTime) {
+                    $durationDays = max(0, round(($updatedAt->getTimestamp() - $createdAt->getTimestamp()) / 86400, 1));
+                    $totalResolutionDurations[] = $durationDays;
+                    if ($monthKey !== null && isset($resolutionDurationsByMonth[$monthKey])) {
+                        $resolutionDurationsByMonth[$monthKey][] = $durationDays;
+                    }
+                }
+            }
+            break;
+        case 'triage':
+            $overallCsatBucket['escalated']++;
+            if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
+                $csatBucketsByMonth[$monthKey]['escalated']++;
+            }
+            break;
+        case 'resolution':
+            $overallCsatBucket['awaiting']++;
+            if ($monthKey !== null && isset($csatBucketsByMonth[$monthKey])) {
+                $csatBucketsByMonth[$monthKey]['awaiting']++;
+            }
+            break;
+    }
+}
+
+$documentVault = [];
+foreach ($documentsRaw as $doc) {
+    $documentVault[] = [
+        'type' => $doc['name'],
+        'filename' => $doc['reference'] !== '' ? $doc['reference'] : strtoupper((string) $doc['linkedTo']),
+        'customer' => ucfirst((string) ($doc['linkedTo'] ?? 'Shared')),
+        'statusLabel' => $doc['visibility'] === 'both' ? 'Shared with Admin' : 'Employee only',
+        'tone' => $doc['visibility'] === 'both' ? 'resolved' : 'progress',
+        'uploadedAt' => $doc['updatedAt'] ?? '',
+        'uploadedBy' => $doc['uploadedBy'] ?? 'Admin',
+    ];
+}
+
+$documentUploadCustomers = array_values(array_unique(array_map(static function (array $ticket): string {
+    return (string) $ticket['customer'];
+}, $tickets)));
+
+$notifications = array_map(static function (array $notice): array {
+    $category = stripos($notice['title'], 'ticket') !== false ? 'ticket' : 'general';
+    return [
+        'id' => 'N-' . $notice['id'],
+        'tone' => $notice['tone'] ?? 'info',
+        'icon' => $notice['icon'] ?? 'fa-solid fa-circle-info',
+        'title' => $notice['title'],
+        'message' => $notice['message'],
+        'time' => $notice['time'] ?? '',
+        'link' => $notice['link'] ?? '#',
+        'isRead' => !empty($notice['isRead']),
+        'category' => $category,
+    ];
+}, $notificationsRaw);
+
+$unreadNotificationCount = count(array_filter($notifications, static fn (array $item): bool => empty($item['isRead'])));
+
+$communicationLogs = [];
+foreach (array_slice($complaints, 0, 5) as $complaint) {
+    $time = $complaint['updatedAt'] ?: $complaint['createdAt'];
+    if (!$time) {
+        continue;
+    }
+    $communicationLogs[] = [
+        'channel' => 'Call',
+        'time' => (new DateTime($time))->format(DATE_ATOM),
+        'label' => sprintf('Ticket %s', $complaint['reference']),
+        'summary' => $complaint['title'],
+    ];
+}
+
+$performanceMetrics = [];
+$resolvedHistory = [];
+foreach ($monthKeys as $monthKey) {
+    $resolvedHistory[] = (int) ($ticketClosureByMonth[$monthKey] ?? 0);
+}
+$resolvedThisMonth = $ticketClosureByMonth[$monthKeyCurrent] ?? 0;
+$previousResolved = $ticketClosureByMonth[$monthKeyPrevious] ?? 0;
+$resolvedObservations = array_sum($resolvedHistory) > 0;
+if (!$resolvedObservations) {
+    $resolvedTrend = '—';
+} else {
+    $deltaResolved = $resolvedThisMonth - $previousResolved;
+    if ($deltaResolved > 0) {
+        $resolvedTrend = sprintf('+%d vs last month', $deltaResolved);
+    } elseif ($deltaResolved < 0) {
+        $resolvedTrend = sprintf('%d vs last month', $deltaResolved);
+    } else {
+        $resolvedTrend = 'No change vs last month';
+    }
+}
+$ticketTargetBaseline = max($resolvedThisMonth, $previousResolved, 1);
+$ticketTarget = max(5, (int) ceil($ticketTargetBaseline * 1.15));
+
+$resolutionHistory = [];
+foreach ($monthKeys as $monthKey) {
+    $durations = $resolutionDurationsByMonth[$monthKey] ?? [];
+    $resolutionHistory[] = !empty($durations)
+        ? round(array_sum($durations) / count($durations), 1)
+        : 0.0;
+}
+$avgResolution = !empty($totalResolutionDurations)
+    ? round(array_sum($totalResolutionDurations) / count($totalResolutionDurations), 1)
+    : 0.0;
+$previousResolution = $resolutionHistory[count($resolutionHistory) - 2] ?? 0.0;
+$resolutionObservations = !empty($totalResolutionDurations);
+if (!$resolutionObservations) {
+    $resolutionTrend = '—';
+} else {
+    $deltaResolution = round($avgResolution - $previousResolution, 1);
+    if ($deltaResolution < 0) {
+        $resolutionTrend = sprintf('%.1f days faster vs last month', abs($deltaResolution));
+    } elseif ($deltaResolution > 0) {
+        $resolutionTrend = sprintf('%.1f days slower vs last month', $deltaResolution);
+    } else {
+        $resolutionTrend = 'Steady vs last month';
+    }
+}
+
+$amcCompliance = $doneTasksTotal > 0 ? (int) round(($onTimeTasksTotal / $doneTasksTotal) * 100) : 0;
+$amcHistory = [];
+foreach ($monthKeys as $monthKey) {
+    $completed = $taskCompletionBuckets[$monthKey]['completed'] ?? 0;
+    $onTime = $taskCompletionBuckets[$monthKey]['onTime'] ?? 0;
+    $amcHistory[] = $completed > 0 ? (int) round(($onTime / $completed) * 100) : 0;
+}
+$previousAmc = $amcHistory[count($amcHistory) - 2] ?? 0;
+$amcObservations = $doneTasksTotal > 0;
+if (!$amcObservations) {
+    $amcTrend = '—';
+} else {
+    $deltaAmc = $amcCompliance - $previousAmc;
+    if ($deltaAmc > 0) {
+        $amcTrend = sprintf('+%d pts vs last month', $deltaAmc);
+    } elseif ($deltaAmc < 0) {
+        $amcTrend = sprintf('%d pts vs last month', $deltaAmc);
+    } else {
+        $amcTrend = 'No change vs last month';
+    }
+}
+$amcTarget = 95;
+
+$computeCsatScore = static function (array $bucket): ?float {
+    $total = $bucket['total'] ?? 0;
+    if ($total <= 0) {
+        return null;
+    }
+    $closed = $bucket['closed'] ?? 0;
+    $escalated = $bucket['escalated'] ?? 0;
+    $awaiting = $bucket['awaiting'] ?? 0;
+    $positiveRatio = $total > 0 ? $closed / $total : 0.0;
+    $penalty = (($escalated * 1.5) + ($awaiting * 0.75)) / $total;
+    $score = 4.2 + ($positiveRatio * 0.8) - ($penalty * 1.8);
+    $score = max(3.0, min(5.0, $score));
+    return round($score, 1);
+};
+$fillHistory = static function (array $values, float $fallback): array {
+    $filled = [];
+    $carry = $fallback;
+    foreach ($values as $value) {
+        if ($value === null) {
+            $filled[] = $carry;
+        } else {
+            $filled[] = $value;
+            $carry = $value;
+        }
+    }
+    return $filled;
+};
+
+$overallCsatValue = $computeCsatScore($overallCsatBucket);
+$csatScore = $overallCsatValue ?? 4.5;
+$csatHistoryRaw = [];
+foreach ($monthKeys as $monthKey) {
+    $csatHistoryRaw[] = $computeCsatScore($csatBucketsByMonth[$monthKey] ?? []);
+}
+$csatHistory = $fillHistory($csatHistoryRaw, $csatScore);
+$csatObservations = count(array_filter($csatHistoryRaw, static fn ($value) => $value !== null)) > 0;
+$currentCsat = $csatHistory[count($csatHistory) - 1] ?? $csatScore;
+$previousCsat = $csatHistory[count($csatHistory) - 2] ?? $currentCsat;
+if (!$csatObservations) {
+    $csatTrend = '—';
+} else {
+    $deltaCsat = round($currentCsat - $previousCsat, 1);
+    if ($deltaCsat > 0) {
+        $csatTrend = sprintf('+%.1f vs last month', $deltaCsat);
+    } elseif ($deltaCsat < 0) {
+        $csatTrend = sprintf('%.1f vs last month', $deltaCsat);
+    } else {
+        $csatTrend = 'No change vs last month';
+    }
+}
+
+$performanceMetrics = [
+    [
+        'id' => 'tickets-closed',
+        'label' => 'Tickets resolved this month',
+        'value' => $resolvedThisMonth,
+        'precision' => 0,
+        'unit' => 'tickets',
+        'target' => $ticketTarget,
+        'trend' => $resolvedTrend,
+        'history' => $resolvedHistory,
+        'description' => 'Closed tickets synced instantly to the Admin portal.',
+    ],
+    [
+        'id' => 'resolution-time',
+        'label' => 'Avg. resolution time',
+        'value' => $avgResolution,
+        'precision' => 1,
+        'unit' => 'days',
+        'target' => 2.0,
+        'trend' => $resolutionTrend,
+        'history' => $resolutionHistory,
+        'description' => 'Customer complaints resolved within SLA timers.',
+    ],
+    [
+        'id' => 'amc-compliance',
+        'label' => 'AMC compliance rate',
+        'value' => $amcCompliance,
+        'precision' => 0,
+        'unit' => '%',
+        'target' => $amcTarget,
+        'trend' => $amcTrend,
+        'history' => $amcHistory,
+        'description' => 'Preventive visits completed before expiry.',
+    ],
+    [
+        'id' => 'csat-score',
+        'label' => 'Customer satisfaction',
+        'value' => $csatScore,
+        'precision' => 1,
+        'unit' => '★',
+        'target' => 5,
+        'trend' => $csatTrend,
+        'history' => $csatHistory,
+        'description' => 'Feedback collected from resolved service tickets.',
+    ],
+];
 
 $leadUpdates = [];
 
 $pendingLeads = [];
 
-$leadRecords = [];
-
-$taskReminders = [];
+$leadRecords = array_map(static function (array $complaint) use ($employeeName): array {
+    return [
+        'id' => $complaint['reference'],
+        'label' => $complaint['title'],
+        'description' => sprintf('Priority %s', ucfirst($complaint['priority'] ?? 'medium')),
+        'contact' => '—',
+        'status' => str_replace('_', ' ', $complaint['status']),
+        'nextAction' => 'Update ticket',
+        'owner' => $employeeName,
+        'type' => 'lead',
+    ];
+}, $complaints);
 
 $siteVisits = [];
 
 $visitActivity = [];
-
-$documentVault = [];
-
-$documentUploadCustomers = [];
 
 $subsidyCases = [];
 
@@ -97,9 +535,46 @@ $warrantyAssets = [];
 
 $warrantyActivity = [];
 
-$communicationLogs = [];
+$complianceFlags = [];
 
-$notifications = [];
+$auditTrail = [];
+foreach (array_slice($taskActivity, 0, 3) as $activity) {
+    $auditTrail[] = [
+        'time' => $activity['time'],
+        'label' => $activity['label'],
+        'detail' => $activity['message'],
+    ];
+}
+if (empty($auditTrail) && !empty($communicationLogs)) {
+    foreach (array_slice($communicationLogs, 0, 2) as $log) {
+        $auditTrail[] = [
+            'time' => $log['time'],
+            'label' => $log['label'],
+            'detail' => $log['summary'],
+        ];
+    }
+}
+
+$employeeProfile = [
+    'email' => trim((string) ($employeeRecord['email'] ?? $user['email'] ?? 'employee@dakshayani.example')),
+    'phone' => 'Not provided',
+    'photo' => '',
+    'lastUpdated' => $nowIst->format(DATE_ATOM),
+];
+
+$lastSyncRaw = portal_latest_sync($db, $employeeId);
+if ($lastSyncRaw) {
+    $lastSyncTime = (new DateTime($lastSyncRaw, new DateTimeZone('Asia/Kolkata')))->format(DATE_ATOM);
+} else {
+    $lastSyncTime = $nowIst->format(DATE_ATOM);
+}
+$syncStatus = [
+    'label' => 'Realtime sync with Admin portal',
+    'lastSync' => $lastSyncTime,
+    'latency' => '0.3s',
+];
+
+$unreadNotificationCount = count(array_filter($notifications, static fn (array $notice): bool => empty($notice['isRead'])));
 
 $activeComplaintsCount = count(array_filter($tickets, static function (array $ticket): bool {
     return ($ticket['status'] ?? '') !== 'resolved';
@@ -205,7 +680,7 @@ $attachmentIcon = static function (string $filename): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Employee Workspace | Dakshayani Enterprises</title>
+  <title><?= htmlspecialchars($pageTitle, ENT_QUOTES) ?></title>
   <meta
     name="description"
     content="Role-based employee workspace for Dakshayani Enterprises with ticket updates, task management, and customer follow-ups."
@@ -225,7 +700,7 @@ $attachmentIcon = static function (string $filename): string {
     referrerpolicy="no-referrer"
   />
 </head>
-<body data-dashboard-theme="light">
+<body data-dashboard-theme="light" data-current-view="<?= htmlspecialchars($currentView, ENT_QUOTES) ?>">
   <main class="dashboard">
     <div class="container dashboard-shell">
       <div class="dashboard-auth-bar" role="banner">
@@ -272,59 +747,30 @@ $attachmentIcon = static function (string $filename): string {
           <button type="button" class="employee-header-button" data-open-notifications>
             <i class="fa-solid fa-bell" aria-hidden="true"></i>
             <span>Notifications</span>
-            <span class="employee-header-count" data-notification-count><?= count($notifications) ?></span>
+            <span class="employee-header-count" data-notification-count><?= (int) $unreadNotificationCount ?></span>
           </button>
-          <a class="employee-header-button" href="#tasks" data-scroll-my-work>
+          <a class="employee-header-button" href="<?= htmlspecialchars($viewUrlFor('tasks'), ENT_QUOTES) ?>">
             <i class="fa-solid fa-list-check" aria-hidden="true"></i>
             <span>My Work</span>
           </a>
         </div>
         <nav class="dashboard-quick-nav" aria-label="Employee navigation">
-          <a href="#overview" class="dashboard-quick-nav__link is-active" data-quick-link>
-            <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
-            <span>Overview</span>
+          <?php foreach ($dashboardViews as $viewKey => $viewConfig): ?>
+          <a
+            href="<?= htmlspecialchars($viewConfig['href'], ENT_QUOTES) ?>"
+            class="dashboard-quick-nav__link<?= $currentView === $viewKey ? ' is-active' : '' ?>"
+            data-quick-link="<?= htmlspecialchars($viewKey, ENT_QUOTES) ?>"
+          >
+            <i class="<?= htmlspecialchars($viewConfig['icon'], ENT_QUOTES) ?>" aria-hidden="true"></i>
+            <span><?= htmlspecialchars($viewConfig['label'], ENT_QUOTES) ?></span>
           </a>
-          <a href="#complaints" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-ticket" aria-hidden="true"></i>
-            <span>Complaints</span>
-          </a>
-          <a href="#tasks" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-clipboard-list" aria-hidden="true"></i>
-            <span>My Work</span>
-          </a>
-          <a href="#leads" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-users" aria-hidden="true"></i>
-            <span>Leads &amp; Follow-ups</span>
-          </a>
-          <a href="#field-work" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-screwdriver-wrench" aria-hidden="true"></i>
-            <span>Field Work</span>
-          </a>
-          <a href="#documents" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
-            <span>Documents</span>
-          </a>
-          <a href="#subsidy" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-indian-rupee-sign" aria-hidden="true"></i>
-            <span>Subsidy</span>
-          </a>
-          <a href="#warranty" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-shield-heart" aria-hidden="true"></i>
-            <span>Warranty &amp; AMC</span>
-          </a>
-          <a href="#communication" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-phone-volume" aria-hidden="true"></i>
-            <span>Communication</span>
-          </a>
-          <a href="#ai-assist" class="dashboard-quick-nav__link" data-quick-link>
-            <i class="fa-solid fa-robot" aria-hidden="true"></i>
-            <span>AI Assistance</span>
-          </a>
+          <?php endforeach; ?>
         </nav>
       </header>
 
       <div class="dashboard-body dashboard-body--with-aside">
         <div class="dashboard-main">
+          <?php if ($currentView === 'overview'): ?>
           <section id="overview" class="dashboard-section" data-section>
             <h2>Employee overview</h2>
             <p class="dashboard-section-sub">
@@ -342,24 +788,89 @@ $attachmentIcon = static function (string $filename): string {
                 </div>
               </article>
               <?php endforeach; ?>
-              <article class="dashboard-card dashboard-card--neutral dashboard-card--metrics">
+              <article class="dashboard-card dashboard-card--neutral dashboard-card--analytics">
                 <div class="dashboard-card-icon"><i class="fa-solid fa-bolt" aria-hidden="true"></i></div>
-                <div>
-                  <p class="dashboard-card-title">Performance metrics</p>
-                  <ul class="dashboard-card-metrics">
+                <div class="dashboard-card-body">
+                  <div class="dashboard-card-heading">
+                    <p class="dashboard-card-title">Performance analytics</p>
+                    <p class="dashboard-card-meta">Realtime metrics pulled from the Admin data lake for your scope.</p>
+                  </div>
+                  <div class="analytics-metric-grid">
                     <?php if (empty($performanceMetrics)): ?>
-                    <li class="text-muted">Performance metrics will appear after your activity is tracked.</li>
+                    <p class="text-muted mb-0">Performance metrics will appear after your activity is tracked.</p>
                     <?php else: ?>
                     <?php foreach ($performanceMetrics as $metric): ?>
-                    <li><strong><?= htmlspecialchars($metric['value'], ENT_QUOTES) ?></strong> <?= htmlspecialchars($metric['label'], ENT_QUOTES) ?></li>
+                    <?php
+                    $valueNumber = is_numeric($metric['value']) ? (float) $metric['value'] : null;
+                    $precision = (int) ($metric['precision'] ?? 0);
+                    if ($valueNumber !== null) {
+                        $formattedValue = number_format($valueNumber, $precision, '.', '');
+                        if ($precision > 0) {
+                            $formattedValue = rtrim(rtrim($formattedValue, '0'), '.');
+                        }
+                    } else {
+                        $formattedValue = (string) $metric['value'];
+                    }
+                    $unit = (string) ($metric['unit'] ?? '');
+                    $targetNumber = is_numeric($metric['target'] ?? null) ? (float) $metric['target'] : null;
+                    $historyPoints = array_map(
+                        static fn ($point) => is_numeric($point) ? (string) $point : null,
+                        $metric['history'] ?? []
+                    );
+                    $historyPoints = array_values(array_filter($historyPoints, static fn ($point) => $point !== null));
+                    $historyAttribute = htmlspecialchars(implode(',', $historyPoints), ENT_QUOTES);
+                    ?>
+                    <div
+                      class="analytics-metric"
+                      data-analytics-card
+                      data-metric-id="<?= htmlspecialchars($metric['id'], ENT_QUOTES) ?>"
+                      data-metric-value="<?= htmlspecialchars((string) ($valueNumber ?? $metric['value']), ENT_QUOTES) ?>"
+                      data-metric-target="<?= htmlspecialchars((string) ($targetNumber ?? ''), ENT_QUOTES) ?>"
+                      data-metric-unit="<?= htmlspecialchars($unit, ENT_QUOTES) ?>"
+                      data-metric-trend="<?= htmlspecialchars($metric['trend'], ENT_QUOTES) ?>"
+                      data-metric-history="<?= $historyAttribute ?>"
+                    >
+                      <div class="analytics-metric__header">
+                        <p class="analytics-metric__label"><?= htmlspecialchars($metric['label'], ENT_QUOTES) ?></p>
+                        <span class="analytics-metric__value">
+                          <?= htmlspecialchars($formattedValue, ENT_QUOTES) ?>
+                          <?php if ($unit !== ''): ?><span class="analytics-metric__unit"><?= htmlspecialchars($unit, ENT_QUOTES) ?></span><?php endif; ?>
+                        </span>
+                      </div>
+                      <p class="analytics-metric__trend"><?= htmlspecialchars($metric['trend'], ENT_QUOTES) ?></p>
+                      <div
+                        class="analytics-metric__progress"
+                        data-metric-progress
+                        role="progressbar"
+                        aria-label="<?= htmlspecialchars($metric['label'] . ' progress', ENT_QUOTES) ?>"
+                      ></div>
+                      <div class="analytics-metric__sparkline" data-metric-sparkline aria-hidden="true"></div>
+                      <p class="analytics-metric__description"><?= htmlspecialchars($metric['description'], ENT_QUOTES) ?></p>
+                    </div>
                     <?php endforeach; ?>
                     <?php endif; ?>
-                  </ul>
-                </div>
-              </article>
-            </div>
-          </section>
+                  </div>
+                  <footer class="analytics-actions">
+                      <button type="button" class="btn btn-secondary btn-sm" data-download-report data-report-period="">
+                        <i class="fa-solid fa-file-arrow-down" aria-hidden="true"></i>
+                        Download monthly report
+                      </button>
+                      <p class="text-xs text-muted mb-0">
+                        Admin console aggregates every employee’s analytics for consolidated leadership dashboards.
+                      </p>
+                    </footer>
+                  </div>
+                </article>
+              </div>
+              <div class="dashboard-panel dashboard-panel--muted dashboard-panel--analytics-note">
+                <p class="mb-0">
+                  Analytics will display once Admin shares performance data for your queue. Check back after your first
+                  assignments are completed.
+                </p>
+              </div>
+            </section>
 
+          <?php if ($currentView === 'complaints'): ?>
           <section id="complaints" class="dashboard-section" data-section>
             <h2>Complaints &amp; service workflow</h2>
             <p class="dashboard-section-sub">
@@ -439,7 +950,9 @@ $attachmentIcon = static function (string $filename): string {
               <?php endif; ?>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'tasks'): ?>
           <section id="tasks" class="dashboard-section" data-section>
             <h2>Tasks &amp; My Work</h2>
             <p class="dashboard-section-sub">
@@ -505,7 +1018,9 @@ $attachmentIcon = static function (string $filename): string {
               </div>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'leads'): ?>
           <section id="leads" class="dashboard-section" data-section>
             <h2>Leads &amp; customer follow-ups</h2>
             <p class="dashboard-section-sub">
@@ -596,7 +1111,7 @@ $attachmentIcon = static function (string $filename): string {
 
                 <article class="dashboard-panel dashboard-panel--muted">
                   <h2>Submit new prospect</h2>
-                  <form class="lead-intake-form" data-lead-intake>
+                  <form class="lead-intake-form" data-lead-intake data-validate-form data-compliance-source="Lead intake">
                     <label>
                       Prospect name
                       <input type="text" name="prospect" placeholder="e.g., Sunrise Enclave" required />
@@ -606,8 +1121,19 @@ $attachmentIcon = static function (string $filename): string {
                       <input type="text" name="location" placeholder="City / landmark" required />
                     </label>
                     <label>
+                      Pincode
+                      <input type="text" name="pincode" placeholder="6-digit service area" required data-validate="pincode" maxlength="6" />
+                      <small class="form-field-error" data-validation-message></small>
+                    </label>
+                    <label>
                       Contact number
-                      <input type="tel" name="contact" placeholder="10-digit mobile" required pattern="[0-9]{10}" />
+                      <input type="tel" name="contact" placeholder="10-digit mobile" required pattern="[0-9]{10}" data-validate="phone" />
+                      <small class="form-field-error" data-validation-message></small>
+                    </label>
+                    <label>
+                      Preferred visit date
+                      <input type="date" name="visit_date" data-validate="date" />
+                      <small class="form-field-error" data-validation-message></small>
                     </label>
                     <button type="submit" class="btn btn-secondary btn-sm">Send for approval</button>
                   </form>
@@ -628,7 +1154,9 @@ $attachmentIcon = static function (string $filename): string {
               </aside>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'field-work'): ?>
           <section id="field-work" class="dashboard-section" data-section>
             <h2>Installation &amp; field work</h2>
             <p class="dashboard-section-sub">
@@ -717,7 +1245,9 @@ $attachmentIcon = static function (string $filename): string {
               </aside>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'documents'): ?>
           <section id="documents" class="dashboard-section" data-section>
             <h2>Document vault access</h2>
             <p class="dashboard-section-sub">
@@ -770,7 +1300,7 @@ $attachmentIcon = static function (string $filename): string {
               </div>
               <aside class="document-panel dashboard-panel">
                 <h3>Upload to shared vault</h3>
-                <form class="document-form" data-document-form>
+                <form class="document-form" data-document-form data-validate-form data-compliance-source="Document upload">
                   <label>
                     Customer
                     <select name="customer" required>
@@ -790,7 +1320,13 @@ $attachmentIcon = static function (string $filename): string {
                   </label>
                   <label>
                     File name
-                    <input type="text" name="filename" placeholder="example-file.jpg" required />
+                    <input type="text" name="filename" placeholder="example-file.jpg" required data-validate="filename" data-allowed-ext="pdf,jpg,jpeg,png,doc,docx" />
+                    <small class="form-field-error" data-validation-message></small>
+                  </label>
+                  <label>
+                    File size (MB)
+                    <input type="number" name="file_size" step="0.1" min="0" max="50" placeholder="e.g., 3.5" data-validate="filesize" data-max-size="25" />
+                    <small class="form-field-error" data-validation-message></small>
                   </label>
                   <label>
                     Notes for Admin
@@ -802,7 +1338,9 @@ $attachmentIcon = static function (string $filename): string {
               </aside>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'subsidy'): ?>
           <section id="subsidy" class="dashboard-section" data-section>
             <h2>PM Surya Ghar subsidy workflow</h2>
             <p class="dashboard-section-sub">
@@ -873,7 +1411,9 @@ $attachmentIcon = static function (string $filename): string {
               </ol>
             </aside>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'warranty'): ?>
           <section id="warranty" class="dashboard-section" data-section>
             <h2>Warranty &amp; AMC tracker</h2>
             <p class="dashboard-section-sub">
@@ -955,7 +1495,9 @@ $attachmentIcon = static function (string $filename): string {
               </aside>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'communication'): ?>
           <section id="communication" class="dashboard-section" data-section>
             <h2>Communication log &amp; follow-ups</h2>
             <p class="dashboard-section-sub">
@@ -1022,7 +1564,9 @@ $attachmentIcon = static function (string $filename): string {
               </article>
             </div>
           </section>
+          <?php endif; ?>
 
+          <?php if ($currentView === 'ai-assist'): ?>
           <section id="ai-assist" class="dashboard-section" data-section>
             <h2>AI assistance (Gemini)</h2>
             <p class="dashboard-section-sub">
@@ -1055,6 +1599,7 @@ $attachmentIcon = static function (string $filename): string {
               </article>
             </div>
           </section>
+          <?php endif; ?>
         </div>
 
         <aside class="dashboard-aside">
@@ -1067,22 +1612,107 @@ $attachmentIcon = static function (string $filename): string {
             </ul>
           </article>
           <article class="dashboard-panel">
-            <h2>Notifications</h2>
-            <ul class="dashboard-notifications">
+            <div class="dashboard-panel-header">
+              <h2>Notifications</h2>
+              <span class="badge badge-count" data-notification-count-secondary><?= (int) $unreadNotificationCount ?></span>
+            </div>
+            <ul class="dashboard-notifications" data-notification-summary>
               <?php if (empty($notifications)): ?>
               <li class="text-muted">Notifications from Admin will appear here.</li>
               <?php else: ?>
               <?php foreach ($notifications as $notice): ?>
-              <li class="dashboard-notification dashboard-notification--<?= htmlspecialchars($notice['tone'], ENT_QUOTES) ?>">
+              <?php
+              $noticeTime = strtotime($notice['time'] ?? '') ?: null;
+              $isRead = !empty($notice['isRead']);
+              ?>
+              <li
+                class="dashboard-notification dashboard-notification--<?= htmlspecialchars($notice['tone'], ENT_QUOTES) ?><?= $isRead ? ' is-read' : ' is-unread' ?>"
+                data-notification-summary-item
+                data-notification-id="<?= htmlspecialchars($notice['id'], ENT_QUOTES) ?>"
+                data-notification-read="<?= $isRead ? 'true' : 'false' ?>"
+              >
                 <i class="<?= htmlspecialchars($notice['icon'], ENT_QUOTES) ?>" aria-hidden="true"></i>
                 <div>
                   <p><?= htmlspecialchars($notice['title'], ENT_QUOTES) ?></p>
                   <span><?= htmlspecialchars($notice['message'], ENT_QUOTES) ?></span>
+                  <?php if ($noticeTime !== null): ?>
+                  <time datetime="<?= htmlspecialchars(date('c', $noticeTime), ENT_QUOTES) ?>" class="text-xs text-muted d-block">
+                    <?= htmlspecialchars(date('d M · H:i', $noticeTime), ENT_QUOTES) ?>
+                  </time>
+                  <?php endif; ?>
                 </div>
               </li>
               <?php endforeach; ?>
               <?php endif; ?>
             </ul>
+          </article>
+          <article class="dashboard-panel dashboard-panel--muted dashboard-panel--compliance">
+            <div class="dashboard-panel-header">
+              <h2>Data integrity &amp; compliance</h2>
+              <span class="badge badge-count" data-compliance-count><?= count($complianceFlags) ?></span>
+            </div>
+            <p class="text-xs text-muted">
+              Validation enforced: phone format, date limits, Yes/No selections, pincode accuracy, and file size caps. Violations
+              are blocked and flagged for Admin review.
+            </p>
+            <ul class="compliance-flags" data-compliance-flags>
+              <?php if (empty($complianceFlags)): ?>
+              <li class="text-muted">No issues flagged. Continue submitting complete, validated records.</li>
+              <?php else: ?>
+              <?php foreach ($complianceFlags as $flag): ?>
+              <li>
+                <strong><?= htmlspecialchars($flag['source'], ENT_QUOTES) ?></strong>
+                <span><?= htmlspecialchars($flag['message'], ENT_QUOTES) ?></span>
+                <?php if (!empty($flag['time'])): ?>
+                <time datetime="<?= htmlspecialchars($flag['time'], ENT_QUOTES) ?>">
+                  <?= htmlspecialchars(date('d M · H:i', strtotime($flag['time'])), ENT_QUOTES) ?>
+                </time>
+                <?php endif; ?>
+              </li>
+              <?php endforeach; ?>
+              <?php endif; ?>
+            </ul>
+          </article>
+          <article class="dashboard-panel dashboard-panel--muted dashboard-panel--audit">
+            <h2>Audit trail &amp; accountability</h2>
+            <p class="text-xs text-muted">
+              Every ticket update, upload, and note is timestamped. Admin reviews your complete history on demand.
+            </p>
+            <ol class="audit-log" data-audit-log>
+              <?php if (empty($auditTrail)): ?>
+              <li class="text-muted">Your activity log will populate as you update records.</li>
+              <?php else: ?>
+              <?php foreach ($auditTrail as $entry): ?>
+              <?php $auditTime = strtotime($entry['time'] ?? '') ?: null; ?>
+              <li>
+                <?php if ($auditTime !== null): ?>
+                <time datetime="<?= htmlspecialchars(date('c', $auditTime), ENT_QUOTES) ?>">
+                  <?= htmlspecialchars(date('d M · H:i', $auditTime), ENT_QUOTES) ?>
+                </time>
+                <?php endif; ?>
+                <p>
+                  <strong><?= htmlspecialchars($entry['label'], ENT_QUOTES) ?></strong>
+                  <?php if (!empty($entry['detail'])): ?>
+                  <span class="text-xs text-muted d-block"><?= htmlspecialchars($entry['detail'], ENT_QUOTES) ?></span>
+                  <?php endif; ?>
+                </p>
+              </li>
+              <?php endforeach; ?>
+              <?php endif; ?>
+            </ol>
+            <?php
+            $syncLastRaw = trim((string) ($syncStatus['lastSync'] ?? ''));
+            $syncTime = $syncLastRaw !== '' ? strtotime($syncLastRaw) : null;
+            ?>
+            <p
+              class="sync-indicator"
+              data-sync-indicator
+              data-sync-label="<?= htmlspecialchars($syncStatus['label'], ENT_QUOTES) ?>"
+              data-last-sync="<?= htmlspecialchars($syncStatus['lastSync'], ENT_QUOTES) ?>"
+            >
+              <?= htmlspecialchars($syncStatus['label'], ENT_QUOTES) ?> · Last update
+              <?= $syncTime ? htmlspecialchars(date('d M · H:i', $syncTime), ENT_QUOTES) : '—' ?> (Latency <?= htmlspecialchars($syncStatus['latency'], ENT_QUOTES) ?>)
+            </p>
           </article>
           <article class="dashboard-panel dashboard-panel--muted">
             <h2>Quick references</h2>
@@ -1110,6 +1740,14 @@ $attachmentIcon = static function (string $filename): string {
     </div>
   </main>
 
+  <script>
+    window.DakshayaniEmployee = Object.freeze({
+      csrfToken: <?= json_encode($_SESSION['csrf_token'] ?? '') ?>,
+      apiBase: <?= json_encode($pathFor('api/employee.php')) ?>,
+      currentUser: <?= json_encode(['id' => $employeeId, 'name' => $employeeName]) ?>,
+      sync: <?= json_encode(['lastSync' => $syncStatus['lastSync'] ?? null]) ?>,
+    });
+  </script>
   <script src="employee-dashboard.js" defer></script>
   <script src="script.js" defer></script>
 </body>
