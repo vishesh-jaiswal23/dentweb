@@ -39,8 +39,20 @@ try {
             break;
         case 'upload-document':
             require_method('POST');
+            $payload = read_json();
+            $reference = trim((string) ($payload['reference'] ?? ''));
+
+            if ($reference !== '') {
+                $result = portal_employee_submit_complaint_document($db, $userId, $reference, $payload);
+                respond_success($result + [
+                    'documents' => portal_list_documents($db, 'employee', $userId),
+                    'complaints' => portal_employee_complaints($db, $userId),
+                ]);
+                break;
+            }
+
             respond_success([
-                'document' => portal_employee_submit_document($db, read_json(), $userId),
+                'document' => portal_employee_submit_document($db, $payload, $userId),
                 'documents' => portal_list_documents($db, 'employee', $userId),
             ]);
             break;
