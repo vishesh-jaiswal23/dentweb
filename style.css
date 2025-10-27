@@ -5281,10 +5281,10 @@ body[data-festival-theme] .hero-highlight {
 }
 
 .dashboard-body {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 2rem;
-  align-items: stretch;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .dashboard-nav {
@@ -6280,6 +6280,15 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
     flex-direction: row;
     align-items: center;
     gap: 1.5rem;
+  }
+
+  .dashboard-body {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    align-items: start;
+  }
+
+  .dashboard-nav {
+    grid-column: 1 / -1;
   }
 
   .dashboard-nav-title {
