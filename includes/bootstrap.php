@@ -1743,12 +1743,17 @@ function portal_add_complaint_note(PDO $db, string $reference, string $noteBody,
     ];
     $notes[] = $record;
 
-    $stmt = $db->prepare('UPDATE complaints SET notes = :notes, updated_at = :updated_at WHERE reference = :reference');
+    $stmt = $db->prepare('UPDATE complaints SET notes = :notes, updated_at = :updated_at WHERE reference = :reference AND ((updated_at IS NULL AND :expected_updated_at IS NULL) OR updated_at = :expected_updated_at)');
     $stmt->execute([
         ':notes' => json_encode($notes, JSON_THROW_ON_ERROR),
         ':updated_at' => $record['createdAt'],
         ':reference' => $reference,
+        ':expected_updated_at' => $row['updated_at'] ?? null,
     ]);
+
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('Another user updated this complaint. Please refresh and try again.');
+    }
 
     portal_log_action($db, $actorId, 'note_added', 'complaint', (int) $row['id'], 'Complaint note recorded');
 
@@ -1805,12 +1810,17 @@ function portal_add_complaint_attachment(PDO $db, string $reference, array $atta
 
     $attachments[] = $record;
 
-    $stmt = $db->prepare('UPDATE complaints SET attachments = :attachments, updated_at = :updated_at WHERE reference = :reference');
+    $stmt = $db->prepare('UPDATE complaints SET attachments = :attachments, updated_at = :updated_at WHERE reference = :reference AND ((updated_at IS NULL AND :expected_updated_at IS NULL) OR updated_at = :expected_updated_at)');
     $stmt->execute([
         ':attachments' => json_encode($attachments, JSON_THROW_ON_ERROR),
         ':updated_at' => $record['uploadedAt'],
         ':reference' => $reference,
+        ':expected_updated_at' => $row['updated_at'] ?? null,
     ]);
+
+    if ($stmt->rowCount() === 0) {
+        throw new RuntimeException('Another user updated this complaint. Please refresh and try again.');
+    }
 
     portal_log_action($db, $actorId, 'attachment_added', 'complaint', (int) $row['id'], 'Complaint attachment logged');
 
