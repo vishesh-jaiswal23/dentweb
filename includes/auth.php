@@ -3,6 +3,10 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/bootstrap.php';
 
+class CustomerLoginNotEligible extends RuntimeException
+{
+}
+
 function start_session(): void
 {
     $secure = !empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off';
@@ -281,6 +285,19 @@ function authenticate_user(string $identifier, string $password, string $roleNam
         ]);
     }
 
+    $db = null;
+    try {
+        $db = get_db();
+    } catch (Throwable $databaseError) {
+        if (strtolower($roleName) === 'customer') {
+            throw new CustomerLoginNotEligible('customer_status_unknown', 0, $databaseError);
+        }
+    }
+
+    if ($db instanceof PDO && strtolower($roleName) === 'customer') {
+        customer_login_guard($db, $user);
+    }
+
     $result = [
         'id' => (int) ($user['id'] ?? 0),
         'full_name' => (string) ($user['full_name'] ?? ''),
@@ -295,8 +312,7 @@ function authenticate_user(string $identifier, string $password, string $roleNam
         'offline_mode' => false,
     ];
 
-    try {
-        $db = get_db();
+    if ($db instanceof PDO) {
         try {
             portal_log_action(
                 $db,
@@ -319,13 +335,13 @@ function authenticate_user(string $identifier, string $password, string $roleNam
                 'error' => $logError->getMessage(),
             ]);
         }
-    } catch (Throwable $dbError) {
+    } else {
         $store->appendAudit([
-            'event' => 'login_audit_skipped',
+            'event' => 'login_audit_failed',
             'user_id' => (int) $result['id'],
             'role' => $result['role_name'],
-            'message' => 'Login recorded without database access.',
-            'error' => $dbError->getMessage(),
+            'message' => 'Unable to connect to database for login audit log.',
+            'error' => 'connection_unavailable',
         ]);
     }
 

@@ -290,9 +290,14 @@ if ($requestMethod === 'POST') {
                 }
             }
 
+              $customerStatusHint = null;
               if ($error === '') {
                   try {
                       $user = authenticate_user($identifier, $password, $selectedRole);
+                } catch (CustomerLoginNotEligible $exception) {
+                    $error = 'You are not a registered customer yet.';
+                    $customerStatusHint = 'blocked';
+                    $user = null;
                 } catch (Throwable $exception) {
                     $error = 'Error: The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
                     if ($supportEmail !== '') {
@@ -305,9 +310,16 @@ if ($requestMethod === 'POST') {
 
             if ($error === '') {
                   if (!$user) {
-                      $error = $selectedRole === 'customer'
-                          ? 'The mobile number or password is incorrect, or the account is inactive.'
-                          : 'The provided credentials were incorrect or the account is inactive.';
+                      if ($selectedRole === 'customer') {
+                          $statusLookup = $customerStatusHint ?? ($db instanceof PDO ? customer_login_status($db, $identifier) : 'unknown');
+                          if ($statusLookup !== 'commissioned' && $statusLookup !== 'unknown') {
+                              $error = 'You are not a registered customer yet.';
+                          } else {
+                              $error = 'The mobile number or password is incorrect, or the account is inactive.';
+                          }
+                      } else {
+                          $error = 'The provided credentials were incorrect or the account is inactive.';
+                      }
                       if ($db instanceof PDO && $rateLimitKey !== '') {
                           $lockState = login_rate_limit_register_failure($db, $rateLimitKey, $ipAddress, $loginPolicy);
                         if ($lockState['locked']) {

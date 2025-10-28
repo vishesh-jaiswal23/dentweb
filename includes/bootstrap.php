@@ -951,6 +951,7 @@ function apply_schema_patches(PDO $db): void
     ensure_login_policy_row($db);
     ensure_portal_tables($db);
     ensure_lead_tables($db);
+    ensure_customer_profiles_table($db);
     ensure_blog_indexes($db);
 }
 
@@ -1862,6 +1863,15 @@ SQL
     if (!in_array('referrer_id', $columns, true)) {
         $db->exec('ALTER TABLE crm_leads ADD COLUMN referrer_id INTEGER');
     }
+    if (!in_array('address', $columns, true)) {
+        $db->exec('ALTER TABLE crm_leads ADD COLUMN address TEXT');
+    }
+    if (!in_array('district', $columns, true)) {
+        $db->exec('ALTER TABLE crm_leads ADD COLUMN district TEXT');
+    }
+    if (!in_array('pin_code', $columns, true)) {
+        $db->exec('ALTER TABLE crm_leads ADD COLUMN pin_code TEXT');
+    }
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_status ON crm_leads(status)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_updated_at ON crm_leads(updated_at DESC)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_crm_leads_referrer ON crm_leads(referrer_id)');
@@ -1924,6 +1934,100 @@ SQL
     );
     $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_lead ON lead_proposals(lead_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_status ON lead_proposals(status)');
+}
+
+function ensure_customer_profiles_table(PDO $db): void
+{
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS crm_customer_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_name TEXT NOT NULL,
+    mobile_number TEXT NOT NULL,
+    address TEXT,
+    district TEXT,
+    pin_code TEXT,
+    aadhaar_number TEXT,
+    pan_number TEXT,
+    discom_name TEXT,
+    consumer_name TEXT,
+    subdivision_name TEXT,
+    new_meter_required TEXT,
+    load_type TEXT,
+    phase TEXT,
+    sanctioned_load_kw REAL,
+    lead_source TEXT,
+    lead_status TEXT,
+    quotation_date TEXT,
+    quotation_number TEXT,
+    system_type_kw REAL,
+    system_category TEXT,
+    installation_status TEXT NOT NULL DEFAULT 'planning',
+    project_cost REAL,
+    pm_surya_ghar TEXT,
+    pm_sgy_application_id TEXT,
+    actual_bill_date TEXT,
+    gst_bill_date TEXT,
+    handover_date TEXT,
+    panel_warranty TEXT,
+    inverter_warranty TEXT,
+    structure_warranty TEXT,
+    service_warranty TEXT,
+    assigned_employee TEXT,
+    internal_remarks TEXT,
+    complaint_status TEXT,
+    portal_user_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes'))
+)
+SQL
+    );
+
+    $columns = $db->query('PRAGMA table_info(crm_customer_profiles)')->fetchAll(PDO::FETCH_COLUMN, 1);
+    $addColumn = static function (string $column, string $definition) use ($columns, $db): void {
+        if (!in_array($column, $columns, true)) {
+            $db->exec(sprintf('ALTER TABLE crm_customer_profiles ADD COLUMN %s %s', $column, $definition));
+        }
+    };
+
+    $addColumn('address', 'TEXT');
+    $addColumn('district', 'TEXT');
+    $addColumn('pin_code', 'TEXT');
+    $addColumn('aadhaar_number', 'TEXT');
+    $addColumn('pan_number', 'TEXT');
+    $addColumn('discom_name', 'TEXT');
+    $addColumn('consumer_name', 'TEXT');
+    $addColumn('subdivision_name', 'TEXT');
+    $addColumn('new_meter_required', 'TEXT');
+    $addColumn('load_type', 'TEXT');
+    $addColumn('phase', 'TEXT');
+    $addColumn('sanctioned_load_kw', 'REAL');
+    $addColumn('lead_source', 'TEXT');
+    $addColumn('lead_status', 'TEXT');
+    $addColumn('quotation_date', 'TEXT');
+    $addColumn('quotation_number', 'TEXT');
+    $addColumn('system_type_kw', 'REAL');
+    $addColumn('system_category', 'TEXT');
+    $addColumn('installation_status', "TEXT NOT NULL DEFAULT 'planning'");
+    $addColumn('project_cost', 'REAL');
+    $addColumn('pm_surya_ghar', 'TEXT');
+    $addColumn('pm_sgy_application_id', 'TEXT');
+    $addColumn('actual_bill_date', 'TEXT');
+    $addColumn('gst_bill_date', 'TEXT');
+    $addColumn('handover_date', 'TEXT');
+    $addColumn('panel_warranty', 'TEXT');
+    $addColumn('inverter_warranty', 'TEXT');
+    $addColumn('structure_warranty', 'TEXT');
+    $addColumn('service_warranty', 'TEXT');
+    $addColumn('assigned_employee', 'TEXT');
+    $addColumn('internal_remarks', 'TEXT');
+    $addColumn('complaint_status', 'TEXT');
+    $addColumn('portal_user_id', 'INTEGER');
+    $addColumn('created_at', "TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes'))");
+    $addColumn('updated_at', "TEXT NOT NULL DEFAULT (datetime('now', '+330 minutes'))");
+
+    $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_profiles_mobile ON crm_customer_profiles(mobile_number)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_customer_profiles_portal_user ON crm_customer_profiles(portal_user_id)');
+    $db->exec('CREATE INDEX IF NOT EXISTS idx_customer_profiles_installation ON crm_customer_profiles(installation_status)');
 }
 
 /**
@@ -3020,6 +3124,7 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
 
     $roleKey = strtolower($roleName);
     $isCustomerRole = $roleKey === 'customer';
+    $customerProfile = null;
 
     $email = strtolower(trim((string) ($input['email'] ?? '')));
     $usernameInput = (string) ($input['username'] ?? '');
@@ -3039,6 +3144,21 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
         }
 
         $username = $mobileDigits;
+
+        $customerProfile = customer_profile_find_by_mobile($db, $mobileDigits);
+        if ($customerProfile === null) {
+            throw new RuntimeException('Add the commissioned customer to CRM before creating portal access.');
+        }
+
+        $installationStatus = strtolower((string) ($customerProfile['installation_status'] ?? ''));
+        if ($installationStatus !== 'commissioned') {
+            throw new RuntimeException('Only commissioned installations can receive customer portal access.');
+        }
+
+        $linkedUserId = isset($customerProfile['portal_user_id']) ? (int) $customerProfile['portal_user_id'] : 0;
+        if ($linkedUserId > 0) {
+            throw new RuntimeException('Portal access already exists for this commissioned customer.');
+        }
 
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new RuntimeException('Customer email must be a valid address when provided.');
@@ -3108,6 +3228,15 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
     ]);
 
     portal_log_action($db, $actorId, 'create', 'user', (int) $record['id'], sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
+
+    if ($isCustomerRole && $customerProfile !== null) {
+        $stmt = $db->prepare('UPDATE crm_customer_profiles SET portal_user_id = :user_id, updated_at = :updated_at WHERE id = :id');
+        $stmt->execute([
+            ':user_id' => (int) ($record['id'] ?? 0),
+            ':updated_at' => now_ist(),
+            ':id' => (int) ($customerProfile['id'] ?? 0),
+        ]);
+    }
 
     return admin_list_accounts($db, ['status' => 'all']);
 }
@@ -4269,7 +4398,8 @@ function portal_admin_update_complaint_status(PDO $db, string $reference, string
 function admin_overview_counts(PDO $db): array
 {
     $activeEmployees = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee' AND users.status = 'active'")->fetchColumn();
-    $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
+    $leadFilter = lead_commission_exclusion_clause('l');
+    $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads l WHERE l.status = 'new' AND $leadFilter")->fetchColumn();
     $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
     $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active') AND deleted_at IS NULL")->fetchColumn();
@@ -4325,7 +4455,8 @@ function admin_today_highlights(PDO $db, int $limit = 12): array
         ];
     };
 
-    $leadStmt = $db->query('SELECT id, name, status, updated_at, created_at FROM crm_leads ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
+    $leadFilter = lead_commission_exclusion_clause('l');
+    $leadStmt = $db->query("SELECT id, name, status, updated_at, created_at FROM crm_leads l WHERE $leadFilter ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25");
     foreach ($leadStmt->fetchAll() as $row) {
         $status = lead_status_label($row['status'] ?? '');
         $title = sprintf('Lead "%s" is %s', $row['name'], strtolower($status));
@@ -5195,6 +5326,19 @@ function lead_status_label(string $status): string
     return $map[$normalized] ?? ucfirst($normalized ?: 'New');
 }
 
+function lead_commission_exclusion_clause(string $leadAlias = 'l'): string
+{
+    $cleanAlias = preg_replace('/[^A-Za-z0-9_]/', '', $leadAlias);
+    if (!is_string($cleanAlias) || $cleanAlias === '') {
+        $cleanAlias = 'l';
+    }
+
+    return sprintf(
+        "NOT EXISTS (SELECT 1 FROM crm_customer_profiles cp WHERE cp.mobile_number = %s.phone AND LOWER(cp.installation_status) = 'commissioned')",
+        $cleanAlias
+    );
+}
+
 
 function lead_stage_order(): array
 {
@@ -5238,6 +5382,671 @@ function lead_fetch(PDO $db, int $leadId): array
     }
 
     return $row;
+}
+
+function lead_find_by_phone(PDO $db, string $phone): ?array
+{
+    if ($phone === '') {
+        return null;
+    }
+
+    $stmt = $db->prepare('SELECT * FROM crm_leads WHERE phone = :phone LIMIT 1');
+    $stmt->execute([':phone' => $phone]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+function lead_delete_by_phone(PDO $db, string $phone): void
+{
+    if ($phone === '') {
+        return;
+    }
+
+    $stmt = $db->prepare('DELETE FROM crm_leads WHERE phone = :phone');
+    $stmt->execute([':phone' => $phone]);
+}
+
+function lead_upsert_basic(PDO $db, array $input, int $actorId = 0): array
+{
+    $name = trim((string) ($input['name'] ?? ''));
+    if ($name === '') {
+        throw new RuntimeException('Lead name is required.');
+    }
+
+    $phone = trim((string) ($input['phone'] ?? ''));
+    if ($phone !== '') {
+        $profile = customer_profile_find_by_mobile($db, $phone);
+        if ($profile && strtolower((string) ($profile['installation_status'] ?? '')) === 'commissioned') {
+            throw new RuntimeException('This contact is already a commissioned customer and cannot be added as a lead.');
+        }
+    }
+    $existing = $phone !== '' ? lead_find_by_phone($db, $phone) : null;
+
+    $allowedStatuses = array_keys(lead_stage_order());
+    $status = strtolower(trim((string) ($input['status'] ?? 'new')));
+    if (!in_array($status, $allowedStatuses, true)) {
+        $status = 'new';
+    }
+
+    $now = now_ist();
+    $address = trim((string) ($input['address'] ?? ''));
+    $district = trim((string) ($input['district'] ?? ''));
+    $pinCode = trim((string) ($input['pin_code'] ?? ''));
+    $source = trim((string) ($input['source'] ?? ''));
+    $notes = trim((string) ($input['notes'] ?? ''));
+
+    if ($existing) {
+        $stmt = $db->prepare('UPDATE crm_leads SET name = :name, phone = :phone, source = :source, status = :status, notes = :notes, address = :address, district = :district, pin_code = :pin_code, updated_at = :updated_at WHERE id = :id');
+        $stmt->execute([
+            ':name' => $name,
+            ':phone' => $phone !== '' ? $phone : null,
+            ':source' => $source !== '' ? $source : null,
+            ':status' => $status,
+            ':notes' => $notes !== '' ? $notes : null,
+            ':address' => $address !== '' ? $address : null,
+            ':district' => $district !== '' ? $district : null,
+            ':pin_code' => $pinCode !== '' ? $pinCode : null,
+            ':updated_at' => $now,
+            ':id' => (int) $existing['id'],
+        ]);
+
+        return lead_fetch($db, (int) $existing['id']);
+    }
+
+    $stmt = $db->prepare('INSERT INTO crm_leads(name, phone, email, source, status, assigned_to, created_by, referrer_id, site_location, site_details, notes, address, district, pin_code, created_at, updated_at) VALUES(:name, :phone, NULL, :source, :status, NULL, :created_by, NULL, NULL, NULL, :notes, :address, :district, :pin_code, :created_at, :updated_at)');
+    $stmt->execute([
+        ':name' => $name,
+        ':phone' => $phone !== '' ? $phone : null,
+        ':source' => $source !== '' ? $source : null,
+        ':status' => $status,
+        ':created_by' => $actorId ?: null,
+        ':notes' => $notes !== '' ? $notes : null,
+        ':address' => $address !== '' ? $address : null,
+        ':district' => $district !== '' ? $district : null,
+        ':pin_code' => $pinCode !== '' ? $pinCode : null,
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+
+    $leadId = (int) $db->lastInsertId();
+
+    return lead_fetch($db, $leadId);
+}
+
+function customer_profile_normalize_phone(string $value): string
+{
+    $digits = preg_replace('/\D+/', '', $value);
+    if (!is_string($digits)) {
+        return '';
+    }
+
+    $digits = trim($digits);
+    if ($digits === '') {
+        return '';
+    }
+
+    if (strlen($digits) >= 10) {
+        $digits = substr($digits, -10);
+    }
+
+    return strlen($digits) === 10 ? $digits : '';
+}
+
+function customer_profile_columns(): array
+{
+    return [
+        'full_name',
+        'mobile_number',
+        'address',
+        'district',
+        'pin_code',
+        'aadhaar_number',
+        'pan_number',
+        'discom_name',
+        'consumer_name',
+        'subdivision_name',
+        'new_meter_required',
+        'load_type',
+        'phase',
+        'sanctioned_load_kw',
+        'lead_source',
+        'lead_status',
+        'quotation_date',
+        'quotation_number',
+        'system_type_kw',
+        'system_category',
+        'installation_status',
+        'project_cost',
+        'pm_surya_ghar',
+        'pm_sgy_application_id',
+        'actual_bill_date',
+        'gst_bill_date',
+        'handover_date',
+        'panel_warranty',
+        'inverter_warranty',
+        'structure_warranty',
+        'service_warranty',
+        'assigned_employee',
+        'internal_remarks',
+        'complaint_status',
+    ];
+}
+
+function customer_profile_find_by_mobile(PDO $db, string $mobile): ?array
+{
+    $mobile = customer_profile_normalize_phone($mobile);
+    if ($mobile === '') {
+        return null;
+    }
+
+    $stmt = $db->prepare('SELECT * FROM crm_customer_profiles WHERE mobile_number = :mobile LIMIT 1');
+    $stmt->execute([':mobile' => $mobile]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+function customer_profile_find_by_user(PDO $db, int $userId): ?array
+{
+    if ($userId <= 0) {
+        return null;
+    }
+
+    $stmt = $db->prepare('SELECT * FROM crm_customer_profiles WHERE portal_user_id = :user LIMIT 1');
+    $stmt->execute([':user' => $userId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row !== false ? $row : null;
+}
+
+function customer_profile_upsert(PDO $db, array $input, int $actorId = 0): array
+{
+    $fullName = trim((string) ($input['full_name'] ?? ''));
+    if ($fullName === '') {
+        throw new RuntimeException('Customer name is required.');
+    }
+
+    $mobile = customer_profile_normalize_phone((string) ($input['mobile_number'] ?? ''));
+    if ($mobile === '') {
+        throw new RuntimeException('Customer mobile number must be a valid 10-digit value.');
+    }
+
+    $existing = customer_profile_find_by_mobile($db, $mobile);
+
+    $columns = customer_profile_columns();
+    $normalized = [];
+    foreach ($columns as $column) {
+        $value = $input[$column] ?? null;
+        if (is_string($value)) {
+            $value = trim($value);
+            $value = $value === '' ? null : $value;
+        }
+
+        switch ($column) {
+            case 'mobile_number':
+                $value = $mobile;
+                break;
+            case 'full_name':
+                $value = $fullName;
+                break;
+            case 'lead_status':
+            case 'installation_status':
+                if (is_string($value) && $value !== null) {
+                    $value = strtolower($value);
+                }
+                break;
+            case 'sanctioned_load_kw':
+            case 'system_type_kw':
+            case 'project_cost':
+                $value = $value !== null && is_numeric($value) ? (float) $value : null;
+                break;
+        }
+
+        $normalized[$column] = $value;
+    }
+
+    $now = now_ist();
+
+    if ($existing) {
+        $assignments = [];
+        $params = [];
+        foreach ($normalized as $column => $value) {
+            $assignments[] = sprintf('%s = :%s', $column, $column);
+            $params[':' . $column] = $value;
+        }
+        $assignments[] = 'updated_at = :updated_at';
+        $params[':updated_at'] = $now;
+        $params[':id'] = (int) $existing['id'];
+
+        $sql = 'UPDATE crm_customer_profiles SET ' . implode(', ', $assignments) . ' WHERE id = :id';
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+
+        return customer_profile_find_by_mobile($db, $mobile);
+    }
+
+    $fields = array_merge($columns, ['created_at', 'updated_at', 'portal_user_id']);
+    $placeholders = [];
+    $params = [];
+    foreach ($columns as $column) {
+        $placeholders[] = ':' . $column;
+        $params[':' . $column] = $normalized[$column];
+    }
+    $placeholders[] = ':created_at';
+    $placeholders[] = ':updated_at';
+    $placeholders[] = ':portal_user_id';
+    $params[':created_at'] = $now;
+    $params[':updated_at'] = $now;
+    $params[':portal_user_id'] = null;
+
+    $sql = 'INSERT INTO crm_customer_profiles(' . implode(',', $fields) . ') VALUES(' . implode(',', $placeholders) . ')';
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
+    return customer_profile_find_by_mobile($db, $mobile);
+}
+
+function customer_profile_generate_password(string $mobile): string
+{
+    $suffix = strtoupper(bin2hex(random_bytes(3)));
+    $lastFour = substr($mobile, -4);
+
+    return sprintf('%s@%s', $lastFour, $suffix);
+}
+
+function customer_profile_sync_user_account(PDO $db, array $profile, bool $commissioned): array
+{
+    $store = user_store();
+    $mobile = customer_profile_normalize_phone((string) ($profile['mobile_number'] ?? ''));
+    if ($mobile === '') {
+        throw new RuntimeException('Customer mobile number is required for portal access.');
+    }
+
+    $fullName = trim((string) ($profile['full_name'] ?? 'Customer'));
+    $user = null;
+    $portalUserId = isset($profile['portal_user_id']) ? (int) $profile['portal_user_id'] : 0;
+    if ($portalUserId > 0) {
+        try {
+            $user = $store->get($portalUserId);
+        } catch (Throwable $exception) {
+            $user = null;
+        }
+    }
+
+    if ($user === null) {
+        try {
+            $user = $store->findByLoginIdentifier($mobile, 'customer');
+        } catch (Throwable $exception) {
+            $user = null;
+        }
+    }
+
+    $result = [
+        'action' => 'none',
+        'user_id' => $user['id'] ?? null,
+    ];
+
+    if ($commissioned) {
+        if ($user) {
+            $user['full_name'] = $fullName;
+            $user['phone'] = $mobile;
+            $user['role'] = 'customer';
+            $user['status'] = 'active';
+            if (($user['email'] ?? '') === '' || $user['email'] === null) {
+                $user['email'] = sprintf('customer+%s@dakshayani.in', $mobile);
+            }
+
+            $note = trim((string) ($profile['internal_remarks'] ?? ''));
+            if ($note === '') {
+                $fragments = [];
+                if (!empty($profile['system_category'])) {
+                    $fragments[] = 'Category: ' . $profile['system_category'];
+                }
+                if (!empty($profile['system_type_kw'])) {
+                    $fragments[] = 'System: ' . $profile['system_type_kw'] . ' kW';
+                }
+                if (!empty($fragments)) {
+                    $note = implode(' | ', $fragments);
+                }
+            }
+            if ($note !== '') {
+                $user['permissions_note'] = $note;
+            }
+
+            $saved = $store->save($user);
+            $result['action'] = 'updated';
+            $result['user_id'] = (int) ($saved['id'] ?? $user['id']);
+        } else {
+            $password = customer_profile_generate_password($mobile);
+            $record = [
+                'full_name' => $fullName,
+                'email' => sprintf('customer+%s@dakshayani.in', $mobile),
+                'username' => $mobile,
+                'phone' => $mobile,
+                'role' => 'customer',
+                'status' => 'active',
+                'permissions_note' => trim((string) ($profile['internal_remarks'] ?? '')),
+                'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+                'created_at' => now_ist(),
+                'password_last_set_at' => now_ist(),
+            ];
+
+            $saved = $store->save($record);
+            $result['action'] = 'created';
+            $result['user_id'] = (int) ($saved['id'] ?? 0);
+            $result['password'] = $password;
+        }
+
+        $profileId = (int) ($profile['id'] ?? 0);
+        if ($profileId > 0 && ($result['user_id'] ?? 0) > 0) {
+            $stmt = $db->prepare('UPDATE crm_customer_profiles SET portal_user_id = :user_id, updated_at = :updated_at WHERE id = :id');
+            $stmt->execute([
+                ':user_id' => (int) $result['user_id'],
+                ':updated_at' => now_ist(),
+                ':id' => $profileId,
+            ]);
+        }
+
+        lead_delete_by_phone($db, $mobile);
+    } else {
+        if ($user) {
+            $user['status'] = 'pending';
+            $store->save($user);
+            $result['action'] = 'disabled';
+            $result['user_id'] = (int) ($user['id'] ?? 0);
+        }
+
+        $profileId = (int) ($profile['id'] ?? 0);
+        if ($profileId > 0) {
+            $stmt = $db->prepare('UPDATE crm_customer_profiles SET portal_user_id = :user_id, updated_at = :updated_at WHERE id = :id');
+            $stmt->execute([
+                ':user_id' => $result['user_id'] ?? null,
+                ':updated_at' => now_ist(),
+                ':id' => $profileId,
+            ]);
+        }
+    }
+
+    return $result;
+}
+
+function customer_profile_for_user(PDO $db, array $user): ?array
+{
+    $userId = (int) ($user['id'] ?? 0);
+    if ($userId > 0) {
+        $profile = customer_profile_find_by_user($db, $userId);
+        if ($profile !== null) {
+            return $profile;
+        }
+    }
+
+    $phone = customer_profile_normalize_phone((string) ($user['phone'] ?? ''));
+    if ($phone === '') {
+        $username = customer_profile_normalize_phone((string) ($user['username'] ?? ''));
+        $phone = $username;
+    }
+
+    return $phone !== '' ? customer_profile_find_by_mobile($db, $phone) : null;
+}
+
+function customer_login_guard(PDO $db, array $user): void
+{
+    $profile = customer_profile_for_user($db, $user);
+    $status = strtolower((string) ($profile['installation_status'] ?? ''));
+    if ($profile === null || $status !== 'commissioned') {
+        throw new CustomerLoginNotEligible('customer_not_commissioned');
+    }
+}
+
+function customer_login_status(PDO $db, string $identifier): string
+{
+    $phone = customer_profile_normalize_phone($identifier);
+    if ($phone === '') {
+        return 'unknown';
+    }
+
+    $profile = customer_profile_find_by_mobile($db, $phone);
+    if ($profile !== null) {
+        $status = strtolower((string) ($profile['installation_status'] ?? ''));
+        return $status !== '' ? $status : 'pending';
+    }
+
+    $lead = lead_find_by_phone($db, $phone);
+    if ($lead !== null) {
+        return strtolower((string) ($lead['status'] ?? 'lead')) ?: 'lead';
+    }
+
+    return 'unknown';
+}
+
+function admin_lead_csv_columns(): array
+{
+    return [
+        'Full Name',
+        'Mobile Number',
+        'Address',
+        'District',
+        'Pin Code',
+        'Lead Source',
+        'Lead Status',
+        'Internal Remarks',
+    ];
+}
+
+function admin_customer_csv_columns(): array
+{
+    return [
+        'Full Name',
+        'Mobile Number',
+        'Address',
+        'District',
+        'Pin Code',
+        'Aadhaar Number',
+        'PAN Number',
+        'DISCOM Name',
+        'Consumer Name',
+        'Subdivision Name',
+        'New Meter Required',
+        'Load Type',
+        'Phase',
+        'Sanctioned Load (kW)',
+        'Lead Source',
+        'Lead Status',
+        'Quotation Date',
+        'Quotation Number',
+        'System Type (kW)',
+        'System Category',
+        'Installation Status',
+        'Project Cost',
+        'PM-Surya Ghar',
+        'PM-SGY Application ID',
+        'Actual Bill Date',
+        'GST Bill Date',
+        'Handover Date',
+        'Panel Warranty',
+        'Inverter Warranty',
+        'Structure Warranty',
+        'Service Warranty',
+        'Assigned Employee',
+        'Internal Remarks',
+        'Complaint Status',
+    ];
+}
+
+function admin_import_contacts(PDO $db, string $type, string $filePath, int $actorId): array
+{
+    $type = strtolower(trim($type));
+    $mode = in_array($type, ['customer', 'customers'], true) ? 'customers' : 'leads';
+
+    $handle = fopen($filePath, 'rb');
+    if ($handle === false) {
+        throw new RuntimeException('Unable to read the uploaded file.');
+    }
+
+    $expected = $mode === 'customers' ? admin_customer_csv_columns() : admin_lead_csv_columns();
+    $header = fgetcsv($handle);
+    if ($header === false) {
+        fclose($handle);
+        throw new RuntimeException('The CSV file is empty.');
+    }
+
+    $header = array_map(static fn ($value) => trim((string) $value), $header);
+    if (count($header) !== count($expected)) {
+        fclose($handle);
+        throw new RuntimeException('CSV header does not match the expected template.');
+    }
+
+    foreach ($expected as $index => $column) {
+        if (!hash_equals($column, $header[$index])) {
+            fclose($handle);
+            throw new RuntimeException(sprintf('Unexpected column "%s" in the uploaded file.', $header[$index]));
+        }
+    }
+
+    $summary = [
+        'leads_imported' => 0,
+        'customers_imported' => 0,
+        'customers_promoted' => 0,
+        'accounts_created' => [],
+        'accounts_updated' => 0,
+        'accounts_disabled' => 0,
+        'skipped' => [],
+    ];
+
+    $leadMap = [
+        'Full Name' => 'name',
+        'Mobile Number' => 'phone',
+        'Address' => 'address',
+        'District' => 'district',
+        'Pin Code' => 'pin_code',
+        'Lead Source' => 'source',
+        'Lead Status' => 'status',
+        'Internal Remarks' => 'notes',
+    ];
+
+    $customerMap = [
+        'Full Name' => 'full_name',
+        'Mobile Number' => 'mobile_number',
+        'Address' => 'address',
+        'District' => 'district',
+        'Pin Code' => 'pin_code',
+        'Aadhaar Number' => 'aadhaar_number',
+        'PAN Number' => 'pan_number',
+        'DISCOM Name' => 'discom_name',
+        'Consumer Name' => 'consumer_name',
+        'Subdivision Name' => 'subdivision_name',
+        'New Meter Required' => 'new_meter_required',
+        'Load Type' => 'load_type',
+        'Phase' => 'phase',
+        'Sanctioned Load (kW)' => 'sanctioned_load_kw',
+        'Lead Source' => 'lead_source',
+        'Lead Status' => 'lead_status',
+        'Quotation Date' => 'quotation_date',
+        'Quotation Number' => 'quotation_number',
+        'System Type (kW)' => 'system_type_kw',
+        'System Category' => 'system_category',
+        'Installation Status' => 'installation_status',
+        'Project Cost' => 'project_cost',
+        'PM-Surya Ghar' => 'pm_surya_ghar',
+        'PM-SGY Application ID' => 'pm_sgy_application_id',
+        'Actual Bill Date' => 'actual_bill_date',
+        'GST Bill Date' => 'gst_bill_date',
+        'Handover Date' => 'handover_date',
+        'Panel Warranty' => 'panel_warranty',
+        'Inverter Warranty' => 'inverter_warranty',
+        'Structure Warranty' => 'structure_warranty',
+        'Service Warranty' => 'service_warranty',
+        'Assigned Employee' => 'assigned_employee',
+        'Internal Remarks' => 'internal_remarks',
+        'Complaint Status' => 'complaint_status',
+    ];
+
+    $rowNumber = 1;
+    while (($row = fgetcsv($handle)) !== false) {
+        $rowNumber++;
+        $values = array_map(static fn ($value) => trim((string) $value), $row);
+        if (count(array_filter($values, static fn ($value) => $value !== '')) === 0) {
+            continue;
+        }
+
+        if (count($values) < count($expected)) {
+            $values = array_pad($values, count($expected), '');
+        }
+
+        $record = [];
+        foreach ($expected as $index => $column) {
+            $record[$column] = $values[$index] ?? '';
+        }
+
+        $leadStatus = strtolower((string) ($record['Lead Status'] ?? ''));
+        $installationStatus = strtolower((string) ($record['Installation Status'] ?? ''));
+        $treatAsCustomer = $leadStatus === 'converted' && $installationStatus === 'commissioned';
+
+        if ($treatAsCustomer) {
+            try {
+                $profileInput = [];
+                foreach ($customerMap as $csvKey => $field) {
+                    $profileInput[$field] = $record[$csvKey] ?? null;
+                }
+
+                $profile = customer_profile_upsert($db, $profileInput, $actorId);
+                $summary['customers_imported']++;
+
+                $phoneDigits = customer_profile_normalize_phone((string) $profileInput['mobile_number']);
+                if ($phoneDigits !== '' && lead_find_by_phone($db, $phoneDigits) !== null) {
+                    lead_delete_by_phone($db, $phoneDigits);
+                    $summary['customers_promoted']++;
+                }
+
+                $sync = customer_profile_sync_user_account($db, $profile, true);
+                if ($sync['action'] === 'created') {
+                    $summary['accounts_created'][] = [
+                        'name' => $profile['full_name'],
+                        'mobile' => $phoneDigits,
+                        'password' => $sync['password'] ?? '',
+                    ];
+                } elseif ($sync['action'] === 'updated') {
+                    $summary['accounts_updated']++;
+                } elseif ($sync['action'] === 'disabled') {
+                    $summary['accounts_disabled']++;
+                }
+            } catch (Throwable $exception) {
+                $summary['skipped'][] = [
+                    'row' => $rowNumber,
+                    'reason' => $exception->getMessage(),
+                ];
+            }
+            continue;
+        }
+
+        try {
+            $leadInput = [];
+            foreach ($leadMap as $csvKey => $field) {
+                if (isset($record[$csvKey])) {
+                    $leadInput[$field] = $record[$csvKey];
+                }
+            }
+
+            $phoneDigits = customer_profile_normalize_phone((string) ($leadInput['phone'] ?? ''));
+            if ($phoneDigits === '') {
+                throw new RuntimeException('Enter a valid 10-digit mobile number.');
+            }
+            $leadInput['phone'] = $phoneDigits;
+
+            lead_upsert_basic($db, $leadInput, $actorId);
+            $summary['leads_imported']++;
+        } catch (Throwable $exception) {
+            $summary['skipped'][] = [
+                'row' => $rowNumber,
+                'reason' => $exception->getMessage(),
+            ];
+        }
+    }
+
+    fclose($handle);
+
+    return $summary;
 }
 
 function lead_record_stage_change(PDO $db, int $leadId, string $from, string $to, int $actorId, ?string $note = null): void
@@ -5622,15 +6431,16 @@ function referrer_with_metrics(PDO $db, int $id): array
         throw new RuntimeException('Referrer not found.');
     }
 
-    $metricsStmt = $db->prepare(<<<'SQL'
+    $leadFilter = lead_commission_exclusion_clause('l');
+    $metricsStmt = $db->prepare(<<<SQL
 SELECT
     COUNT(*) AS total_leads,
     SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) AS converted_leads,
     SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) AS lost_leads,
     SUM(CASE WHEN status IN ('new','visited','quotation') THEN 1 ELSE 0 END) AS pipeline_leads,
     MAX(updated_at) AS latest_lead_update
-FROM crm_leads
-WHERE referrer_id = :id
+FROM crm_leads l
+WHERE l.referrer_id = :id AND {$leadFilter}
 SQL
     );
     $metricsStmt->execute([':id' => $id]);
@@ -5676,6 +6486,8 @@ function admin_list_referrers(PDO $db, string $status = 'all'): array
 
     $statusSortExpr = "CASE WHEN r.status = 'active' THEN 1 ELSE 0 END";
 
+    $leadFilter = lead_commission_exclusion_clause('l');
+
     $sql = <<<SQL
 SELECT
     r.id,
@@ -5694,7 +6506,7 @@ SELECT
     SUM(CASE WHEN l.status IN ('new','visited','quotation') THEN 1 ELSE 0 END) AS pipeline_leads,
     MAX(l.updated_at) AS latest_lead_update
 FROM referrers r
-LEFT JOIN crm_leads l ON l.referrer_id = r.id
+LEFT JOIN crm_leads l ON l.referrer_id = r.id AND {$leadFilter}
 %s
 GROUP BY
     r.id,
@@ -5757,7 +6569,8 @@ SQL;
 function admin_referrer_leads(PDO $db, int $referrerId): array
 {
     $orderExpr = "CASE l.status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
-    $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.referrer_id = :referrer_id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $leadFilter = lead_commission_exclusion_clause('l');
+    $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.referrer_id = :referrer_id AND $leadFilter ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
     $stmt->execute([':referrer_id' => $referrerId]);
 
     return lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -5865,7 +6678,8 @@ function referrer_submit_lead(PDO $db, array $input, int $referrerId, int $actor
 
 function referrer_portal_leads(PDO $db, int $referrerId): array
 {
-    $stmt = $db->prepare('SELECT id, name, phone, email, status, created_at, updated_at FROM crm_leads WHERE referrer_id = :referrer_id ORDER BY COALESCE(updated_at, created_at) DESC');
+    $leadFilter = lead_commission_exclusion_clause('l');
+    $stmt = $db->prepare("SELECT id, name, phone, email, status, created_at, updated_at FROM crm_leads l WHERE l.referrer_id = :referrer_id AND $leadFilter ORDER BY COALESCE(updated_at, created_at) DESC");
     $stmt->execute([':referrer_id' => $referrerId]);
 
     $rows = [];
@@ -5899,7 +6713,8 @@ function referrer_portal_leads(PDO $db, int $referrerId): array
 
 function admin_unassigned_leads(PDO $db): array
 {
-    $stmt = $db->query("SELECT id, name FROM crm_leads WHERE referrer_id IS NULL ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 100");
+    $leadFilter = lead_commission_exclusion_clause('l');
+    $stmt = $db->query("SELECT id, name FROM crm_leads l WHERE l.referrer_id IS NULL AND $leadFilter ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 100");
     $results = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $results[] = [
@@ -6055,7 +6870,8 @@ function admin_update_lead_stage(PDO $db, int $leadId, string $stage, int $actor
 function admin_fetch_lead_overview(PDO $db): array
 {
     $orderExpr = "CASE l.status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
-    $stmt = $db->query("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id LEFT JOIN referrers r ON l.referrer_id = r.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $leadFilter = lead_commission_exclusion_clause('l');
+    $stmt = $db->query("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE $leadFilter ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
 
     return lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
 }
@@ -6063,7 +6879,8 @@ function admin_fetch_lead_overview(PDO $db): array
 function employee_list_leads(PDO $db, int $employeeId): array
 {
     $orderExpr = "CASE l.status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
-    $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.assigned_to = :employee_id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $leadFilter = lead_commission_exclusion_clause('l');
+    $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.assigned_to = :employee_id AND $leadFilter ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
     $stmt->execute([':employee_id' => $employeeId]);
 
     $leads = lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -7513,12 +8330,13 @@ function admin_list_leads(PDO $db, string $status = 'new'): array
 {
     $status = strtolower(trim($status));
     $orderExpr = "CASE l.status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
+    $leadFilter = lead_commission_exclusion_clause('l');
     if ($status === 'all') {
-        $stmt = $db->query("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at, l.referrer_id, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+        $stmt = $db->query("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at, l.referrer_id, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE $leadFilter ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
         return $stmt->fetchAll();
     }
 
-    $stmt = $db->prepare("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at, l.referrer_id, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.status = :status ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
+    $stmt = $db->prepare("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at, l.referrer_id, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.status = :status AND $leadFilter ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
     $stmt->execute([':status' => $status]);
 
     return $stmt->fetchAll();

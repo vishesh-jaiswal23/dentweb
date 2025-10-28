@@ -188,6 +188,10 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
           <i class="fa-solid fa-inbox" aria-hidden="true"></i>
           Requests
         </a>
+        <a href="<?= htmlspecialchars($pathFor('admin-record-import.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
+          <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i>
+          Bulk import
+        </a>
         <a href="<?= htmlspecialchars($pathFor('admin-ai-studio.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
           <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
           AI Studio
