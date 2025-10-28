@@ -3011,11 +3011,32 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
         $db->prepare('DELETE FROM invitations WHERE inviter_id = :id')->execute($idParam);
 
         foreach (crm_lead_cleanup_tables($db) as $table => $columns) {
-            if (isset($columns['assigned_to'])) {
-                $db->prepare("UPDATE $table SET assigned_to = NULL WHERE assigned_to = :id")->execute($idParam);
+            if (!isset($columns['assigned_to']) && !isset($columns['created_by'])) {
+                continue;
             }
-            if (isset($columns['created_by'])) {
-                $db->prepare("UPDATE $table SET created_by = NULL WHERE created_by = :id")->execute($idParam);
+
+            try {
+                if (isset($columns['assigned_to'])) {
+                    $db->prepare("UPDATE $table SET assigned_to = NULL WHERE assigned_to = :id")->execute($idParam);
+                }
+                if (isset($columns['created_by'])) {
+                    $db->prepare("UPDATE $table SET created_by = NULL WHERE created_by = :id")->execute($idParam);
+                }
+            } catch (PDOException $exception) {
+                $message = strtolower($exception->getMessage());
+                if (
+                    str_contains($message, 'no such table')
+                    && str_contains($message, strtolower($table))
+                ) {
+                    error_log(sprintf(
+                        'admin_delete_user: skipping cleanup for missing table %s: %s',
+                        $table,
+                        $exception->getMessage()
+                    ));
+                    continue;
+                }
+
+                throw $exception;
             }
         }
 
