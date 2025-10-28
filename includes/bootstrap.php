@@ -3044,18 +3044,50 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
         throw new RuntimeException('Full name is required.');
     }
 
-    $email = strtolower(trim((string) ($input['email'] ?? '')));
-    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        throw new RuntimeException('A valid email address is required.');
-    }
-
-    $username = strtolower(trim((string) ($input['username'] ?? '')));
-    if ($username === '' || !preg_match('/^[a-z0-9._-]{3,}$/', $username)) {
-        throw new RuntimeException('Username must be at least 3 characters (letters, numbers, dot, underscore, or dash).');
-    }
-
     $roleName = (string) ($input['role'] ?? 'employee');
     $roleId = admin_resolve_role_id($db, $roleName);
+
+    $roleKey = strtolower($roleName);
+    $isCustomerRole = $roleKey === 'customer';
+
+    $email = strtolower(trim((string) ($input['email'] ?? '')));
+    $usernameInput = (string) ($input['username'] ?? '');
+    $mobileRaw = (string) ($input['mobile'] ?? '');
+    $mobileDigits = preg_replace('/\D+/', '', $mobileRaw);
+    if (!is_string($mobileDigits)) {
+        $mobileDigits = '';
+    }
+
+    if ($isCustomerRole) {
+        if (strlen($mobileDigits) === 12 && substr($mobileDigits, 0, 2) === '91') {
+            $mobileDigits = substr($mobileDigits, -10);
+        }
+
+        if (strlen($mobileDigits) !== 10) {
+            throw new RuntimeException('Customer accounts require a valid 10-digit mobile number.');
+        }
+
+        $username = $mobileDigits;
+
+        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('Customer email must be a valid address when provided.');
+        }
+
+        if ($email === '') {
+            $email = sprintf('customer+%s@dakshayani.in', $username);
+        }
+    } else {
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('A valid email address is required.');
+        }
+
+        $username = strtolower(trim($usernameInput));
+        if ($username === '' || !preg_match('/^[a-z0-9._-]{3,}$/', $username)) {
+            throw new RuntimeException('Username must be at least 3 characters (letters, numbers, dot, underscore, or dash).');
+        }
+    }
+
+    $username = strtolower($username);
 
     $password = (string) ($input['password'] ?? '');
     if (strlen($password) < 8) {
@@ -3088,13 +3120,13 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
         ]);
     } catch (PDOException $exception) {
         if ($exception->getCode() === '23000') {
-            throw new RuntimeException('Email or username already exists.');
+            throw new RuntimeException('Email, username, or mobile already exists.');
         }
         throw $exception;
     }
 
     $userId = (int) $db->lastInsertId();
-    portal_log_action($db, $actorId, 'create', 'user', $userId, sprintf('User %s (%s) created with role %s', $fullName, $email, strtolower($roleName)));
+    portal_log_action($db, $actorId, 'create', 'user', $userId, sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
 
     return admin_list_accounts($db, ['status' => 'all']);
 }
