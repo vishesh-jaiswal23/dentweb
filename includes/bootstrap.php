@@ -1682,7 +1682,20 @@ CREATE TABLE crm_leads (
 )
 SQL
             );
-            $db->exec(<<<'SQL'
+            $backupExists = (bool) $db->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads_backup'")->fetchColumn();
+            $hasBackup = false;
+            if ($backupExists) {
+                try {
+                    $db->query('SELECT 1 FROM crm_leads_backup LIMIT 1');
+                    $hasBackup = true;
+                } catch (Throwable $probeException) {
+                    error_log(sprintf('ensure_lead_tables: crm_leads_backup probe failed, dropping stale table: %s', $probeException->getMessage()));
+                    $db->exec('DROP TABLE IF EXISTS crm_leads_backup');
+                }
+            }
+            if ($hasBackup) {
+                try {
+                    $db->exec(<<<'SQL'
 INSERT INTO crm_leads (id, name, phone, email, source, status, assigned_to, created_by, referrer_id, site_location, site_details, notes, created_at, updated_at)
 SELECT id, name, phone, email, source,
        CASE
@@ -1701,8 +1714,19 @@ SELECT id, name, phone, email, source,
         updated_at
 FROM crm_leads_backup
 SQL
-            );
-            $db->exec('DROP TABLE crm_leads_backup');
+                    );
+                    $db->exec('DROP TABLE crm_leads_backup');
+                } catch (Throwable $exception) {
+                    if (stripos($exception->getMessage(), 'crm_leads_backup') !== false) {
+                        error_log(sprintf('ensure_lead_tables: skipping migration copy because crm_leads_backup is unavailable: %s', $exception->getMessage()));
+                        $db->exec('DROP TABLE IF EXISTS crm_leads_backup');
+                    } else {
+                        throw $exception;
+                    }
+                }
+            } else {
+                error_log('ensure_lead_tables: crm_leads_backup missing during migration; continuing with empty crm_leads table');
+            }
         } catch (Throwable $exception) {
             $db->rollBack();
             throw $exception;
