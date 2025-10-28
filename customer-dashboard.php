@@ -125,6 +125,17 @@ $kolkataNow = portal_current_time();
 $kolkataIsoTime = (string) ($kolkataNow['iso'] ?? '');
 $kolkataDisplayTime = (string) ($kolkataNow['display'] ?? '');
 $kolkataTimeAbbr = (string) ($kolkataNow['label'] ?? 'IST');
+$kolkataIsoTime = '';
+$kolkataDisplayTime = '';
+try {
+    $kolkataZone = new DateTimeZone('Asia/Kolkata');
+    $kolkataNow = new DateTimeImmutable('now', $kolkataZone);
+    $kolkataIsoTime = $kolkataNow->format(DATE_ATOM);
+    $kolkataDisplayTime = $kolkataNow->format('d M Y · h:i A');
+} catch (Throwable $exception) {
+    $kolkataIsoTime = date(DATE_ATOM);
+    $kolkataDisplayTime = date('d M Y · h:i A');
+}
 
 ?>
 <!DOCTYPE html>
@@ -166,6 +177,7 @@ $kolkataTimeAbbr = (string) ($kolkataNow['label'] ?? 'IST');
             <small>Current time (Kolkata)</small>
             <time datetime="<?= htmlspecialchars($kolkataIsoTime, ENT_QUOTES) ?>">
               <?= htmlspecialchars($kolkataDisplayTime, ENT_QUOTES) ?> <?= htmlspecialchars($kolkataTimeAbbr, ENT_QUOTES) ?>
+              <?= htmlspecialchars($kolkataDisplayTime, ENT_QUOTES) ?> IST
             </time>
           </div>
         </div>
