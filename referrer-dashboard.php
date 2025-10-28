@@ -7,9 +7,8 @@ require_once __DIR__ . '/includes/bootstrap.php';
 require_role('referrer');
 
 $user = current_user();
-$db = get_db();
 $sessionUserId = (int) ($user['id'] ?? 0);
-$storedAccount = portal_find_user($db, $sessionUserId) ?: [];
+$storedAccount = file_portal_find_user($sessionUserId) ?: [];
 $referrerAccount = $storedAccount + [
     'id' => $sessionUserId,
     'full_name' => $user['full_name'] ?? '',
@@ -19,7 +18,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 
 $profileError = '';
 try {
-    $referrerProfile = referrer_ensure_profile($db, $referrerAccount);
+    $referrerProfile = file_referrer_ensure_profile($referrerAccount);
 } catch (Throwable $exception) {
     $profileError = $exception->getMessage();
     $referrerProfile = null;
@@ -53,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             : 'Lead submission is temporarily unavailable. Please contact the administrator.';
     } else {
         try {
-            $lead = referrer_submit_lead($db, $_POST, (int) $referrerProfile['id'], $sessionUserId);
+            $lead = file_referrer_submit_lead($_POST, (int) $referrerProfile['id'], $sessionUserId);
             $leadName = trim((string) ($lead['name'] ?? 'New lead'));
             $formSuccess = sprintf('Lead "%s" submitted successfully.', $leadName !== '' ? $leadName : 'New lead');
             $formData = [
@@ -69,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$leads = $referrerProfile ? referrer_portal_leads($db, (int) $referrerProfile['id']) : [];
+$leads = $referrerProfile ? file_referrer_portal_leads((int) $referrerProfile['id']) : [];
 $statusCounts = [
     'approved' => 0,
     'converted' => 0,

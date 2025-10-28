@@ -6,7 +6,6 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 require_admin();
 $admin = current_user();
-$db = get_db();
 
 $csrfToken = $_SESSION['csrf_token'] ?? '';
 $flashData = consume_flash();
@@ -36,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         switch ($action) {
             case 'create-referrer':
-                $created = admin_create_referrer($db, $_POST);
+                $created = file_admin_create_referrer($_POST);
                 $redirectId = (int) ($created['id'] ?? 0);
                 set_flash('success', 'Referrer added successfully.');
                 break;
@@ -45,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($referrerId <= 0) {
                     throw new RuntimeException('Referrer reference missing.');
                 }
-                admin_update_referrer($db, $referrerId, $_POST);
+                file_admin_update_referrer($referrerId, $_POST);
                 $redirectId = $referrerId;
                 set_flash('success', 'Referrer details updated.');
                 break;
@@ -55,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($referrerId <= 0 || $leadId <= 0) {
                     throw new RuntimeException('Select a referrer and lead to assign.');
                 }
-                admin_assign_referrer($db, $leadId, $referrerId, (int) ($admin['id'] ?? 0));
+                file_admin_assign_referrer($leadId, $referrerId, (int) ($admin['id'] ?? 0));
                 $redirectId = $referrerId;
                 set_flash('success', 'Lead linked to referrer.');
                 break;
@@ -81,14 +80,14 @@ if (!in_array($statusFilter, $validStatuses, true)) {
     $statusFilter = 'all';
 }
 
-$referrers = admin_list_referrers($db, $statusFilter);
+$referrers = file_admin_list_referrers($statusFilter);
 $selectedId = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 $selectedReferrer = null;
 $referrerLeads = [];
 if ($selectedId > 0) {
     try {
-        $selectedReferrer = referrer_with_metrics($db, $selectedId);
-        $referrerLeads = admin_referrer_leads($db, $selectedId);
+        $selectedReferrer = file_referrer_with_metrics($selectedId);
+        $referrerLeads = file_admin_referrer_leads($selectedId);
     } catch (Throwable $exception) {
         set_flash('error', $exception->getMessage());
         $selectedReferrer = null;
@@ -96,7 +95,7 @@ if ($selectedId > 0) {
     }
 }
 
-$unassignedLeads = admin_unassigned_leads($db);
+$unassignedLeads = file_admin_unassigned_leads();
 
 function format_admin_date(?string $value): string
 {
