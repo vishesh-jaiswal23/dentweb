@@ -6,7 +6,50 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 require_role('employee');
 $user = current_user();
-$db = get_db();
+
+$db = null;
+$databaseError = '';
+try {
+    $db = get_db();
+} catch (Throwable $exception) {
+    $databaseError = $exception->getMessage();
+    error_log('Employee dashboard unavailable: ' . $databaseError);
+}
+
+if (!$db instanceof PDO) {
+    http_response_code(503);
+    $supportEmail = resolve_admin_email();
+    $supportCopy = $supportEmail !== ''
+        ? ' Please contact ' . htmlspecialchars($supportEmail, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ' for assistance.'
+        : '';
+    ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Employee Portal Unavailable | Dakshayani Enterprises</title>
+  <link rel="icon" href="images/favicon.ico" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="login-page">
+  <div class="login-container" style="max-width: 540px;">
+    <div class="login-card">
+      <h1>Employee Portal Unavailable</h1>
+      <p>
+        The employee workspace is temporarily offline because the secure database could not be reached.
+        Please try again in a few minutes.<?= $supportCopy ?>
+      </p>
+      <p class="login-footer">
+        <a href="logout.php">Return to login</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    <?php
+    exit;
+}
 
 $flashData = consume_flash();
 $flashMessage = '';
