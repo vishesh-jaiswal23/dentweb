@@ -127,47 +127,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $accounts = admin_list_accounts($db, ['status' => 'all']);
-$commissionedMobiles = [];
-try {
-    foreach (customer_records_customers() as $customerRecord) {
-        if (!is_array($customerRecord)) {
-            continue;
-        }
-        $mobileCandidates = [
-            $customerRecord['mobile_normalized'] ?? '',
-            $customerRecord['mobile_number'] ?? '',
-        ];
-        foreach ($mobileCandidates as $candidate) {
-            $normalizedMobile = normalize_customer_mobile((string) $candidate);
-            if ($normalizedMobile === '') {
-                continue;
-            }
-            $commissionedMobiles[$normalizedMobile] = true;
-        }
-    }
-} catch (Throwable $customerRecordsError) {
-    error_log('Failed to read customer record store: ' . $customerRecordsError->getMessage());
-}
-
 $teamAccounts = array_values(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['role'] ?? '')) !== 'customer'));
-$customerAccounts = array_values(array_filter($accounts, static function (array $account) use ($commissionedMobiles): bool {
-    if (strtolower((string) ($account['role'] ?? '')) !== 'customer') {
-        return false;
-    }
-
-    $candidates = [
-        normalize_customer_mobile((string) ($account['username'] ?? '')),
-        normalize_customer_mobile((string) ($account['phone'] ?? '')),
-    ];
-
-    foreach ($candidates as $mobile) {
-        if ($mobile !== '' && isset($commissionedMobiles[$mobile])) {
-            return true;
-        }
-    }
-
-    return false;
-}));
+$customerAccounts = array_values(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['role'] ?? '')) === 'customer'));
 
 $activeCollection = $isCustomerView ? $customerAccounts : $teamAccounts;
 $filteredAccounts = $statusFilter === 'all'
