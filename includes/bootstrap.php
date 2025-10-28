@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/blog.php';
+require_once __DIR__ . '/ai.php';
 
 function safe_get_constant(string $name, $default = null)
 {
@@ -1024,7 +1025,11 @@ function upgrade_blog_posts_table(PDO $db): void
         $hasStatus = in_array('status', $columnNames, true);
         $hasPublishedAt = in_array('published_at', $columnNames, true);
 
-        $db->exec('DELETE FROM blog_posts_backup');
+        // Recreate the backup table on each migration run to guarantee it exists
+        // with the expected shape, even on installations that predate the helper.
+        $db->exec('DROP TABLE IF EXISTS blog_posts_backup');
+        blog_ensure_backup_table($db);
+
         $db->exec(<<<'SQL'
 INSERT INTO blog_posts_backup (id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at)
 SELECT
