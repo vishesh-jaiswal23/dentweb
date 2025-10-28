@@ -2926,11 +2926,38 @@ function admin_resolve_role_id(PDO $db, string $roleName): int
         throw new RuntimeException('Role is required.');
     }
 
+    if (function_exists('canonical_role_name')) {
+        $normalized = canonical_role_name($normalized);
+    }
+
+    $roleCatalog = [
+        'admin' => 'System administrators with full permissions.',
+        'employee' => 'Internal staff managing operations and service.',
+        'installer' => 'Field installers responsible for on-site execution.',
+        'referrer' => 'Channel partners supplying qualified leads.',
+        'customer' => 'End customers with read-only project tracking.',
+    ];
+
+    if (!isset($roleCatalog[$normalized])) {
+        throw new RuntimeException('Unsupported role selected.');
+    }
+
     $stmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
     $stmt->execute([':name' => $normalized]);
     $roleId = $stmt->fetchColumn();
+
     if ($roleId === false) {
-        throw new RuntimeException('Unsupported role selected.');
+        $insert = $db->prepare('INSERT INTO roles(name, description) VALUES(:name, :description)');
+        $insert->execute([
+            ':name' => $normalized,
+            ':description' => $roleCatalog[$normalized],
+        ]);
+        $roleId = $db->lastInsertId();
+        if (!$roleId) {
+            $stmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
+            $stmt->execute([':name' => $normalized]);
+            $roleId = $stmt->fetchColumn();
+        }
     }
 
     return (int) $roleId;
