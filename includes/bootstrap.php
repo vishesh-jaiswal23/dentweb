@@ -750,6 +750,8 @@ function seed_defaults(PDO $db): void
 
     seed_portal_defaults($db);
     merge_employee_roles($db);
+
+    admin_sync_user_store($db);
 }
 
 function record_system_audit(PDO $db, string $action, string $entityType, int $entityId, string $description): void
@@ -906,10 +908,17 @@ function ensure_default_user(PDO $db, array $account): void
     }
 
     try {
-        $store->save($payload);
+        $record = $store->save($payload);
     } catch (Throwable $exception) {
         error_log(sprintf('ensure_default_user: unable to persist default account %s: %s', $payload['email'], $exception->getMessage()));
         return;
+    }
+
+    try {
+        admin_sync_user_record($db, $record ?? $payload);
+    } catch (Throwable $syncError) {
+        $identifier = $payload['email'] ?? ('user #' . ($record['id'] ?? 'unknown'));
+        error_log(sprintf('ensure_default_user: unable to sync default account %s: %s', $identifier, $syncError->getMessage()));
     }
 
     try {
@@ -2990,6 +2999,107 @@ function admin_normalise_user_record(array $record): array
     ];
 }
 
+function admin_sync_user_record(PDO $db, array $record): void
+{
+    $userId = isset($record['id']) ? (int) $record['id'] : 0;
+    if ($userId <= 0) {
+        return;
+    }
+
+    $fullName = trim((string) ($record['full_name'] ?? ''));
+    if ($fullName === '') {
+        $fullName = 'User #' . $userId;
+    }
+
+    $email = strtolower(trim((string) ($record['email'] ?? '')));
+    if ($email === '') {
+        $email = sprintf('user%d@sync.local', $userId);
+    }
+
+    $username = strtolower(trim((string) ($record['username'] ?? '')));
+    if ($username === '') {
+        $username = sprintf('user%d', $userId);
+    }
+
+    $roleName = (string) ($record['role'] ?? '');
+    if ($roleName === '') {
+        $roleName = 'employee';
+    }
+    $roleId = admin_resolve_role_id($db, $roleName);
+
+    $status = strtolower((string) ($record['status'] ?? 'active'));
+    if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
+        $status = 'active';
+    }
+
+    $permissionsNote = trim((string) ($record['permissions_note'] ?? ''));
+
+    $passwordHash = (string) ($record['password_hash'] ?? '');
+    if ($passwordHash === '') {
+        $passwordHash = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+    }
+
+    $createdAt = (string) ($record['created_at'] ?? '');
+    if ($createdAt === '') {
+        $createdAt = now_ist();
+    }
+
+    $updatedAt = (string) ($record['updated_at'] ?? '');
+    if ($updatedAt === '') {
+        $updatedAt = $createdAt;
+    }
+
+    $lastLoginAt = $record['last_login_at'] ?? null;
+    if (!is_string($lastLoginAt) || trim($lastLoginAt) === '') {
+        $lastLoginAt = null;
+    }
+
+    $passwordLastSetAt = $record['password_last_set_at'] ?? null;
+    if (!is_string($passwordLastSetAt) || trim($passwordLastSetAt) === '') {
+        $passwordLastSetAt = null;
+    }
+
+    $stmt = $db->prepare(
+        "INSERT INTO users (id, full_name, email, username, password_hash, role_id, status, permissions_note, last_login_at, password_last_set_at, created_at, updated_at)
+         VALUES(:id, :full_name, :email, :username, :password_hash, :role_id, :status, :permissions_note, :last_login_at, :password_last_set_at, :created_at, :updated_at)
+         ON CONFLICT(id) DO UPDATE SET
+             full_name = excluded.full_name,
+             email = excluded.email,
+             username = excluded.username,
+             password_hash = excluded.password_hash,
+             role_id = excluded.role_id,
+             status = excluded.status,
+             permissions_note = excluded.permissions_note,
+             last_login_at = excluded.last_login_at,
+             password_last_set_at = excluded.password_last_set_at,
+             created_at = COALESCE(users.created_at, excluded.created_at),
+             updated_at = excluded.updated_at"
+    );
+
+    $stmt->execute([
+        ':id' => $userId,
+        ':full_name' => $fullName,
+        ':email' => $email,
+        ':username' => $username,
+        ':password_hash' => $passwordHash,
+        ':role_id' => $roleId,
+        ':status' => $status,
+        ':permissions_note' => $permissionsNote !== '' ? $permissionsNote : null,
+        ':last_login_at' => $lastLoginAt,
+        ':password_last_set_at' => $passwordLastSetAt,
+        ':created_at' => $createdAt,
+        ':updated_at' => $updatedAt,
+    ]);
+}
+
+function admin_sync_user_store(PDO $db): void
+{
+    $store = user_store();
+    foreach ($store->listAll() as $record) {
+        admin_sync_user_record($db, $record);
+    }
+}
+
 function admin_fetch_user(PDO $db, int $userId): array
 {
     $store = user_store();
@@ -3126,6 +3236,12 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
         'password_last_set_at' => $now,
         'created_at' => $now,
     ]);
+
+    try {
+        admin_sync_user_record($db, $record);
+    } catch (Throwable $syncError) {
+        throw new RuntimeException('Unable to sync user to database.', 0, $syncError);
+    }
 
     $store->appendAudit([
         'event' => 'admin_create_user',
@@ -3301,6 +3417,8 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
         $db->prepare('DELETE FROM reminders WHERE proposer_id = :id')->execute($idParam);
 
         portal_log_action($db, $actorId, 'delete', 'user', $userId, sprintf('Inactive account %s permanently removed', $email));
+
+        $db->prepare('DELETE FROM users WHERE id = :id')->execute($idParam);
 
         $db->commit();
     } catch (Throwable $exception) {
