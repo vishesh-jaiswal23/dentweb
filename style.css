@@ -818,6 +818,18 @@ p {
   background: rgba(148, 163, 184, 0.12);
 }
 
+.nav-mobile a.btn-secondary {
+  background: var(--accent-blue-dark);
+  color: var(--surface);
+  box-shadow: 0 12px 26px rgba(30, 58, 138, 0.25);
+}
+
+.nav-mobile a.btn-secondary:hover,
+.nav-mobile a.btn-secondary:focus-visible {
+  background: var(--base-700);
+  color: var(--surface);
+}
+
 .nav-mobile-section {
   display: grid;
   gap: 0.5rem;
