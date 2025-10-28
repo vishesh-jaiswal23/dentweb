@@ -45,57 +45,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = strtolower(trim((string) ($_POST['action'] ?? '')));
 
     try {
+        $draftId = '';
         switch ($action) {
             case 'save-settings':
-                ai_save_settings($db, $_POST, $adminId);
+                ai_save_settings($_POST, $adminId);
                 set_flash('success', 'AI settings saved.');
                 break;
             case 'test-connection':
-                $result = ai_test_connection($db);
+                $result = ai_test_connection();
                 $tone = $result['status'] === 'pass' ? 'success' : 'warning';
                 set_flash($tone, $result['message']);
                 break;
             case 'generate-draft':
                 $prompt = trim((string) ($_POST['prompt'] ?? ''));
-                $result = ai_generate_blog_draft_from_prompt($db, $prompt, $adminId);
+                $result = ai_generate_blog_draft_from_prompt($prompt, $adminId);
                 set_flash('success', sprintf('Draft "%s" generated with artwork and saved for review.', $result['title']));
                 $activeTab = 'generator';
+                $draftId = $result['draft_id'] ?? '';
                 break;
             case 'generate-image':
-                $draftId = (int) ($_POST['draft_id'] ?? 0);
-                if ($draftId <= 0) {
+                $draftId = trim((string) ($_POST['draft_id'] ?? ''));
+                if ($draftId === '') {
                     throw new RuntimeException('Select a draft to generate artwork.');
                 }
-                ai_generate_image_for_draft($db, $draftId, $adminId);
+                ai_generate_image_for_draft($draftId, $adminId);
                 set_flash('success', 'Feature image refreshed for the draft.');
                 $activeTab = 'generator';
                 break;
             case 'schedule-draft':
-                $draftId = (int) ($_POST['draft_id'] ?? 0);
-                if ($draftId <= 0) {
+                $draftId = trim((string) ($_POST['draft_id'] ?? ''));
+                if ($draftId === '') {
                     throw new RuntimeException('Select a draft to schedule.');
                 }
                 $scheduleInput = trim((string) ($_POST['schedule_at'] ?? ''));
                 if ($scheduleInput === '') {
-                    ai_schedule_blog_draft($db, $draftId, null, $adminId);
+                    ai_schedule_blog_draft($draftId, null, $adminId);
                     set_flash('success', 'Schedule cleared. Draft stays in review.');
                 } else {
                     $date = DateTimeImmutable::createFromFormat('Y-m-d\TH:i', $scheduleInput, new DateTimeZone('Asia/Kolkata'));
                     if (!$date) {
                         throw new RuntimeException('Enter schedule date in local time.');
                     }
-                    ai_schedule_blog_draft($db, $draftId, $date, $adminId);
+                    ai_schedule_blog_draft($draftId, $date, $adminId);
                     set_flash('success', 'Draft scheduled for automatic publishing.');
                 }
                 $activeTab = 'generator';
                 break;
             case 'clear-schedule':
-                $draftId = (int) ($_POST['draft_id'] ?? 0);
-                if ($draftId <= 0) {
+                $draftId = trim((string) ($_POST['draft_id'] ?? ''));
+                if ($draftId === '') {
                     throw new RuntimeException('Select a draft to clear schedule.');
                 }
-                ai_schedule_blog_draft($db, $draftId, null, $adminId);
+                ai_schedule_blog_draft($draftId, null, $adminId);
                 set_flash('success', 'Draft schedule cleared.');
+                $activeTab = 'generator';
+                break;
+            case 'update-draft':
+                $draftId = trim((string) ($_POST['draft_id'] ?? ''));
+                if ($draftId === '') {
+                    throw new RuntimeException('Select a draft to update.');
+                }
+                $payload = [
+                    'draft_id' => $draftId,
+                    'title' => $_POST['title'] ?? '',
+                    'slug' => $_POST['slug'] ?? '',
+                    'excerpt' => $_POST['excerpt'] ?? '',
+                    'body' => $_POST['body'] ?? '',
+                    'tone' => $_POST['tone'] ?? '',
+                    'audience' => $_POST['audience'] ?? '',
+                    'keywords' => $_POST['keywords'] ?? '',
+                    'author_name' => $_POST['author_name'] ?? '',
+                    'image_prompt' => $_POST['image_prompt'] ?? '',
+                    'topic' => $_POST['topic'] ?? '',
+                ];
+                ai_save_blog_draft($payload, $adminId);
+                set_flash('success', 'Draft updated successfully.');
                 $activeTab = 'generator';
                 break;
             default:
@@ -106,6 +130,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $redirect = 'admin-ai-studio.php?tab=' . urlencode($activeTab);
+    if ($activeTab === 'generator' && !empty($draftId)) {
+        $redirect .= '&draft=' . urlencode((string) $draftId);
+    }
     if ($activeTab === 'generator') {
         $redirect .= '#ai-draft-tools';
     }
@@ -113,12 +140,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$settings = ai_get_settings($db);
+$settings = ai_get_settings();
 $aiEnabled = $settings['enabled'];
 
-ai_daily_notes_generate_if_due($db);
-$drafts = ai_list_blog_drafts($db);
-$notes = ai_daily_notes_recent($db, 12);
+ai_daily_notes_generate_if_due();
+ai_publish_due_posts($db);
+$drafts = ai_list_blog_drafts();
+$notes = ai_daily_notes_recent(12);
+$editingDraftId = '';
+$editingDraft = null;
+$editingError = '';
+if ($activeTab === 'generator') {
+    $editingDraftId = isset($_GET['draft']) ? trim((string) $_GET['draft']) : '';
+    if ($editingDraftId !== '') {
+        try {
+            $editingDraft = ai_load_draft($editingDraftId);
+        } catch (Throwable $exception) {
+            $editingError = 'Draft not found or no longer available.';
+            $editingDraftId = '';
+        }
+    }
+}
+$editingKeywords = '';
+if (is_array($editingDraft) && !empty($editingDraft['keywords'])) {
+    $editingKeywords = implode(', ', array_map('trim', (array) $editingDraft['keywords']));
+}
 
 $tabs = [
     'settings' => 'AI Settings',
@@ -288,8 +334,9 @@ function ai_tab_class(string $current, string $tab): string
             <?php foreach ($drafts as $draft): ?>
             <tr>
               <td>
-                <a href="admin-blog.php?id=<?= (int) $draft['post_id'] ?>" class="admin-link"><?= htmlspecialchars($draft['title'] ?: $draft['topic'], ENT_QUOTES) ?></a>
+                <a href="admin-ai-studio.php?tab=generator&amp;draft=<?= urlencode($draft['id']) ?>#ai-draft-editor" class="admin-link"><?= htmlspecialchars($draft['title'] ?: $draft['topic'], ENT_QUOTES) ?></a>
                 <div class="admin-muted">Topic: <?= htmlspecialchars($draft['topic'], ENT_QUOTES) ?></div>
+                <div class="admin-muted">Slug: <?= htmlspecialchars($draft['slug'], ENT_QUOTES) ?></div>
                 <?php if ($draft['cover_image']): ?>
                 <div class="ai-draft-thumb">
                   <img src="<?= htmlspecialchars($draft['cover_image'], ENT_QUOTES) ?>" alt="<?= htmlspecialchars($draft['cover_image_alt'] ?: 'Draft cover image', ENT_QUOTES) ?>" />
@@ -300,6 +347,9 @@ function ai_tab_class(string $current, string $tab): string
                 <span class="ai-status-label ai-status-label--<?= htmlspecialchars($draft['status'], ENT_QUOTES) ?>"><?= htmlspecialchars(ucfirst($draft['status']), ENT_QUOTES) ?></span>
                 <?php if ($draft['post_status'] === 'published'): ?>
                 <div class="ai-status-note">Published via auto scheduler</div>
+                <?php if (!empty($draft['published_slug'])): ?>
+                <div class="ai-status-note"><a href="blog/post.php?slug=<?= urlencode($draft['published_slug']) ?>" class="admin-link" target="_blank" rel="noopener">View post</a></div>
+                <?php endif; ?>
                 <?php endif; ?>
               </td>
               <td>
@@ -310,16 +360,17 @@ function ai_tab_class(string $current, string $tab): string
                 <?php endif; ?>
               </td>
               <td class="ai-draft-actions">
+                <?php if ($draft['post_status'] !== 'published'): ?>
                 <form method="post">
                   <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
                   <input type="hidden" name="tab" value="generator" />
-                  <input type="hidden" name="draft_id" value="<?= (int) $draft['id'] ?>" />
+                  <input type="hidden" name="draft_id" value="<?= htmlspecialchars($draft['id'], ENT_QUOTES) ?>" />
                   <button type="submit" name="action" value="generate-image" class="btn btn-secondary btn-xs" <?= $aiEnabled ? '' : 'disabled' ?>>Generate Image</button>
                 </form>
                 <form method="post" class="ai-schedule-form">
                   <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
                   <input type="hidden" name="tab" value="generator" />
-                  <input type="hidden" name="draft_id" value="<?= (int) $draft['id'] ?>" />
+                  <input type="hidden" name="draft_id" value="<?= htmlspecialchars($draft['id'], ENT_QUOTES) ?>" />
                   <label>
                     <span class="sr-only">Schedule date</span>
                     <input type="datetime-local" name="schedule_at" value="<?= $draft['scheduled_at'] instanceof DateTimeImmutable ? htmlspecialchars($draft['scheduled_at']->format('Y-m-d\TH:i'), ENT_QUOTES) : '' ?>" <?= $aiEnabled ? '' : 'disabled' ?> />
@@ -329,6 +380,8 @@ function ai_tab_class(string $current, string $tab): string
                     <button type="submit" name="action" value="clear-schedule" class="btn btn-ghost btn-xs" <?= $aiEnabled ? '' : 'disabled' ?>>Clear</button>
                   </div>
                 </form>
+                <?php endif; ?>
+                <a href="admin-ai-studio.php?tab=generator&amp;draft=<?= urlencode($draft['id']) ?>#ai-draft-editor" class="btn btn-ghost btn-xs">Edit</a>
               </td>
             </tr>
             <?php endforeach; ?>
@@ -337,6 +390,85 @@ function ai_tab_class(string $current, string $tab): string
       </div>
       <?php endif; ?>
     </section>
+    <?php if (is_array($editingDraft)): ?>
+    <section class="admin-panel ai-panel" id="ai-draft-editor" aria-labelledby="ai-editor-heading">
+      <div class="admin-panel__header ai-panel__header">
+        <div>
+          <h2 id="ai-editor-heading">Edit Draft</h2>
+          <p>Update copy, tone, keywords, and artwork prompts directly from AI Studio.</p>
+        </div>
+        <span class="ai-status-badge">File-based</span>
+      </div>
+      <form method="post" class="admin-form ai-form">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+        <input type="hidden" name="tab" value="generator" />
+        <input type="hidden" name="draft_id" value="<?= htmlspecialchars($editingDraft['id'], ENT_QUOTES) ?>" />
+        <fieldset class="ai-form__fieldset" <?= $aiEnabled && (($editingDraft['status'] ?? 'draft') !== 'published') ? '' : 'disabled' ?> >
+          <div class="admin-form__grid">
+            <label>
+              Title
+              <input type="text" name="title" value="<?= htmlspecialchars($editingDraft['title'] ?? '', ENT_QUOTES) ?>" required />
+            </label>
+            <label>
+              Topic
+              <input type="text" name="topic" value="<?= htmlspecialchars($editingDraft['topic'] ?? '', ENT_QUOTES) ?>" />
+            </label>
+            <label>
+              Slug
+              <input type="text" name="slug" value="<?= htmlspecialchars($editingDraft['slug'] ?? '', ENT_QUOTES) ?>" />
+            </label>
+            <label>
+              Tone
+              <input type="text" name="tone" value="<?= htmlspecialchars($editingDraft['tone'] ?? '', ENT_QUOTES) ?>" />
+            </label>
+            <label>
+              Audience
+              <input type="text" name="audience" value="<?= htmlspecialchars($editingDraft['audience'] ?? '', ENT_QUOTES) ?>" />
+            </label>
+            <label>
+              Author (optional)
+              <input type="text" name="author_name" value="<?= htmlspecialchars($editingDraft['author_name'] ?? '', ENT_QUOTES) ?>" />
+            </label>
+          </div>
+          <label class="admin-form__full">
+            Keywords
+            <input type="text" name="keywords" value="<?= htmlspecialchars($editingKeywords, ENT_QUOTES) ?>" placeholder="solar, adoption, finance" />
+            <span class="ai-field-help">Separate keywords with commas. They feed into blog tags on publish.</span>
+          </label>
+          <label class="admin-form__full">
+            Summary / Excerpt
+            <textarea name="excerpt" rows="3"><?= htmlspecialchars($editingDraft['excerpt'] ?? '', ENT_QUOTES) ?></textarea>
+          </label>
+          <label class="admin-form__full">
+            Body (HTML allowed)
+            <textarea name="body" rows="10" required><?= htmlspecialchars($editingDraft['body'] ?? '', ENT_QUOTES) ?></textarea>
+          </label>
+          <label class="admin-form__full">
+            Image Prompt
+            <input type="text" name="image_prompt" value="<?= htmlspecialchars($editingDraft['image_prompt'] ?? '', ENT_QUOTES) ?>" placeholder="Feature image showing rooftop solar..." />
+          </label>
+          <div class="ai-form__actions">
+            <?php if (($editingDraft['status'] ?? 'draft') === 'published'): ?>
+            <span class="ai-status-note">Published drafts are locked for editing.</span>
+            <?php else: ?>
+            <button type="submit" name="action" value="update-draft" class="btn btn-primary" <?= $aiEnabled ? '' : 'disabled' ?>>Save draft changes</button>
+            <?php endif; ?>
+            <a href="admin-ai-studio.php?tab=generator" class="btn btn-ghost">Close</a>
+          </div>
+        </fieldset>
+      </form>
+    </section>
+    <?php else: ?>
+    <section class="admin-panel ai-panel" id="ai-draft-editor" aria-labelledby="ai-editor-heading">
+      <div class="admin-panel__header ai-panel__header">
+        <div>
+          <h2 id="ai-editor-heading">AI Draft Editor</h2>
+          <p>Select a draft from the library to edit its content.</p>
+        </div>
+      </div>
+      <p class="ai-empty"><?= $editingError !== '' ? htmlspecialchars($editingError, ENT_QUOTES) : 'Choose any draft in the library to begin editing. Changes are saved to secure files.' ?></p>
+    </section>
+    <?php endif; ?>
     <?php endif; ?>
 
     <?php if ($activeTab === 'notes'): ?>
