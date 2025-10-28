@@ -1811,6 +1811,53 @@ SQL
     $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_status ON lead_proposals(status)');
 }
 
+/**
+ * Returns the lead tables that should be cleaned up when unlinking user
+ * relationships. The metadata includes the available columns for each table so
+ * callers can safely skip updates that the schema does not support (for
+ * example, legacy backups that predate new columns).
+ *
+ * @return array<string, array<string, bool>>
+ */
+function crm_lead_cleanup_tables(PDO $db): array
+{
+    $tables = ['crm_leads'];
+
+    try {
+        $backupExists = (bool) $db
+            ->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads_backup'")
+            ->fetchColumn();
+    } catch (Throwable $exception) {
+        $backupExists = false;
+    }
+
+    if ($backupExists) {
+        $tables[] = 'crm_leads_backup';
+    }
+
+    $metadata = [];
+    foreach ($tables as $table) {
+        try {
+            $columns = $db->query('PRAGMA table_info(' . $table . ')')->fetchAll(PDO::FETCH_COLUMN, 1);
+        } catch (Throwable $exception) {
+            $columns = [];
+        }
+
+        if (!is_array($columns)) {
+            $columns = [];
+        }
+
+        $columnMap = [];
+        foreach ($columns as $column) {
+            $columnMap[strtolower((string) $column)] = true;
+        }
+
+        $metadata[$table] = $columnMap;
+    }
+
+    return $metadata;
+}
+
 
 
 
@@ -2963,8 +3010,14 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
 
         $db->prepare('DELETE FROM invitations WHERE inviter_id = :id')->execute($idParam);
 
-        $db->prepare('UPDATE crm_leads SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
-        $db->prepare('UPDATE crm_leads SET created_by = NULL WHERE created_by = :id')->execute($idParam);
+        foreach (crm_lead_cleanup_tables($db) as $table => $columns) {
+            if (isset($columns['assigned_to'])) {
+                $db->prepare("UPDATE $table SET assigned_to = NULL WHERE assigned_to = :id")->execute($idParam);
+            }
+            if (isset($columns['created_by'])) {
+                $db->prepare("UPDATE $table SET created_by = NULL WHERE created_by = :id")->execute($idParam);
+            }
+        }
 
         $db->prepare('DELETE FROM lead_visits WHERE employee_id = :id')->execute($idParam);
         $db->prepare('DELETE FROM lead_proposals WHERE employee_id = :id')->execute($idParam);
