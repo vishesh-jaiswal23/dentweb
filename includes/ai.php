@@ -693,6 +693,29 @@ function ai_store_draft(array $draft): void
     ai_write_json_file(ai_draft_path($draft['id']), $draft);
 }
 
+function ai_delete_blog_draft(string $draftId, int $actorId): void
+{
+    unset($actorId);
+    ai_bootstrap_storage();
+
+    $draft = ai_load_draft($draftId);
+    if (($draft['status'] ?? 'draft') === 'published') {
+        throw new RuntimeException('Published drafts cannot be deleted.');
+    }
+
+    $draftPath = ai_draft_path($draftId);
+    if (is_file($draftPath) && !@unlink($draftPath)) {
+        throw new RuntimeException('Failed to delete draft file.');
+    }
+
+    $pattern = ai_storage_path('images', $draftId . '.*');
+    foreach (glob($pattern) ?: [] as $imagePath) {
+        if (is_file($imagePath)) {
+            @unlink($imagePath);
+        }
+    }
+}
+
 function ai_all_drafts(): array
 {
     ai_bootstrap_storage();
@@ -1034,6 +1057,24 @@ function ai_publish_due_posts(PDO $db, ?DateTimeImmutable $now = null): int
     }
 
     return $count;
+}
+
+function ai_publish_blog_draft_now(PDO $db, string $draftId, int $actorId): array
+{
+    unset($actorId);
+    ai_bootstrap_storage();
+
+    $draft = ai_load_draft($draftId);
+    if (($draft['status'] ?? 'draft') === 'published') {
+        throw new RuntimeException('Draft already published.');
+    }
+
+    $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+    if (!ai_publish_single_draft($db, $draft, $now)) {
+        throw new RuntimeException('Failed to publish draft.');
+    }
+
+    return ai_load_draft($draftId);
 }
 
 function ai_publish_single_draft(PDO $db, array $draft, DateTimeImmutable $nowUtc): bool
