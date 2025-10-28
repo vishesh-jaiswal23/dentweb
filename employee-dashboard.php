@@ -76,10 +76,21 @@ if (is_array($flashData)) {
 
 $employeeRecord = null;
 if (!empty($user['id'])) {
-    $employeeRecord = portal_find_user($db, (int) $user['id']);
+    try {
+        $employeeRecord = portal_find_user($db, (int) $user['id']);
+    } catch (Throwable $exception) {
+        error_log('Unable to load employee record: ' . $exception->getMessage());
+        $employeeRecord = null;
+    }
 }
 $employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
-$reminderBannerAlerts = portal_consume_reminder_banners($db, $employeeId);
+
+try {
+    $reminderBannerAlerts = portal_consume_reminder_banners($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to fetch reminder banners: ' . $exception->getMessage());
+    $reminderBannerAlerts = [];
+}
 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -247,7 +258,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$complaints = portal_employee_complaints($db, $employeeId);
+try {
+    $complaints = portal_employee_complaints($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to load employee complaints: ' . $exception->getMessage());
+    $complaints = [];
+}
 
 $employeeName = trim((string) ($employeeRecord['full_name'] ?? $user['full_name'] ?? ''));
 if ($employeeName === '') {
@@ -291,8 +307,13 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$bootstrapData = employee_bootstrap_payload($db, $employeeId);
-$complaints = $bootstrapData['complaints'] ?? [];
+try {
+    $bootstrapData = employee_bootstrap_payload($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to prepare employee workspace payload: ' . $exception->getMessage());
+    $bootstrapData = [];
+}
+$complaints = $bootstrapData['complaints'] ?? $complaints ?? [];
 $reminders = $bootstrapData['reminders'] ?? [];
 $requestsRaw = $bootstrapData['requests'] ?? [];
 $syncSnapshot = $bootstrapData['sync'] ?? null;
