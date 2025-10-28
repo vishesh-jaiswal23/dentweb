@@ -1019,7 +1019,42 @@ function upgrade_blog_posts_table(PDO $db): void
 
     $db->beginTransaction();
     try {
+        $db->exec('DROP TABLE IF EXISTS blog_posts_backup');
         $db->exec('ALTER TABLE blog_posts RENAME TO blog_posts_backup');
+
+        $columns = $db->query('PRAGMA table_info(blog_posts_backup)')->fetchAll(PDO::FETCH_ASSOC);
+        $columnNames = array_map(static function ($column): string {
+            return strtolower((string) ($column['name'] ?? ''));
+        }, $columns ?: []);
+
+        $selectColumns = [];
+        $selectColumns[] = in_array('id', $columnNames, true) ? 'id' : 'rowid AS id';
+
+        $defaults = [
+            'title' => "''",
+            'slug' => "''",
+            'excerpt' => "''",
+            'body_html' => "''",
+            'body_text' => "''",
+            'cover_image' => 'NULL',
+            'cover_image_alt' => 'NULL',
+            'author_name' => "''",
+            'status' => "'draft'",
+            'published_at' => 'NULL',
+            'created_at' => "datetime('now')",
+            'updated_at' => "datetime('now')",
+        ];
+
+        foreach ($defaults as $column => $fallback) {
+            if (in_array($column, $columnNames, true)) {
+                $selectColumns[] = $column;
+            } else {
+                $selectColumns[] = $fallback . ' AS ' . $column;
+            }
+        }
+
+        $selectSql = implode(",\n    ", $selectColumns);
+
         $db->exec(<<<'SQL'
 CREATE TABLE blog_posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1038,13 +1073,14 @@ CREATE TABLE blog_posts (
 )
 SQL
         );
-        $db->exec(<<<'SQL'
+        $db->exec(<<<SQL
 INSERT INTO blog_posts (id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at)
-SELECT id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at
+SELECT
+    $selectSql
 FROM blog_posts_backup
 SQL
         );
-        $db->exec('DROP TABLE blog_posts_backup');
+        $db->exec('DROP TABLE IF EXISTS blog_posts_backup');
         ensure_blog_indexes($db);
         $db->commit();
     } catch (Throwable $exception) {
