@@ -1007,22 +1007,25 @@ function upgrade_users_table(PDO $db): void
 
 function upgrade_blog_posts_table(PDO $db): void
 {
-    $schema = (string) $db->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'blog_posts'")->fetchColumn();
+    $schema = $db->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'blog_posts'")->fetchColumn();
+    $schema = is_string($schema) ? $schema : '';
     if ($schema === '') {
         return;
     }
 
-    if (str_contains($schema, "'pending'")) {
+    if (str_contains(strtolower($schema), "'pending'")) {
         ensure_blog_indexes($db);
         return;
     }
 
+    $foreignKeysInitiallyEnabled = (int) $db->query('PRAGMA foreign_keys')->fetchColumn() === 1;
+    if ($foreignKeysInitiallyEnabled) {
+        $db->exec('PRAGMA foreign_keys = OFF');
+    }
+
     $db->beginTransaction();
     try {
-        $db->exec('DROP TABLE IF EXISTS blog_posts_backup');
-        $db->exec('ALTER TABLE blog_posts RENAME TO blog_posts_backup');
-
-        $columns = $db->query('PRAGMA table_info(blog_posts_backup)')->fetchAll(PDO::FETCH_ASSOC);
+        $columns = $db->query('PRAGMA table_info(blog_posts)')->fetchAll(PDO::FETCH_ASSOC);
         $columnNames = array_map(static function ($column): string {
             return strtolower((string) ($column['name'] ?? ''));
         }, $columns ?: []);
@@ -1055,6 +1058,54 @@ function upgrade_blog_posts_table(PDO $db): void
 
         $selectSql = implode(",\n    ", $selectColumns);
 
+        $db->exec('DROP TABLE IF EXISTS blog_posts_backup');
+        $db->exec(<<<SQL
+CREATE TABLE blog_posts_backup AS
+SELECT
+    $selectSql
+FROM blog_posts
+SQL
+        );
+
+        $seenSlugs = [];
+        $fetchBackupRows = $db->query("SELECT id, COALESCE(title, '') AS title, COALESCE(slug, '') AS slug FROM blog_posts_backup ORDER BY id");
+        $updateSlug = $db->prepare('UPDATE blog_posts_backup SET slug = :slug WHERE id = :id');
+        while (($row = $fetchBackupRows->fetch(PDO::FETCH_ASSOC)) !== false) {
+            $id = (int) ($row['id'] ?? 0);
+            $title = (string) ($row['title'] ?? '');
+            $slug = trim((string) ($row['slug'] ?? ''));
+
+            $baseSlug = $slug !== '' ? $slug : blog_slugify($title);
+            if ($baseSlug === '') {
+                try {
+                    $baseSlug = bin2hex(random_bytes(6));
+                } catch (Throwable $exception) {
+                    $baseSlug = uniqid('post_', true);
+                }
+            }
+
+            $candidate = $baseSlug;
+            $suffix = 2;
+            while ($candidate === '' || isset($seenSlugs[$candidate])) {
+                $candidate = $baseSlug . '-' . $suffix;
+                $suffix++;
+            }
+
+            if ($candidate !== $slug) {
+                $updateSlug->execute([
+                    ':slug' => $candidate,
+                    ':id' => $id,
+                ]);
+            }
+
+            $seenSlugs[$candidate] = true;
+        }
+
+        $db->exec("UPDATE blog_posts_backup SET status = lower(status) WHERE status IS NOT NULL");
+        $db->exec("UPDATE blog_posts_backup SET status = 'draft' WHERE status IS NULL OR trim(status) = ''");
+        $db->exec("UPDATE blog_posts_backup SET status = 'draft' WHERE status NOT IN ('draft','pending','published','archived')");
+
+        $db->exec('DROP TABLE IF EXISTS blog_posts');
         $db->exec(<<<'SQL'
 CREATE TABLE blog_posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1076,7 +1127,19 @@ SQL
         $db->exec(<<<SQL
 INSERT INTO blog_posts (id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at)
 SELECT
-    $selectSql
+    id,
+    title,
+    slug,
+    excerpt,
+    body_html,
+    body_text,
+    cover_image,
+    cover_image_alt,
+    author_name,
+    status,
+    published_at,
+    created_at,
+    updated_at
 FROM blog_posts_backup
 SQL
         );
@@ -1086,6 +1149,10 @@ SQL
     } catch (Throwable $exception) {
         $db->rollBack();
         throw $exception;
+    } finally {
+        if ($foreignKeysInitiallyEnabled) {
+            $db->exec('PRAGMA foreign_keys = ON');
+        }
     }
 }
 
