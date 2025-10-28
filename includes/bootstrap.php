@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/blog.php';
+require_once __DIR__ . '/ai.php';
 
 function safe_get_constant(string $name, $default = null)
 {
