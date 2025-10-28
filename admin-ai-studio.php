@@ -399,6 +399,13 @@ function ai_tab_class(string $current, string $tab): string
         </div>
         <span class="ai-status-badge">File-based</span>
       </div>
+      <?php
+      $previewBody = blog_sanitize_html((string) ($editingDraft['body'] ?? ''));
+      $previewImage = ai_draft_image_data_uri($editingDraft);
+      $previewAltText = (string) ($editingDraft['image_alt'] ?? 'Draft cover image');
+      $previewKeywords = array_values(array_filter(array_map('trim', (array) ($editingDraft['keywords'] ?? []))));
+      ?>
+      <div class="ai-editor-layout">
       <form method="post" class="admin-form ai-form">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
         <input type="hidden" name="tab" value="generator" />
@@ -457,6 +464,43 @@ function ai_tab_class(string $current, string $tab): string
           </div>
         </fieldset>
       </form>
+      <aside class="ai-preview-card" aria-live="polite">
+        <header>
+          <h3>Live blog preview</h3>
+          <p class="ai-preview-meta">Preview refreshes when you save changes.</p>
+        </header>
+        <article class="ai-preview">
+          <?php if ($previewImage !== ''): ?>
+          <figure class="ai-preview-cover">
+            <img src="<?= htmlspecialchars($previewImage, ENT_QUOTES) ?>" alt="<?= htmlspecialchars($previewAltText !== '' ? $previewAltText : 'Draft cover image', ENT_QUOTES) ?>" />
+          </figure>
+          <?php endif; ?>
+          <div class="ai-preview-head">
+            <h3><?= htmlspecialchars($editingDraft['title'] ?? '', ENT_QUOTES) ?></h3>
+            <?php if (!empty($editingDraft['excerpt'])): ?>
+            <p class="ai-preview-excerpt"><?= htmlspecialchars($editingDraft['excerpt'], ENT_QUOTES) ?></p>
+            <?php endif; ?>
+          </div>
+          <div class="ai-preview-body">
+            <?php if ($previewBody !== ''): ?>
+            <?= $previewBody ?>
+            <?php else: ?>
+            <p class="ai-preview-empty">Add content to see the formatted blog preview.</p>
+            <?php endif; ?>
+          </div>
+          <?php if (!empty($previewKeywords)): ?>
+          <div class="ai-preview-tags">
+            <h4>Keywords</h4>
+            <ul>
+              <?php foreach ($previewKeywords as $keyword): ?>
+              <li><?= htmlspecialchars($keyword, ENT_QUOTES) ?></li>
+              <?php endforeach; ?>
+            </ul>
+          </div>
+          <?php endif; ?>
+        </article>
+      </aside>
+      </div>
     </section>
     <?php else: ?>
     <section class="admin-panel ai-panel" id="ai-draft-editor" aria-labelledby="ai-editor-heading">
