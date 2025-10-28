@@ -8,45 +8,6 @@ if (!isset($bootstrapError) || !is_string($bootstrapError)) {
     $bootstrapError = '';
 }
 
-$supportEmail = null;
-if (defined('ADMIN_EMAIL')) {
-    $configuredEmail = constant('ADMIN_EMAIL');
-    if (is_string($configuredEmail) && filter_var($configuredEmail, FILTER_VALIDATE_EMAIL)) {
-        $supportEmail = $configuredEmail;
-    }
-}
-
-if ($supportEmail === null) {
-    $emailCandidates = [
-        $_ENV['ADMIN_EMAIL'] ?? null,
-        $_SERVER['ADMIN_EMAIL'] ?? null,
-    ];
-
-    $envEmail = getenv('ADMIN_EMAIL');
-    if (is_string($envEmail)) {
-        $emailCandidates[] = $envEmail;
-    }
-
-    foreach ($emailCandidates as $candidate) {
-        if (!is_string($candidate)) {
-            continue;
-        }
-        $candidate = trim($candidate);
-        if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL)) {
-            $supportEmail = $candidate;
-            break;
-        }
-    }
-
-    if ($supportEmail === null) {
-        $supportEmail = 'support@dakshayani.in';
-    }
-}
-
-if (!defined('ADMIN_EMAIL') && is_string($supportEmail) && $supportEmail !== '') {
-    define('ADMIN_EMAIL', $supportEmail);
-}
-
 $supportEmail = resolve_admin_email();
 
 start_session();
@@ -114,9 +75,9 @@ if ($submittedRole !== '') {
     }
 }
 
-$emailValue = '';
+$identifierValue = '';
 if (isset($_POST['email']) && is_string($_POST['email'])) {
-    $emailValue = trim($_POST['email']);
+    $identifierValue = trim($_POST['email']);
 }
 
 $passwordValue = '';
@@ -307,12 +268,20 @@ if ($requestMethod === 'POST') {
         if (!$isRoleValid) {
             $error = 'The selected portal is not available. Please choose a valid option and try again.';
         } else {
-            $email = $emailValue;
+            $identifier = $identifierValue;
             $password = $passwordValue;
             $user = null;
 
-            if ($db instanceof PDO && $email !== '') {
-                $rateStatus = login_rate_limit_status($db, $email, $ipAddress, $loginPolicy);
+              $rateLimitKey = $identifier;
+              if ($selectedRole === 'customer') {
+                  $sanitized = preg_replace('/\D+/', '', $identifier);
+                  if (is_string($sanitized) && $sanitized !== '') {
+                      $rateLimitKey = $sanitized;
+                  }
+              }
+
+              if ($db instanceof PDO && $rateLimitKey !== '') {
+                  $rateStatus = login_rate_limit_status($db, $rateLimitKey, $ipAddress, $loginPolicy);
                 if ($rateStatus['locked']) {
                     $minutes = max(1, (int) ceil($rateStatus['seconds_until_unlock'] / 60));
                     $error = sprintf('Too many failed login attempts. Please wait %d minute%s before trying again.', $minutes, $minutes === 1 ? '' : 's');
@@ -321,9 +290,9 @@ if ($requestMethod === 'POST') {
                 }
             }
 
-            if ($error === '') {
-                try {
-                    $user = authenticate_user($email, $password, $selectedRole);
+              if ($error === '') {
+                  try {
+                      $user = authenticate_user($identifier, $password, $selectedRole);
                 } catch (Throwable $exception) {
                     $error = 'Error: The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
                     if ($supportEmail !== '') {
@@ -335,10 +304,12 @@ if ($requestMethod === 'POST') {
             }
 
             if ($error === '') {
-                if (!$user) {
-                    $error = 'The provided credentials were incorrect or the account is inactive.';
-                    if ($db instanceof PDO && $email !== '') {
-                        $lockState = login_rate_limit_register_failure($db, $email, $ipAddress, $loginPolicy);
+                  if (!$user) {
+                      $error = $selectedRole === 'customer'
+                          ? 'The mobile number or password is incorrect, or the account is inactive.'
+                          : 'The provided credentials were incorrect or the account is inactive.';
+                      if ($db instanceof PDO && $rateLimitKey !== '') {
+                          $lockState = login_rate_limit_register_failure($db, $rateLimitKey, $ipAddress, $loginPolicy);
                         if ($lockState['locked']) {
                             $minutes = max(1, (int) ceil($lockState['seconds_until_unlock'] / 60));
                             $error = sprintf('Too many incorrect attempts. Your login is locked for %d minute%s.', $minutes, $minutes === 1 ? '' : 's');
@@ -347,8 +318,8 @@ if ($requestMethod === 'POST') {
                         }
                     }
                 } else {
-                    if ($db instanceof PDO && $email !== '') {
-                        login_rate_limit_register_success($db, $email, $ipAddress);
+                      if ($db instanceof PDO && $rateLimitKey !== '') {
+                          login_rate_limit_register_success($db, $rateLimitKey, $ipAddress);
                     }
 
                     session_regenerate_id(true);
@@ -474,8 +445,18 @@ if ($requestMethod === 'POST') {
             </div>
 
             <div class="form-field">
-              <label for="login-email">Email ID</label>
-              <input type="email" id="login-email" name="email" placeholder="you@example.com" autocomplete="username" required value="<?= htmlspecialchars($emailValue, ENT_QUOTES) ?>" />
+              <label for="login-identifier" data-identifier-label>Email ID</label>
+              <input
+                type="text"
+                id="login-identifier"
+                name="email"
+                placeholder="you@example.com"
+                autocomplete="username"
+                inputmode="email"
+                required
+                value="<?= htmlspecialchars($identifierValue, ENT_QUOTES) ?>"
+                data-identifier-input
+              />
             </div>
 
             <div class="form-field">
