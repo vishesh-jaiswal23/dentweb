@@ -6,7 +6,50 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 require_role('employee');
 $user = current_user();
-$db = get_db();
+
+$db = null;
+$databaseError = '';
+try {
+    $db = get_db();
+} catch (Throwable $exception) {
+    $databaseError = $exception->getMessage();
+    error_log('Employee dashboard unavailable: ' . $databaseError);
+}
+
+if (!$db instanceof PDO) {
+    http_response_code(503);
+    $supportEmail = resolve_admin_email();
+    $supportCopy = $supportEmail !== ''
+        ? ' Please contact ' . htmlspecialchars($supportEmail, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . ' for assistance.'
+        : '';
+    ?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Employee Portal Unavailable | Dakshayani Enterprises</title>
+  <link rel="icon" href="images/favicon.ico" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="login-page">
+  <div class="login-container" style="max-width: 540px;">
+    <div class="login-card">
+      <h1>Employee Portal Unavailable</h1>
+      <p>
+        The employee workspace is temporarily offline because the secure database could not be reached.
+        Please try again in a few minutes.<?= $supportCopy ?>
+      </p>
+      <p class="login-footer">
+        <a href="logout.php">Return to login</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+    <?php
+    exit;
+}
 
 $flashData = consume_flash();
 $flashMessage = '';
@@ -33,10 +76,21 @@ if (is_array($flashData)) {
 
 $employeeRecord = null;
 if (!empty($user['id'])) {
-    $employeeRecord = portal_find_user($db, (int) $user['id']);
+    try {
+        $employeeRecord = portal_find_user($db, (int) $user['id']);
+    } catch (Throwable $exception) {
+        error_log('Unable to load employee record: ' . $exception->getMessage());
+        $employeeRecord = null;
+    }
 }
 $employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
-$reminderBannerAlerts = portal_consume_reminder_banners($db, $employeeId);
+
+try {
+    $reminderBannerAlerts = portal_consume_reminder_banners($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to fetch reminder banners: ' . $exception->getMessage());
+    $reminderBannerAlerts = [];
+}
 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -204,7 +258,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$complaints = portal_employee_complaints($db, $employeeId);
+try {
+    $complaints = portal_employee_complaints($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to load employee complaints: ' . $exception->getMessage());
+    $complaints = [];
+}
 
 $employeeName = trim((string) ($employeeRecord['full_name'] ?? $user['full_name'] ?? ''));
 if ($employeeName === '') {
@@ -248,8 +307,13 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$bootstrapData = employee_bootstrap_payload($db, $employeeId);
-$complaints = $bootstrapData['complaints'] ?? [];
+try {
+    $bootstrapData = employee_bootstrap_payload($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to prepare employee workspace payload: ' . $exception->getMessage());
+    $bootstrapData = [];
+}
+$complaints = $bootstrapData['complaints'] ?? $complaints ?? [];
 $reminders = $bootstrapData['reminders'] ?? [];
 $requestsRaw = $bootstrapData['requests'] ?? [];
 $syncSnapshot = $bootstrapData['sync'] ?? null;
