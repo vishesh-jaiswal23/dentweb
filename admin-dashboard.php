@@ -36,6 +36,9 @@ $counts = admin_overview_counts($db);
 $highlights = admin_today_highlights($db, 20);
 $reminderDueCounts = reminder_due_counts($db);
 
+ai_daily_notes_generate_if_due($db);
+$aiDashboardNotes = ai_daily_notes_recent($db, 2);
+
 $todayIst = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
 $todayDate = $todayIst->format('Y-m-d');
 $yesterdayDate = $todayIst->modify('-1 day')->format('Y-m-d');
@@ -185,6 +188,10 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
           <i class="fa-solid fa-inbox" aria-hidden="true"></i>
           Requests
         </a>
+        <a href="<?= htmlspecialchars($pathFor('admin-ai-studio.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
+          <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+          AI Studio
+        </a>
         <button type="button" class="btn btn-ghost" data-theme-toggle>
           <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
           Theme
@@ -209,6 +216,28 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
         </a>
       </div>
     </section>
+
+    <?php if (!empty($aiDashboardNotes)): ?>
+    <section class="admin-overview__ai-digest" aria-labelledby="ai-digest-title">
+      <div class="admin-overview__ai-digest-header">
+        <div>
+          <h2 id="ai-digest-title">AI Daily Notes</h2>
+          <p>Latest automation snapshots captured at 8 PM and 9 PM IST.</p>
+        </div>
+      </div>
+      <div class="admin-overview__ai-digest-grid">
+        <?php foreach ($aiDashboardNotes as $note): ?>
+        <article class="ai-note-card">
+          <header>
+            <p class="ai-note-card__type"><?= htmlspecialchars($note['label'], ENT_QUOTES) ?></p>
+            <p class="ai-note-card__timestamp"><?= htmlspecialchars($note['display_label'], ENT_QUOTES) ?></p>
+          </header>
+          <p class="ai-note-card__content"><?= htmlspecialchars($note['content'], ENT_QUOTES) ?></p>
+        </article>
+        <?php endforeach; ?>
+      </div>
+    </section>
+    <?php endif; ?>
 
     <section class="admin-overview__cards" aria-label="Operational summaries">
       <?php foreach ($cardConfigs as $card): ?>
