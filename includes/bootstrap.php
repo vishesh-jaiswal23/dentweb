@@ -4188,6 +4188,16 @@ function installation_stage_max_for_role(string $role): string
     };
 }
 
+function installation_role_allowed_stage_updates(string $role): array
+{
+    $canonical = strtolower(trim($role));
+
+    return match ($canonical) {
+        'installer' => ['structure', 'wiring', 'meter'],
+        default => installation_stage_keys(),
+    };
+}
+
 function installation_role_can_finalize(string $role): bool
 {
     return strtolower(trim($role)) === 'admin';
@@ -4214,8 +4224,13 @@ function installation_stage_transition_allowed(string $role, string $currentStag
     $currentIndex = installation_stage_index($currentStage);
     $targetIndex = installation_stage_index($targetStage);
     $maxIndex = installation_stage_index(installation_stage_max_for_role($role));
+    $allowedStages = installation_role_allowed_stage_updates($role);
 
     if ($targetIndex > $maxIndex) {
+        return false;
+    }
+
+    if (!in_array($targetStage, $allowedStages, true) && $targetStage !== $currentStage) {
         return false;
     }
 
@@ -4431,6 +4446,7 @@ function installation_normalize_row(PDO $db, array $row, string $role = 'admin')
     $hasCommissionedOption = false;
     $roleKey = strtolower(trim($role));
     $commissionIndex = installation_stage_index('commissioned');
+    $allowedStageUpdates = installation_role_allowed_stage_updates($role);
 
     foreach (installation_stage_keys() as $key) {
         $index = installation_stage_index($key);
@@ -4438,6 +4454,9 @@ function installation_normalize_row(PDO $db, array $row, string $role = 'admin')
             continue;
         }
         if ($index > $maxIndex && $key !== $stage) {
+            continue;
+        }
+        if ($roleKey !== 'admin' && !in_array($key, $allowedStageUpdates, true) && $key !== $stage) {
             continue;
         }
 
@@ -4469,6 +4488,7 @@ function installation_normalize_row(PDO $db, array $row, string $role = 'admin')
 
     $canRequestCommissioning = $roleKey !== 'admin'
         && $currentIndex < $commissionIndex
+        && in_array('commissioned', $allowedStageUpdates, true)
         && ($requestedStage === '' || $requestedStage === $stage);
 
     if ($canRequestCommissioning && !$hasCommissionedOption) {

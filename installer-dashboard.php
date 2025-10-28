@@ -51,16 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $remarks = trim((string) ($_POST['remarks'] ?? ''));
                 $photo = trim((string) ($_POST['photo_label'] ?? ''));
                 installation_update_stage($db, $installationId, $targetStage, $installerId, 'installer', $remarks, $photo);
-                $message = strtolower($targetStage) === 'commissioned'
-                    ? 'Commissioning request forwarded to Admin.'
-                    : 'Installation update saved.';
-                set_flash('success', $message);
-                break;
-            case 'toggle_installation_amc':
-                $installationId = (int) ($_POST['installation_id'] ?? 0);
-                $targetAmc = isset($_POST['target_amc']) && $_POST['target_amc'] === '1';
-                installation_toggle_amc($db, $installationId, $targetAmc, $installerId);
-                set_flash('success', $targetAmc ? 'AMC commitment logged.' : 'AMC commitment cleared.');
+                set_flash('success', 'Installation update saved.');
                 break;
             default:
                 set_flash('error', 'Unsupported action.');
@@ -156,7 +147,7 @@ $logoutUrl = 'logout.php';
 
     <section class="installer-installations" aria-label="Assigned installations">
       <h2>Assigned installations</h2>
-      <p class="installer-installations__meta">Update progress, upload commissioning evidence, and request final approval from Admin.</p>
+      <p class="installer-installations__meta">Update Structure, Wiring, or Meter progress and attach site photos or remarks for Admin review.</p>
       <?php if (empty($installations)): ?>
       <p class="empty-state">No installations assigned yet. Check back after Admin schedules your next project.</p>
       <?php else: ?>
@@ -185,16 +176,6 @@ $logoutUrl = 'logout.php';
             </li>
             <?php endforeach; ?>
           </ol>
-          <form class="installation-card__amc" method="post">
-            <input type="hidden" name="action" value="toggle_installation_amc" />
-            <input type="hidden" name="installation_id" value="<?= (int) $installation['id'] ?>" />
-            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
-            <input type="hidden" name="target_amc" value="<?= $installation['amcCommitted'] ? '0' : '1' ?>" />
-            <label>
-              <input type="checkbox" <?= $installation['amcCommitted'] ? 'checked' : '' ?> onchange="this.form.submit()" />
-              AMC committed
-            </label>
-          </form>
           <form class="installation-card__form" method="post">
             <input type="hidden" name="action" value="update_installation_stage" />
             <input type="hidden" name="installation_id" value="<?= (int) $installation['id'] ?>" />
