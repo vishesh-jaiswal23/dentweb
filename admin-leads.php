@@ -71,6 +71,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 admin_assign_referrer($db, $leadId, $referrerId, $adminId);
                 set_flash('success', $referrerId ? 'Referrer updated for the lead.' : 'Referrer removed from the lead.');
                 break;
+            case 'delete-lead':
+                $leadId = (int) ($_POST['lead_id'] ?? 0);
+                if ($leadId <= 0) {
+                    throw new RuntimeException('Select a valid lead to delete.');
+                }
+                admin_delete_lead($db, $leadId, $adminId);
+                set_flash('success', 'Lead deleted permanently.');
+                break;
             default:
                 throw new RuntimeException('Unsupported action.');
         }
@@ -310,6 +318,12 @@ $stageOptions = [
               <button type="submit" class="btn btn-secondary btn-xs">Update</button>
             </form>
             <?php endif; ?>
+            <form method="post" class="admin-inline-form" onsubmit="return confirm('Delete this lead and all related records?');">
+              <input type="hidden" name="action" value="delete-lead" />
+              <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+              <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
+              <button type="submit" class="btn btn-danger btn-xs">Delete lead</button>
+            </form>
           </div>
 
           <div class="admin-lead-card__timeline">

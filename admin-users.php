@@ -84,6 +84,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 admin_reset_user_password($db, $userId, $newPassword, $actorId);
                 set_flash('success', 'Password reset successfully.');
                 break;
+            case 'delete_user':
+                $userId = (int) ($_POST['user_id'] ?? 0);
+                if ($userId <= 0) {
+                    throw new RuntimeException('Invalid user reference.');
+                }
+                admin_delete_user($db, $userId, $actorId);
+                set_flash('success', 'Inactive account deleted.');
+                break;
             default:
                 throw new RuntimeException('Unsupported action.');
         }
@@ -318,6 +326,14 @@ function admin_users_format_datetime(?string $value): string
                 </label>
                 <button type="submit" class="btn btn-secondary btn-xs">Reset</button>
               </form>
+              <?php if ($status === 'inactive'): ?>
+              <form method="post" class="admin-inline-form" onsubmit="return confirm('Delete this inactive account? All related test data will be removed.');">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+                <input type="hidden" name="action" value="delete_user" />
+                <input type="hidden" name="user_id" value="<?= $accountId ?>" />
+                <button type="submit" class="btn btn-danger btn-xs">Delete</button>
+              </form>
+              <?php endif; ?>
             </td>
           </tr>
           <?php endforeach; ?>
