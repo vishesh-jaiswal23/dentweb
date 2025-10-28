@@ -10,6 +10,18 @@ $db = get_db();
 $admin = current_user();
 $csrfToken = $_SESSION['csrf_token'] ?? '';
 
+$scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+if ($scriptDir === '/' || $scriptDir === '.') {
+    $scriptDir = '';
+}
+$basePath = rtrim($scriptDir, '/');
+$prefix = $basePath === '' ? '' : $basePath;
+$pathFor = static function (string $path) use ($prefix): string {
+    $clean = ltrim($path, '/');
+    return ($prefix === '' ? '' : $prefix) . '/' . $clean;
+};
+$requestsPath = $pathFor('admin-requests.php');
+
 $flashData = consume_flash();
 $flashMessage = '';
 $flashTone = 'info';
@@ -46,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = $_POST['csrf_token'] ?? '';
     if (!verify_csrf_token(is_string($token) ? $token : null)) {
         set_flash('error', 'Your session expired. Please try again.');
-        header('Location: admin-requests.php?status=' . urlencode($statusFilter) . '&type=' . urlencode($typeFilter));
+        header('Location: ' . $requestsPath . '?status=' . urlencode($statusFilter) . '&type=' . urlencode($typeFilter));
         exit;
     }
 
@@ -73,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         set_flash('error', $exception->getMessage());
     }
 
-    header('Location: admin-requests.php?status=' . urlencode($statusFilter) . '&type=' . urlencode($typeFilter));
+    header('Location: ' . $requestsPath . '?status=' . urlencode($statusFilter) . '&type=' . urlencode($typeFilter));
     exit;
 }
 
@@ -124,8 +136,8 @@ function admin_requests_format_time(?string $value): string
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Requests Center | Dakshayani Enterprises</title>
   <meta name="description" content="Approve or reject employee requests spanning profile changes, reminders, leads, and field operations." />
-  <link rel="icon" href="images/favicon.ico" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="<?= htmlspecialchars($pathFor('images/favicon.ico'), ENT_QUOTES) ?>" />
+  <link rel="stylesheet" href="<?= htmlspecialchars($pathFor('style.css'), ENT_QUOTES) ?>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -154,7 +166,7 @@ function admin_requests_format_time(?string $value): string
         <p class="admin-muted">Review employee-submitted requests and apply approved changes across Dentweb operations.</p>
       </div>
       <div class="admin-records__meta">
-        <a class="admin-link" href="admin-dashboard.php"><i class="fa-solid fa-gauge-high"></i> Back to overview</a>
+        <a class="admin-link" href="<?= htmlspecialchars($pathFor('admin-dashboard.php'), ENT_QUOTES) ?>"><i class="fa-solid fa-gauge-high"></i> Back to overview</a>
       </div>
     </header>
 
@@ -195,7 +207,7 @@ function admin_requests_format_time(?string $value): string
     </section>
 
     <section class="admin-records__filter">
-      <form method="get" class="admin-filter-form admin-filter-form--gap">
+      <form method="get" action="<?= htmlspecialchars($requestsPath, ENT_QUOTES) ?>" class="admin-filter-form admin-filter-form--gap">
         <label>
           Status
           <select name="status" onchange="this.form.submit()">
@@ -271,13 +283,13 @@ function admin_requests_format_time(?string $value): string
             <td><span class="dashboard-status dashboard-status--<?= htmlspecialchars($status, ENT_QUOTES) ?>"><?= htmlspecialchars(ucfirst($status), ENT_QUOTES) ?></span></td>
             <td class="admin-table__actions">
               <?php if ($isPending): ?>
-              <form method="post" class="admin-inline-form">
+              <form method="post" action="<?= htmlspecialchars($requestsPath, ENT_QUOTES) ?>" class="admin-inline-form">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
                 <input type="hidden" name="action" value="approve" />
                 <input type="hidden" name="request_id" value="<?= $requestId ?>" />
                 <button type="submit" class="btn btn-primary btn-xs">Approve</button>
               </form>
-              <form method="post" class="admin-inline-form">
+              <form method="post" action="<?= htmlspecialchars($requestsPath, ENT_QUOTES) ?>" class="admin-inline-form">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
                 <input type="hidden" name="action" value="reject" />
                 <input type="hidden" name="request_id" value="<?= $requestId ?>" />
