@@ -34,17 +34,36 @@ if (is_array($flashData)) {
     }
 }
 
-$statusFilter = strtolower(trim((string) ($_GET['status'] ?? 'all')));
+$requestMethod = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $validStatuses = ['all', 'active', 'inactive', 'pending'];
-if (!in_array($statusFilter, $validStatuses, true)) {
-    $statusFilter = 'all';
+$statusCandidate = $requestMethod === 'POST'
+    ? ($_POST['status_filter'] ?? ($_GET['status'] ?? 'all'))
+    : ($_GET['status'] ?? 'all');
+$statusCandidate = is_string($statusCandidate) ? strtolower(trim($statusCandidate)) : 'all';
+if (!in_array($statusCandidate, $validStatuses, true)) {
+    $statusCandidate = 'all';
 }
+$statusFilter = $statusCandidate;
+
+$validViews = ['team', 'customers'];
+$viewCandidate = $requestMethod === 'POST'
+    ? ($_POST['view'] ?? ($_GET['view'] ?? 'team'))
+    : ($_GET['view'] ?? 'team');
+$viewCandidate = is_string($viewCandidate) ? strtolower(trim($viewCandidate)) : 'team';
+if (!in_array($viewCandidate, $validViews, true)) {
+    $viewCandidate = 'team';
+}
+$view = $viewCandidate;
+$isCustomerView = $view === 'customers';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = $_POST['csrf_token'] ?? '';
     if (!verify_csrf_token(is_string($token) ? $token : null)) {
         set_flash('error', 'Your session expired. Please try again.');
-        header('Location: admin-users.php?status=' . urlencode($statusFilter));
+        header('Location: admin-users.php?' . http_build_query([
+            'view' => $view,
+            'status' => $statusFilter,
+        ], '', '&', PHP_QUERY_RFC3986));
         exit;
     }
 
@@ -99,23 +118,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         set_flash('error', $exception->getMessage());
     }
 
-    header('Location: admin-users.php?status=' . urlencode($statusFilter));
+    header('Location: admin-users.php?' . http_build_query([
+        'view' => $view,
+        'status' => $statusFilter,
+    ], '', '&', PHP_QUERY_RFC3986));
     exit;
 }
 
 $accounts = admin_list_accounts($db, ['status' => 'all']);
-$filteredAccounts = $statusFilter === 'all'
-    ? $accounts
-    : array_values(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['status'] ?? '')) === $statusFilter));
+$teamAccounts = array_values(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['role'] ?? '')) !== 'customer'));
+$customerAccounts = array_values(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['role'] ?? '')) === 'customer'));
 
-$totalUsers = count($accounts);
-$activeUsers = count(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['status'] ?? '')) === 'active'));
-$pendingUsers = count(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['status'] ?? '')) === 'pending'));
-$inactiveUsers = count(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['status'] ?? '')) === 'inactive'));
+$activeCollection = $isCustomerView ? $customerAccounts : $teamAccounts;
+$filteredAccounts = $statusFilter === 'all'
+    ? $activeCollection
+    : array_values(array_filter($activeCollection, static fn (array $account): bool => strtolower((string) ($account['status'] ?? '')) === $statusFilter));
+
+$statusCounts = [
+    'total' => count($activeCollection),
+    'active' => 0,
+    'pending' => 0,
+    'inactive' => 0,
+];
+
+foreach ($activeCollection as $account) {
+    $statusKey = strtolower((string) ($account['status'] ?? ''));
+    if (isset($statusCounts[$statusKey])) {
+        $statusCounts[$statusKey]++;
+    }
+}
 
 $roleBreakdown = [];
-foreach ($accounts as $account) {
-    $roleKey = strtolower((string) ($account['role'] ?? '')); 
+foreach ($activeCollection as $account) {
+    $roleKey = strtolower((string) ($account['role'] ?? ''));
     if ($roleKey === '') {
         $roleKey = 'unknown';
     }
@@ -123,6 +158,23 @@ foreach ($accounts as $account) {
 }
 
 ksort($roleBreakdown);
+
+$teamCount = count($teamAccounts);
+$customerCount = count($customerAccounts);
+
+$summaryLabels = $isCustomerView
+    ? [
+        'total' => 'Total customers',
+        'active' => 'Active customers',
+        'pending' => 'Pending customers',
+        'inactive' => 'Inactive customers',
+    ]
+    : [
+        'total' => 'Total accounts',
+        'active' => 'Active',
+        'pending' => 'Pending',
+        'inactive' => 'Inactive',
+    ];
 
 function admin_users_format_datetime(?string $value): string
 {
@@ -178,32 +230,49 @@ function admin_users_format_datetime(?string $value): string
       </div>
     </header>
 
+    <nav class="admin-users__tabs" aria-label="User account groups">
+      <a class="admin-users__tab<?= $isCustomerView ? '' : ' is-active' ?>" href="admin-users.php?<?= htmlspecialchars(http_build_query(['view' => 'team', 'status' => $statusFilter], '', '&', PHP_QUERY_RFC3986), ENT_QUOTES) ?>">
+        <i class="fa-solid fa-user-gear" aria-hidden="true"></i>
+        <span>Team accounts</span>
+        <span class="admin-users__tab-count"><?= $teamCount ?></span>
+      </a>
+      <a class="admin-users__tab<?= $isCustomerView ? ' is-active' : '' ?>" href="admin-users.php?<?= htmlspecialchars(http_build_query(['view' => 'customers', 'status' => $statusFilter], '', '&', PHP_QUERY_RFC3986), ENT_QUOTES) ?>">
+        <i class="fa-solid fa-users" aria-hidden="true"></i>
+        <span>Customers</span>
+        <span class="admin-users__tab-count"><?= $customerCount ?></span>
+      </a>
+    </nav>
+
     <section class="admin-overview__cards admin-overview__cards--compact">
       <article class="admin-overview__card">
-        <h2>Total accounts</h2>
-        <p><?= $totalUsers ?></p>
+        <h2><?= htmlspecialchars($summaryLabels['total'], ENT_QUOTES) ?></h2>
+        <p><?= $statusCounts['total'] ?></p>
       </article>
       <article class="admin-overview__card">
-        <h2>Active</h2>
-        <p><?= $activeUsers ?></p>
+        <h2><?= htmlspecialchars($summaryLabels['active'], ENT_QUOTES) ?></h2>
+        <p><?= $statusCounts['active'] ?></p>
       </article>
       <article class="admin-overview__card">
-        <h2>Pending</h2>
-        <p><?= $pendingUsers ?></p>
+        <h2><?= htmlspecialchars($summaryLabels['pending'], ENT_QUOTES) ?></h2>
+        <p><?= $statusCounts['pending'] ?></p>
       </article>
       <article class="admin-overview__card">
-        <h2>Inactive</h2>
-        <p><?= $inactiveUsers ?></p>
+        <h2><?= htmlspecialchars($summaryLabels['inactive'], ENT_QUOTES) ?></h2>
+        <p><?= $statusCounts['inactive'] ?></p>
       </article>
     </section>
 
     <section class="admin-users__roles">
-      <h2>Role distribution</h2>
+      <h2><?= $isCustomerView ? 'Customer breakdown' : 'Role distribution' ?></h2>
+      <?php if (empty($roleBreakdown)): ?>
+      <p class="admin-muted">No accounts to summarise for this view.</p>
+      <?php else: ?>
       <ul class="admin-users__role-list">
         <?php foreach ($roleBreakdown as $role => $count): ?>
         <li><strong><?= htmlspecialchars(ucfirst($role), ENT_QUOTES) ?>:</strong> <?= $count ?></li>
         <?php endforeach; ?>
       </ul>
+      <?php endif; ?>
     </section>
 
     <section class="admin-users__create">
@@ -211,6 +280,8 @@ function admin_users_format_datetime(?string $value): string
       <form method="post" class="admin-form admin-form--stacked">
         <input type="hidden" name="action" value="create_user" />
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+        <input type="hidden" name="view" value="<?= htmlspecialchars($view, ENT_QUOTES) ?>" />
+        <input type="hidden" name="status_filter" value="<?= htmlspecialchars($statusFilter, ENT_QUOTES) ?>" />
         <div class="admin-form__grid">
           <label>
             <span>Full name</span>
@@ -261,6 +332,7 @@ function admin_users_format_datetime(?string $value): string
 
     <section class="admin-records__filter">
       <form method="get" class="admin-filter-form">
+        <input type="hidden" name="view" value="<?= htmlspecialchars($view, ENT_QUOTES) ?>" />
         <label>
           Status
           <select name="status" onchange="this.form.submit()">
@@ -312,6 +384,8 @@ function admin_users_format_datetime(?string $value): string
                 <input type="hidden" name="action" value="update_status" />
                 <input type="hidden" name="user_id" value="<?= $accountId ?>" />
                 <input type="hidden" name="target_status" value="<?= htmlspecialchars($nextStatus, ENT_QUOTES) ?>" />
+                <input type="hidden" name="view" value="<?= htmlspecialchars($view, ENT_QUOTES) ?>" />
+                <input type="hidden" name="status_filter" value="<?= htmlspecialchars($statusFilter, ENT_QUOTES) ?>" />
                 <button type="submit" class="btn btn-ghost btn-xs">
                   <?= $status === 'active' ? 'Deactivate' : 'Activate' ?>
                 </button>
@@ -324,6 +398,8 @@ function admin_users_format_datetime(?string $value): string
                   <span class="sr-only">New password</span>
                   <input type="password" name="new_password" placeholder="New password" minlength="8" required />
                 </label>
+                <input type="hidden" name="view" value="<?= htmlspecialchars($view, ENT_QUOTES) ?>" />
+                <input type="hidden" name="status_filter" value="<?= htmlspecialchars($statusFilter, ENT_QUOTES) ?>" />
                 <button type="submit" class="btn btn-secondary btn-xs">Reset</button>
               </form>
               <?php if ($status === 'inactive'): ?>
