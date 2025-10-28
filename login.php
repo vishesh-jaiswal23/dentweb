@@ -417,10 +417,10 @@ if ($requestMethod === 'POST') {
     <section class="section login-section">
       <div class="container login-layout">
         <div class="login-panel" aria-labelledby="portal-login-title">
-          <h2 id="portal-login-title">Access your portal</h2>
+          <h2 id="portal-login-title">Sign in to continue</h2>
           <p class="text-sm">
-            Select the portal you need to access and enter your credentials. Administrators approve every employee account
-            before it becomes active, and only authorised users may sign in.
+            Use the buttons below to choose the correct workspace and enter the credentials that were issued to you.
+            Every portal enforces the same secure policies and sign-in protections.
           </p>
 
           <?php if ($flashMessage !== ''): ?>
@@ -439,38 +439,39 @@ if ($requestMethod === 'POST') {
           >
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES) ?>" />
             <input type="hidden" name="intent" value="login" />
-            <fieldset class="role-options">
-              <legend>Portal type</legend>
+            <input type="hidden" name="role" value="<?= htmlspecialchars($selectedRole, ENT_QUOTES) ?>" data-role-input />
+            <div class="role-buttons" role="group" aria-label="Choose your portal">
               <?php foreach ($roleRoutes as $role => $route): ?>
-              <label class="role-option">
-                <input type="radio" name="role" value="<?= htmlspecialchars($role) ?>" <?= $selectedRole === $role ? 'checked' : '' ?> />
-                <span>
-                  <strong><?= ucfirst($role) ?></strong>
-                  <small>
-                    <?php switch ($role) {
-                        case 'admin':
-                            echo 'Manage oversight dashboards, service queues, and all user permissions.';
-                            break;
-                        case 'employee':
-                            echo 'Work your leads, installations, complaints, reminders, and requests.';
-                            break;
-                        case 'installer':
-                            echo 'Review scheduled jobs, confirm AMC checklists, and submit site updates.';
-                            break;
-                        case 'referrer':
-                            echo 'Track shared leads, payouts, and collaborate with the sales team.';
-                            break;
-                        case 'customer':
-                            echo 'Follow installation progress, subsidy status, and service commitments.';
-                            break;
-                        default:
-                            echo 'Use the credentials assigned to you to sign in securely.';
-                    } ?>
-                  </small>
+              <button
+                type="button"
+                class="role-button<?= $selectedRole === $role ? ' is-active' : '' ?>"
+                data-role-select="<?= htmlspecialchars($role, ENT_QUOTES) ?>"
+              >
+                <span class="role-button__label"><?= ucfirst($role) ?></span>
+                <span class="role-button__caption">
+                  <?php switch ($role) {
+                      case 'admin':
+                          echo 'Manage approvals, oversight dashboards, and user permissions.';
+                          break;
+                      case 'employee':
+                          echo 'Work leads, installations, complaints, reminders, and requests.';
+                          break;
+                      case 'installer':
+                          echo 'Review scheduled jobs, AMC checklists, and submit site updates.';
+                          break;
+                      case 'referrer':
+                          echo 'Track shared leads, payouts, and collaborate with the sales team.';
+                          break;
+                      case 'customer':
+                          echo 'Follow installation progress, subsidy status, and service commitments.';
+                          break;
+                      default:
+                          echo 'Use the credentials assigned to you to sign in securely.';
+                  } ?>
                 </span>
-              </label>
+              </button>
               <?php endforeach; ?>
-            </fieldset>
+            </div>
 
             <div class="form-field">
               <label for="login-email">Email ID</label>
@@ -500,9 +501,7 @@ if ($requestMethod === 'POST') {
             <?php if ($rateLimitMessage !== ''): ?>
             <p class="login-feedback is-warning" aria-live="polite"><?= htmlspecialchars($rateLimitMessage, ENT_QUOTES) ?></p>
             <?php endif; ?>
-            <?php if ($supportEmail !== ''): ?>
-            <p class="text-xs login-support">Need help? Email <a href="mailto:<?= htmlspecialchars($supportEmail, ENT_QUOTES) ?>"><?= htmlspecialchars($supportEmail, ENT_QUOTES) ?></a>.</p>
-            <?php endif; ?>
+            <p class="text-xs login-support">Having trouble? <a href="#admin-recovery-title">Reset password</a>.</p>
           </form>
 
           <?php if ($recoverySecretConfigured): ?>

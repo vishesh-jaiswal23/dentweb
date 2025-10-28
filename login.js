@@ -2,7 +2,8 @@
   const form = document.getElementById('login-form');
   if (!form) return;
 
-  const roleInputs = form.querySelectorAll('input[name="role"]');
+  const roleInput = form.querySelector('[data-role-input]');
+  const roleButtons = form.querySelectorAll('[data-role-select]');
   const feedbackEl = form.querySelector('[data-login-feedback]');
   const hintEl = form.querySelector('[data-role-hint]');
 
@@ -20,16 +21,26 @@
     }
   }
 
-  roleInputs.forEach((input) => {
-    input.addEventListener('change', () => {
-      setHint(input.value);
-      if (feedbackEl) {
-        feedbackEl.textContent = '';
-        feedbackEl.classList.remove('is-error', 'is-success');
-      }
+  function selectRole(role) {
+    if (!roleInput) return;
+    roleInput.value = role;
+    setHint(role);
+    roleButtons.forEach((button) => {
+      button.classList.toggle('is-active', button.dataset.roleSelect === role);
+    });
+    if (feedbackEl) {
+      feedbackEl.textContent = '';
+      feedbackEl.classList.remove('is-error', 'is-success');
+    }
+  }
+
+  roleButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      selectRole(button.dataset.roleSelect || 'admin');
     });
   });
 
-  const checked = form.querySelector('input[name="role"]:checked');
-  setHint(checked ? checked.value : 'admin');
+  const initialRole = roleInput && roleInput.value ? roleInput.value : roleButtons[0]?.dataset.roleSelect || 'admin';
+  selectRole(initialRole);
 })();
