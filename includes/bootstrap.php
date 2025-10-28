@@ -5399,6 +5399,8 @@ function admin_list_referrers(PDO $db, string $status = 'all'): array
         $status = 'all';
     }
 
+    $statusSortExpr = "CASE WHEN r.status = 'active' THEN 1 ELSE 0 END";
+
     $sql = <<<SQL
 SELECT
     r.id,
@@ -5419,8 +5421,18 @@ SELECT
 FROM referrers r
 LEFT JOIN crm_leads l ON l.referrer_id = r.id
 %s
-GROUP BY r.id
-ORDER BY r.status = 'active' DESC, r.updated_at DESC, r.name COLLATE NOCASE
+GROUP BY
+    r.id,
+    r.name,
+    r.company,
+    r.email,
+    r.phone,
+    r.status,
+    r.notes,
+    r.last_lead_at,
+    r.created_at,
+    r.updated_at
+ORDER BY {$statusSortExpr} DESC, r.updated_at DESC, LOWER(r.name)
 SQL;
 
     $where = '';
@@ -5653,7 +5665,7 @@ function admin_assign_referrer(PDO $db, int $leadId, ?int $referrerId, int $acto
 
 function admin_active_referrers(PDO $db): array
 {
-    $stmt = $db->query("SELECT id, name FROM referrers WHERE status = 'active' ORDER BY name COLLATE NOCASE");
+    $stmt = $db->query("SELECT id, name FROM referrers WHERE status = 'active' ORDER BY LOWER(name)");
     $results = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $results[] = [
