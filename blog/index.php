@@ -3,7 +3,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/bootstrap.php';
 
-$db = get_db();
+$dbError = null;
+try {
+    $db = get_db();
+} catch (Throwable $exception) {
+    $dbError = $exception;
+    $db = null;
+}
 
 $defaultPageSize = 6;
 $page = max(1, (int) ($_GET['page'] ?? 1));
@@ -17,19 +23,33 @@ $filters = [
     'tag' => $tag,
 ];
 
+$loadErrorMessage = '';
+$dbUnavailable = false;
 $offset = ($page - 1) * $perPage;
-$result = blog_fetch_published($db, $filters, $perPage, $offset);
+$result = ['posts' => [], 'total' => 0];
+$tags = [];
+$lastUpdated = null;
+
+if ($db instanceof PDO) {
+    $result = blog_fetch_published($db, $filters, $perPage, $offset);
+    $tags = blog_get_tag_summary($db);
+    $lastUpdated = blog_get_latest_update($db);
+    send_cache_headers($lastUpdated, sprintf('blog-list-%d-%d-%s-%s', $page, $perPage, md5($q), md5($tag)));
+} elseif ($dbError !== null) {
+    http_response_code(503);
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    header('Pragma: no-cache');
+    $dbUnavailable = true;
+    error_log(sprintf('Blog index unavailable: %s', $dbError->getMessage()));
+    $loadErrorMessage = 'Our publishing database is temporarily unavailable. Please check back soon.';
+}
+
 $posts = $result['posts'];
 $total = $result['total'];
 $totalPages = $perPage > 0 ? (int) ceil($total / $perPage) : 1;
 if ($totalPages < 1) {
     $totalPages = 1;
 }
-
-$tags = blog_get_tag_summary($db);
-$lastUpdated = blog_get_latest_update($db);
-
-send_cache_headers($lastUpdated, sprintf('blog-list-%d-%d-%s-%s', $page, $perPage, md5($q), md5($tag)));
 
 function send_cache_headers(?string $timestamp, string $seed): void
 {
@@ -238,30 +258,37 @@ if ($tag !== '') {
                     <h2 id="blog-filter-title" style="margin:0; font-size:1.3rem;">Filter published posts</h2>
                     <p class="text-sm" style="margin:0; color:var(--base-500);">Search the archive or focus on a specific tag. Only published stories are listed.</p>
                 </div>
-                <form method="get" action="index.php" novalidate>
-                    <label for="blog-search">Search title or excerpt
-                        <input type="search" id="blog-search" name="q" value="<?= htmlspecialchars($q, ENT_QUOTES | ENT_HTML5) ?>" placeholder="e.g. net-metering timeline" />
-                    </label>
-                    <label for="blog-tag">Filter by tag
-                        <select id="blog-tag" name="tag">
-                            <option value="">All tags</option>
-                            <?php foreach ($tags as $tagRow): ?>
-                                <option value="<?= htmlspecialchars($tagRow['slug'], ENT_QUOTES | ENT_HTML5) ?>" <?= $tagRow['slug'] === $tag ? 'selected' : '' ?>><?= htmlspecialchars($tagRow['name'], ENT_QUOTES | ENT_HTML5) ?> (<?= (int) $tagRow['post_count'] ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                    <label for="blog-per-page">Posts per page
-                        <select id="blog-per-page" name="per_page">
-                            <?php for ($size = 3; $size <= 12; $size += 3): ?>
-                                <option value="<?= $size ?>" <?= $size === $perPage ? 'selected' : '' ?>><?= $size ?></option>
-                            <?php endfor; ?>
-                        </select>
-                    </label>
-                    <button type="submit" class="btn btn-primary">Apply filters</button>
-                    <?php if ($q !== '' || $tag !== '' || $perPage !== $defaultPageSize): ?>
-                        <a href="index.php" class="btn btn-outline">Reset</a>
-                    <?php endif; ?>
-                </form>
+                <?php if ($dbUnavailable): ?>
+                    <div class="blog-empty" role="alert" style="margin:0; text-align:left;">
+                        <p class="lead" style="margin-bottom:0.5rem;">Blog filters are temporarily offline.</p>
+                        <p style="margin:0;">We’re working to restore access to published posts. Please check back shortly.</p>
+                    </div>
+                <?php else: ?>
+                    <form method="get" action="index.php" novalidate>
+                        <label for="blog-search">Search title or excerpt
+                            <input type="search" id="blog-search" name="q" value="<?= htmlspecialchars($q, ENT_QUOTES | ENT_HTML5) ?>" placeholder="e.g. net-metering timeline" />
+                        </label>
+                        <label for="blog-tag">Filter by tag
+                            <select id="blog-tag" name="tag">
+                                <option value="">All tags</option>
+                                <?php foreach ($tags as $tagRow): ?>
+                                    <option value="<?= htmlspecialchars($tagRow['slug'], ENT_QUOTES | ENT_HTML5) ?>" <?= $tagRow['slug'] === $tag ? 'selected' : '' ?>><?= htmlspecialchars($tagRow['name'], ENT_QUOTES | ENT_HTML5) ?> (<?= (int) $tagRow['post_count'] ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <label for="blog-per-page">Posts per page
+                            <select id="blog-per-page" name="per_page">
+                                <?php for ($size = 3; $size <= 12; $size += 3): ?>
+                                    <option value="<?= $size ?>" <?= $size === $perPage ? 'selected' : '' ?>><?= $size ?></option>
+                                <?php endfor; ?>
+                            </select>
+                        </label>
+                        <button type="submit" class="btn btn-primary">Apply filters</button>
+                        <?php if ($q !== '' || $tag !== '' || $perPage !== $defaultPageSize): ?>
+                            <a href="index.php" class="btn btn-outline">Reset</a>
+                        <?php endif; ?>
+                    </form>
+                <?php endif; ?>
             </div>
 
             <?php if ($posts): ?>
@@ -313,6 +340,11 @@ if ($tag !== '') {
                         </article>
                     <?php endforeach; ?>
                 </div>
+            <?php elseif ($dbUnavailable): ?>
+                <div class="blog-empty" role="alert">
+                    <p class="lead">Our blog archive is temporarily unavailable.</p>
+                    <p><?= htmlspecialchars($loadErrorMessage, ENT_QUOTES | ENT_HTML5) ?></p>
+                </div>
             <?php else: ?>
                 <div class="blog-empty" role="status">
                     <p class="lead">No published posts match your filters yet.</p>
@@ -320,7 +352,7 @@ if ($tag !== '') {
                 </div>
             <?php endif; ?>
 
-            <?php if ($totalPages > 1): ?>
+            <?php if ($totalPages > 1 && !$dbUnavailable): ?>
                 <div class="blog-pagination" aria-label="Blog pagination">
                     <nav>
                         <?php for ($i = 1; $i <= $totalPages; $i++): ?>
