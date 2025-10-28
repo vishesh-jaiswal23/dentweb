@@ -715,9 +715,9 @@ function normalize_role_name(string $roleName): string
         'employee' => 'employee',
         'staff' => 'employee',
         'team' => 'employee',
-        'installer' => 'employee',
-        'referrer' => 'employee',
-        'customer' => 'employee',
+        'installer' => 'installer',
+        'referrer' => 'referrer',
+        'customer' => 'customer',
     ];
 
     if (!array_key_exists($key, $map)) {
