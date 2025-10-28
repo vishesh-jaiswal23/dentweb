@@ -56,48 +56,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash($tone, $result['message']);
                 break;
             case 'generate-draft':
-                ai_require_enabled($db);
-                $generatorInput = [
-                    'topic' => $_POST['topic'] ?? '',
-                    'tone' => $_POST['tone'] ?? '',
-                    'audience' => $_POST['audience'] ?? '',
-                    'keywords' => $_POST['keywords'] ?? '',
-                    'purpose' => $_POST['purpose'] ?? '',
-                ];
-                $draft = ai_generate_blog_draft_content($generatorInput);
-                $_SESSION['ai_generator_state'] = array_merge($generatorInput, [
-                    'title' => $draft['title'],
-                    'body_html' => $draft['body_html'],
-                    'excerpt' => $draft['excerpt'],
-                    'generated_title' => $draft['title'],
-                    'generated_body' => $draft['body_html'],
-                ]);
-                set_flash('success', 'Draft generated. Review and refine before saving.');
-                $activeTab = 'generator';
-                break;
-            case 'save-draft':
-                ai_require_enabled($db);
-                $payload = [
-                    'post_id' => isset($_POST['post_id']) && $_POST['post_id'] !== '' ? (int) $_POST['post_id'] : null,
-                    'draft_id' => isset($_POST['draft_id']) && $_POST['draft_id'] !== '' ? (int) $_POST['draft_id'] : null,
-                    'title' => $_POST['title'] ?? '',
-                    'slug' => $_POST['slug'] ?? '',
-                    'excerpt' => $_POST['excerpt'] ?? '',
-                    'body' => $_POST['body_html'] ?? '',
-                    'author_name' => $admin['full_name'] ?? '',
-                    'keywords' => $_POST['keywords'] ?? '',
-                    'topic' => $_POST['topic'] ?? '',
-                    'tone' => $_POST['tone'] ?? '',
-                    'audience' => $_POST['audience'] ?? '',
-                    'purpose' => $_POST['purpose'] ?? '',
-                    'generated_title' => $_POST['generated_title'] ?? '',
-                    'generated_body' => $_POST['generated_body'] ?? '',
-                    'cover_image' => $_POST['cover_image'] ?? '',
-                    'cover_image_alt' => $_POST['cover_image_alt'] ?? '',
-                ];
-                $saved = ai_save_blog_draft($db, $payload, $adminId);
-                unset($_SESSION['ai_generator_state']);
-                set_flash('success', sprintf('Draft saved. Manage it anytime from Blog publishing (post #%d).', (int) $saved['id']));
+                $prompt = trim((string) ($_POST['prompt'] ?? ''));
+                $result = ai_generate_blog_draft_from_prompt($db, $prompt, $adminId);
+                set_flash('success', sprintf('Draft "%s" generated with artwork and saved for review.', $result['title']));
                 $activeTab = 'generator';
                 break;
             case 'generate-image':
@@ -141,19 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Unsupported action.');
         }
     } catch (Throwable $exception) {
-        if ($action === 'generate-draft') {
-            $_SESSION['ai_generator_state'] = [
-                'topic' => $_POST['topic'] ?? '',
-                'tone' => $_POST['tone'] ?? '',
-                'audience' => $_POST['audience'] ?? '',
-                'keywords' => $_POST['keywords'] ?? '',
-                'purpose' => $_POST['purpose'] ?? '',
-                'title' => $_POST['title'] ?? '',
-                'body_html' => $_POST['body_html'] ?? '',
-                'excerpt' => $_POST['excerpt'] ?? '',
-            ];
-            $activeTab = 'generator';
-        }
         set_flash('error', $exception->getMessage());
     }
 
@@ -171,44 +119,6 @@ $aiEnabled = $settings['enabled'];
 ai_daily_notes_generate_if_due($db);
 $drafts = ai_list_blog_drafts($db);
 $notes = ai_daily_notes_recent($db, 12);
-
-$generatorState = $_SESSION['ai_generator_state'] ?? [];
-if (isset($_SESSION['ai_generator_state'])) {
-    unset($_SESSION['ai_generator_state']);
-}
-
-$draftDefaults = [
-    'topic' => '',
-    'tone' => 'Informative',
-    'audience' => '',
-    'keywords' => '',
-    'purpose' => '',
-    'title' => '',
-    'body_html' => '',
-    'excerpt' => '',
-    'generated_title' => '',
-    'generated_body' => '',
-    'post_id' => '',
-    'draft_id' => '',
-];
-
-$draftForm = $draftDefaults;
-foreach ($generatorState as $key => $value) {
-    if (!array_key_exists($key, $draftForm)) {
-        continue;
-    }
-    if ($key === 'keywords') {
-        if (is_array($value)) {
-            $draftForm[$key] = implode(', ', array_map('strval', $value));
-        } else {
-            $draftForm[$key] = (string) $value;
-        }
-        continue;
-    }
-    if (is_scalar($value) || $value === null) {
-        $draftForm[$key] = (string) $value;
-    }
-}
 
 $tabs = [
     'settings' => 'AI Settings',
@@ -332,7 +242,7 @@ function ai_tab_class(string $current, string $tab): string
       <div class="admin-panel__header ai-panel__header">
         <div>
           <h2 id="ai-generator-heading">AI Blog Generator</h2>
-          <p>Create long-form drafts with AI, tweak wording, and push them into the blog workflow without leaving this page.</p>
+          <p>Provide a short prompt and AI Studio will draft the blog, attach artwork, and save everything automatically.</p>
         </div>
         <?php if (!$aiEnabled): ?>
         <span class="ai-status-badge">AI disabled</span>
@@ -342,45 +252,13 @@ function ai_tab_class(string $current, string $tab): string
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
         <input type="hidden" name="tab" value="generator" />
         <fieldset <?= $aiEnabled ? '' : 'disabled' ?> class="ai-form__fieldset">
-          <div class="admin-form__grid">
-            <label>
-              Topic
-              <input type="text" name="topic" value="<?= htmlspecialchars($draftForm['topic'], ENT_QUOTES) ?>" placeholder="Solar finance update" required />
-            </label>
-            <label>
-              Tone
-              <input type="text" name="tone" value="<?= htmlspecialchars($draftForm['tone'], ENT_QUOTES) ?>" placeholder="Informative" />
-            </label>
-            <label>
-              Audience
-              <input type="text" name="audience" value="<?= htmlspecialchars($draftForm['audience'], ENT_QUOTES) ?>" placeholder="Operations leaders" />
-            </label>
-            <label>
-              Keywords
-              <input type="text" name="keywords" value="<?= htmlspecialchars($draftForm['keywords'], ENT_QUOTES) ?>" placeholder="PM Surya Ghar, rooftop, subsidy" />
-            </label>
-          </div>
           <label class="admin-form__full">
-            Purpose / Notes for AI
-            <input type="text" name="purpose" value="<?= htmlspecialchars($draftForm['purpose'], ENT_QUOTES) ?>" placeholder="Highlight subsidy reimbursements and installation timelines." />
+            Prompt for blog + image
+            <textarea name="prompt" rows="4" placeholder="e.g. Rooftop solar adoption trends for small businesses in tier-2 cities" required></textarea>
+            <span class="ai-field-help">Describe the idea in a few words. AI Studio will handle the title, content, and feature image.</span>
           </label>
-          <label class="admin-form__full">
-            Generated Title
-            <input type="text" name="title" value="<?= htmlspecialchars($draftForm['title'], ENT_QUOTES) ?>" required />
-          </label>
-          <label class="admin-form__full">
-            Draft Body (HTML allowed)
-            <textarea name="body_html" rows="14" required><?= htmlspecialchars($draftForm['body_html'], ENT_QUOTES) ?></textarea>
-          </label>
-          <label class="admin-form__full">
-            Excerpt
-            <textarea name="excerpt" rows="3" placeholder="Short summary for cards."><?= htmlspecialchars($draftForm['excerpt'], ENT_QUOTES) ?></textarea>
-          </label>
-          <input type="hidden" name="generated_title" value="<?= htmlspecialchars($draftForm['generated_title'], ENT_QUOTES) ?>" />
-          <input type="hidden" name="generated_body" value="<?= htmlspecialchars($draftForm['generated_body'], ENT_QUOTES) ?>" />
           <div class="ai-form__actions">
-            <button type="submit" name="action" value="generate-draft" class="btn btn-secondary">Generate Draft</button>
-            <button type="submit" name="action" value="save-draft" class="btn btn-primary">Save as Draft</button>
+            <button type="submit" name="action" value="generate-draft" class="btn btn-primary">Generate blog draft</button>
           </div>
         </fieldset>
       </form>

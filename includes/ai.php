@@ -136,79 +136,125 @@ function ai_normalize_keywords($input): array
     return array_values(array_unique($keywords));
 }
 
-function ai_generate_blog_draft_content(array $input): array
+function ai_generate_blog_draft_content(string $prompt): array
 {
-    $topic = trim((string) ($input['topic'] ?? ''));
+    $prompt = trim($prompt);
+    if ($prompt === '') {
+        throw new RuntimeException('Enter a prompt for the blog draft.');
+    }
+
+    $normalizedPrompt = preg_replace('/\s+/', ' ', $prompt);
+    $topic = ucwords(mb_substr($normalizedPrompt, 0, 120));
     if ($topic === '') {
-        throw new RuntimeException('Enter a topic for the draft.');
-    }
-    $tone = trim((string) ($input['tone'] ?? 'Informative'));
-    $audience = trim((string) ($input['audience'] ?? 'Stakeholders'));
-    $keywords = ai_normalize_keywords($input['keywords'] ?? []);
-    $purpose = trim((string) ($input['purpose'] ?? ''));
-
-    $baseTitle = ucfirst($topic);
-    $title = $baseTitle;
-    if ($audience !== '') {
-        $title = sprintf('%s — Insights for %s', $baseTitle, $audience);
-    }
-    if (strlen($title) < 24) {
-        $title = sprintf('%s: %s Perspective', $baseTitle, $audience !== '' ? $audience : 'Expert');
+        $topic = 'AI Studio Insight';
     }
 
-    $introTone = strtolower($tone) === 'conversational' ? 'Let’s explore' : 'This briefing examines';
-    $introAudience = $audience !== '' ? strtolower($audience) : 'stakeholders';
-    $intro = sprintf('%s how %s impacts %s and where the immediate opportunities lie.', $introTone, strtolower($topic), $introAudience);
-
-    $keywordList = '';
-    if ($keywords) {
-        $items = array_map(static fn ($keyword) => sprintf('<li>%s</li>', htmlspecialchars($keyword, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5)), $keywords);
-        $keywordList = '<ul>' . implode('', $items) . '</ul>';
+    $title = $topic;
+    if (mb_strlen($title) < 28) {
+        $title = sprintf('%s — Fresh Insights', $title);
     }
+
+    $keywords = array_values(array_filter(array_unique(array_map(
+        static function ($word) {
+            $word = trim(mb_strtolower($word));
+            return $word !== '' && mb_strlen($word) > 3 ? $word : null;
+        },
+        preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower($normalizedPrompt)) ?: []
+    ))));
+    if (count($keywords) > 6) {
+        $keywords = array_slice($keywords, 0, 6);
+    }
+
+    $opening = sprintf(
+        'This piece explores "%s" and outlines immediate takeaways for teams tracking the clean-energy market.',
+        htmlspecialchars($normalizedPrompt, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5)
+    );
 
     $sections = [
         [
-            'heading' => sprintf('Market signals for %s', $audience !== '' ? strtolower($audience) : 'your teams'),
-            'body' => sprintf(
-                'Recent activity around %s shows accelerating interest. Map the demand pockets, quantify subsidy benefits, and identify the operational hurdles before go-live.',
-                htmlspecialchars($topic, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5)
-            ),
+            'heading' => 'Why it matters now',
+            'body' => 'Spot the policy shifts, funding windows, and customer triggers connected to this theme. Translate the signal into next actions for sales, project, and support teams.',
         ],
         [
-            'heading' => 'Execution priorities',
-            'body' => 'Align cross-functional teams, update vendor lists, and set a communications cadence. Give sales and project leads clarity on what success looks like this quarter.',
+            'heading' => 'Numbers to watch',
+            'body' => 'Capture pipeline velocity, subsidy utilisation, installation readiness, and customer sentiment to measure traction.',
         ],
         [
-            'heading' => 'Immediate next steps',
-            'body' => 'Pick two lighthouse opportunities, capture learning loops, and translate them into playbooks for the rest of the organisation.',
+            'heading' => 'Actions for the week ahead',
+            'body' => 'Assign owners, unblock cross-functional dependencies, and communicate the wins you expect before the next review.',
         ],
     ];
 
     $bodyParts = [];
-    $bodyParts[] = '<p>' . htmlspecialchars($intro, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5) . '</p>';
-    if ($purpose !== '') {
-        $bodyParts[] = '<p><strong>Objective:</strong> ' . htmlspecialchars($purpose, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5) . '</p>';
-    }
+    $bodyParts[] = '<p>' . $opening . '</p>';
     foreach ($sections as $section) {
         $bodyParts[] = '<h2>' . htmlspecialchars($section['heading'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5) . '</h2>';
         $bodyParts[] = '<p>' . htmlspecialchars($section['body'], ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5) . '</p>';
     }
-    if ($keywordList !== '') {
-        $bodyParts[] = '<h3>Key phrases to reinforce</h3>';
-        $bodyParts[] = $keywordList;
+    if ($keywords) {
+        $items = array_map(static fn ($keyword) => sprintf('<li>%s</li>', htmlspecialchars($keyword, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5)), $keywords);
+        $bodyParts[] = '<h3>Suggested keywords</h3>';
+        $bodyParts[] = '<ul>' . implode('', $items) . '</ul>';
     }
 
     $bodyHtml = implode("\n", $bodyParts);
     $excerpt = blog_extract_plain_text($bodyHtml);
-    if (strlen($excerpt) > 240) {
+    if (mb_strlen($excerpt) > 240) {
         $excerpt = trim(mb_substr($excerpt, 0, 240)) . '…';
     }
 
+    $imagePrompt = sprintf('Feature image showing %s in the context of clean energy.', mb_strtolower($normalizedPrompt));
+
     return [
+        'prompt' => $normalizedPrompt,
+        'topic' => $topic,
         'title' => $title,
         'body_html' => $bodyHtml,
         'excerpt' => $excerpt,
         'keywords' => $keywords,
+        'image_prompt' => $imagePrompt,
+    ];
+}
+
+function ai_generate_blog_draft_from_prompt(PDO $db, string $prompt, int $actorId): array
+{
+    ai_require_enabled($db);
+    ai_blog_tables($db);
+
+    $content = ai_generate_blog_draft_content($prompt);
+
+    $payload = [
+        'title' => $content['title'],
+        'body' => $content['body_html'],
+        'excerpt' => $content['excerpt'],
+        'topic' => $content['topic'],
+        'tone' => 'Informative',
+        'audience' => 'General readership',
+        'purpose' => 'Prompt: ' . mb_substr($content['prompt'], 0, 240),
+        'generated_title' => $content['title'],
+        'generated_body' => $content['body_html'],
+        'keywords' => $content['keywords'],
+        'cover_image' => '',
+        'cover_image_alt' => '',
+        'author_name' => '',
+    ];
+
+    $saved = ai_save_blog_draft($db, $payload, $actorId);
+    $draftId = (int) $saved['draftId'];
+
+    $updatePrompt = $db->prepare("UPDATE ai_blog_drafts SET image_prompt = :prompt, updated_at = datetime('now') WHERE id = :id");
+    $updatePrompt->execute([
+        ':prompt' => $content['image_prompt'],
+        ':id' => $draftId,
+    ]);
+
+    $image = ai_generate_image_for_draft($db, $draftId, $actorId);
+
+    return [
+        'post_id' => (int) $saved['id'],
+        'draft_id' => $draftId,
+        'title' => $saved['title'],
+        'image' => $image['image'] ?? '',
     ];
 }
 
