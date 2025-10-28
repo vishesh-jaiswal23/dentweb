@@ -177,10 +177,6 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
         </div>
       </div>
       <div class="admin-overview__actions">
-        <a href="<?= htmlspecialchars($pathFor('admin-ai.php'), ENT_QUOTES) ?>" class="btn btn-secondary">
-          <i class="fa-solid fa-robot" aria-hidden="true"></i>
-          AI Studio
-        </a>
         <a href="<?= htmlspecialchars($pathFor('admin-users.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
           <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
           Users

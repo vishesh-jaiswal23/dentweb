@@ -16,22 +16,13 @@ if (!$post) {
 
 $authorName = trim((string) ($post['author_name'] ?? ''));
 
-function blog_is_gemini_label(?string $label): bool
-{
-    if ($label === null) {
-        return false;
-    }
-
-    return stripos($label, 'gemini') !== false;
-}
-
 function blog_filter_tags(array $tags): array
 {
     $filtered = [];
 
     foreach ($tags as $tag) {
         $label = is_array($tag) ? trim((string) ($tag['name'] ?? '')) : trim((string) $tag);
-        if ($label === '' || blog_is_gemini_label($label)) {
+        if ($label === '') {
             continue;
         }
 
@@ -44,10 +35,6 @@ function blog_filter_tags(array $tags): array
     }
 
     return $filtered;
-}
-
-if ($authorName !== '' && blog_is_gemini_label($authorName)) {
-    $authorName = '';
 }
 
 $coverImage = $post['cover_image'] ?? '';

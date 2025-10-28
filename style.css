@@ -1396,142 +1396,12 @@ body.site-search-open {
   transform: translateY(-2px);
 }
 
-.ai-studio-grid {
-  display: grid;
-  gap: 2rem;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  align-items: start;
-}
-
-.ai-form {
-  display: grid;
-  gap: 1rem;
-}
-
-.ai-form__options {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  font-size: 0.9rem;
-  color: var(--base-600);
-}
-
-.ai-form__actions {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.ai-form__checkbox {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-}
-
-.dashboard-ai-brief {
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: var(--alt-surface);
-  border-radius: 1rem;
-  padding: 1rem 1.25rem;
-  display: grid;
-  gap: 0.75rem;
-}
-
-.dashboard-ai-brief h4 {
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--base-700);
-}
-
-.dashboard-ai-brief p {
-  margin: 0;
-  color: var(--base-600);
-  font-size: 0.9rem;
-}
-
-.dashboard-ai-brief ul {
-  margin: 0;
-  padding-left: 1.25rem;
-  display: grid;
-  gap: 0.35rem;
-  color: var(--base-600);
-  font-size: 0.9rem;
-}
-
-body[data-dashboard-theme='dark'] .dashboard-ai-brief {
-  background: rgba(15, 23, 42, 0.55);
-  border-color: rgba(148, 163, 184, 0.35);
-}
-
-body[data-dashboard-theme='dark'] .dashboard-ai-brief h4,
-body[data-dashboard-theme='dark'] .dashboard-ai-brief p,
-body[data-dashboard-theme='dark'] .dashboard-ai-brief li {
-  color: var(--base-200);
-}
 
 .form-hint {
   font-size: 0.85rem;
   color: var(--base-500);
 }
 
-.ai-draft {
-  display: grid;
-  gap: 1rem;
-}
-
-.ai-draft__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-}
-
-.ai-draft__body {
-  display: grid;
-  gap: 0.75rem;
-  font-size: 0.95rem;
-  line-height: 1.6;
-  color: var(--base-700);
-}
-
-.ai-draft__body p {
-  margin: 0;
-}
-
-.ai-draft__audio {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.ai-log {
-  margin-top: 1.25rem;
-  display: grid;
-  gap: 1rem;
-}
-
-.ai-log h4 {
-  margin: 0;
-  font-size: 0.95rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--base-600);
-}
-
-.ai-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.75rem;
-  font-size: 0.9rem;
-  color: var(--base-600);
-}
-
-.ai-list li {
-  border-left: 3px solid rgba(59, 130, 246, 0.45);
-  padding-left: 0.75rem;
-}
 
 .hero--knowledge {
   background-color: #0f172a;
@@ -7730,82 +7600,6 @@ body[data-festival-theme] .hero-highlight {
   gap: 1.5rem;
 }
 
-.dashboard-ai-stack {
-  gap: 1.75rem;
-}
-
-.dashboard-ai-suite {
-  gap: 1.5rem;
-}
-
-.dashboard-ai-suite__header {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.dashboard-ai-suite__header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-  color: var(--base-800);
-}
-
-.dashboard-ai-suite__header .dashboard-muted {
-  font-size: 0.9rem;
-}
-
-.dashboard-ai-suite__grid {
-  display: grid;
-  gap: 1.5rem;
-}
-
-.dashboard-ai-suite__panel {
-  display: grid;
-  gap: 1.1rem;
-}
-
-.dashboard-ai-suite__panel--primary {
-  gap: 1.35rem;
-}
-
-.dashboard-ai-suite__panel--card {
-  background: var(--alt-surface);
-  padding: 1.25rem;
-  border-radius: 1rem;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  box-shadow: none;
-}
-
-.dashboard-ai-suite__panel--card h4 {
-  margin: 0;
-  font-size: 1rem;
-  color: var(--base-700);
-}
-
-.dashboard-ai-suite__panel--card .dashboard-muted {
-  margin: 0;
-  font-size: 0.85rem;
-}
-
-.dashboard-ai-suite__aside {
-  display: grid;
-  gap: 1.25rem;
-}
-
-.dashboard-ai-suite__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
-}
-
-.dashboard-ai-schedule {
-  gap: 1.25rem;
-}
-
-body[data-dashboard-theme='dark'] .dashboard-ai-suite__panel--card {
-  background: rgba(15, 23, 42, 0.6);
-  border-color: rgba(148, 163, 184, 0.35);
-}
 
 .dashboard-form {
   background: var(--surface);
@@ -7863,80 +7657,6 @@ body[data-dashboard-theme='dark'] .dashboard-ai-suite__panel--card {
   font-size: 0.95rem;
 }
 
-.ai-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: center;
-  margin-bottom: 0.75rem;
-}
-
-.ai-status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-weight: 600;
-  font-size: 0.95rem;
-  padding: 0.35rem 0.85rem;
-  border-radius: 999px;
-  background: rgba(34, 197, 94, 0.12);
-  color: #15803d;
-}
-
-.ai-status-badge[data-state='disabled'] {
-  background: rgba(248, 113, 113, 0.12);
-  color: #b91c1c;
-}
-
-.ai-status-key {
-  font-size: 0.9rem;
-  color: var(--base-500);
-}
-
-.ai-status-key strong {
-  color: var(--base-600);
-}
-
-.ai-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-size: 0.95rem;
-  color: var(--base-600);
-}
-
-.ai-toggle input {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-.ai-feedback {
-  font-size: 0.9rem;
-  min-height: 1.2em;
-  margin: 0;
-}
-
-.ai-feedback[data-tone='success'] {
-  color: #15803d;
-}
-
-.ai-feedback[data-tone='error'] {
-  color: #b91c1c;
-}
-
-.ai-feedback[data-tone='info'] {
-  color: var(--base-500);
-}
-
-.ai-feedback[hidden] {
-  display: none;
-}
-
-.ai-draft-list-meta {
-  margin-top: 0.35rem;
-  font-size: 0.8rem;
-  color: var(--base-500);
-}
 
 .dashboard-form select {
   border-radius: 0.75rem;
@@ -9368,8 +9088,8 @@ button[data-task-undo]:focus-visible {
 .visit-layout,
 .document-layout,
 .warranty-layout,
-.communication-layout,
-.ai-layout {
+.communication-layout
+{
   display: grid;
   gap: 1.5rem;
 }
@@ -9506,7 +9226,6 @@ button[data-task-undo]:focus-visible {
 
 .document-panel,
 .warranty-activity,
-.ai-output-panel,
 .communication-history {
   display: grid;
   gap: 1rem;
@@ -9515,42 +9234,6 @@ button[data-task-undo]:focus-visible {
 
 .document-form,
 .communication-form,
-.ai-form {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.document-form label,
-.communication-form label,
-.ai-form label {
-  display: grid;
-  gap: 0.4rem;
-  font-size: 0.9rem;
-  color: var(--base-600);
-}
-
-.document-form input,
-.document-form select,
-.document-form textarea,
-.communication-form select,
-.communication-form textarea,
-.ai-form select,
-.ai-form textarea,
-.ai-form input {
-  border-radius: 0.75rem;
-  border: 1px solid var(--base-300);
-  padding: 0.6rem 0.75rem;
-  font-size: 0.95rem;
-  background: var(--surface);
-  color: var(--base-800);
-}
-
-.document-form textarea,
-.communication-form textarea,
-.ai-form textarea {
-  resize: vertical;
-  min-height: 3.5rem;
-}
 
 .subsidy-layout {
   display: grid;
@@ -9695,42 +9378,12 @@ button[data-task-undo]:focus-visible {
   font-size: 0.95rem;
 }
 
-.ai-output {
-  min-height: 7rem;
-  border-radius: 1rem;
-  border: 1px dashed rgba(59, 130, 246, 0.4);
-  background: rgba(59, 130, 246, 0.08);
-  padding: 1rem 1.25rem;
-  color: var(--base-700);
-  font-size: 0.95rem;
-  white-space: pre-wrap;
-}
-
-.ai-output strong {
-  color: var(--base-900);
-}
-
-.ai-output-panel h3 {
-  margin: 0;
-}
-
-.subsidy-activity,
-.visit-activity,
-.warranty-activity,
-.communication-history,
-.ai-output-panel {
-  background: var(--surface);
-  border-radius: 1.25rem;
-  padding: 1.5rem;
-  box-shadow: var(--shadow-soft);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-}
 
 .visit-card.dashboard-panel,
 .subsidy-card.dashboard-panel,
 .document-panel.dashboard-panel,
 .communication-layout .dashboard-panel,
-.ai-layout .dashboard-panel,
+
 .warranty-layout .dashboard-panel {
   box-shadow: var(--shadow-soft);
 }
@@ -10049,7 +9702,7 @@ button[data-task-undo]:focus-visible {
     grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   }
 
-  .ai-layout {
+  {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

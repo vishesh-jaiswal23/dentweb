@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_once __DIR__ . '/../includes/ai.php';
 
 header('Content-Type: application/json');
 
@@ -53,27 +52,6 @@ try {
         case 'reject-invite':
             require_method('POST');
             respond_success(reject_invitation($db, read_json()));
-            break;
-        case 'get-gemini':
-            require_method('GET');
-            respond_success(['gemini' => gemini_settings_admin_view($db)]);
-            break;
-        case 'update-gemini':
-            require_method('POST');
-            $payload = read_json();
-            $view = gemini_save_settings($db, $payload);
-            $description = $view['enabled'] ? 'Gemini provider enabled/updated' : 'Gemini provider settings updated';
-            audit('update_gemini', 'settings', 0, $description);
-            respond_success(['gemini' => $view]);
-            break;
-        case 'test-gemini':
-            require_method('POST');
-            $payload = read_json();
-            respond_success(['test' => gemini_test_connection($db, $payload['apiKey'] ?? null)]);
-            break;
-        case 'generate-blog-draft':
-            require_method('POST');
-            respond_success(gemini_generate_blog_draft($db, read_json(), $actor, $actorId));
             break;
         case 'change-password':
             require_method('POST');
@@ -200,10 +178,6 @@ try {
             require_method('POST');
             respond_success(['post' => blog_save_post($db, read_json(), $actorId)]);
             break;
-        case 'research-blog-topic':
-            require_method('POST');
-            respond_success(['research' => research_blog_topic($db, read_json(), $actor)]);
-            break;
         case 'publish-blog-post':
             require_method('POST');
             $payload = read_json();
@@ -263,273 +237,6 @@ function respond_error(string $message): void
     echo json_encode(['success' => false, 'error' => $message]);
 }
 
-function research_blog_topic(PDO $db, array $input, array $actor): array
-{
-    unset($db); // No direct persistence required for research payload generation.
-
-    $topic = trim((string) ($input['topic'] ?? ''));
-    if ($topic === '') {
-        throw new RuntimeException('Topic is required for research.');
-    }
-
-    $tone = strtolower(trim((string) ($input['tone'] ?? 'informative')));
-    $allowedTones = ['informative', 'conversational', 'technical', 'promotional'];
-    if (!in_array($tone, $allowedTones, true)) {
-        $tone = 'informative';
-    }
-
-    $length = (int) ($input['length'] ?? 650);
-    if ($length < 200) {
-        $length = 200;
-    } elseif ($length > 1500) {
-        $length = 1500;
-    }
-
-    $keywords = normalize_research_keywords($input['keywords'] ?? []);
-    $outline = normalize_research_outline($input['outline'] ?? []);
-
-    $toneDescriptions = [
-        'informative' => 'insight-led informative narrative',
-        'conversational' => 'warm conversational voice',
-        'technical' => 'detail-rich technical explainer',
-        'promotional' => 'action-oriented promotional copy',
-    ];
-    $toneDescriptor = $toneDescriptions[$tone] ?? $toneDescriptions['informative'];
-
-    $primaryKeyword = $keywords[0] ?? 'clean energy adoption';
-    $secondaryKeyword = $keywords[1] ?? 'Jharkhand households';
-
-    $preparedBy = trim((string) ($actor['full_name'] ?? $actor['username'] ?? 'Gemini Analyst'));
-    if ($preparedBy === '') {
-        $preparedBy = 'Gemini Analyst';
-    }
-
-    $headline = generate_research_headline($topic);
-    $brief = sprintf(
-        'Gemini reviewed policy updates, subsidy utilisation, and customer conversations to map why %s matters now. '
-        . 'Insights are written in a %s and tailored for %s audiences.',
-        $headline,
-        $toneDescriptor,
-        $secondaryKeyword
-    );
-
-    $sections = build_research_sections($headline, $primaryKeyword, $secondaryKeyword, $outline);
-    $takeaways = [
-        sprintf('Households prioritising %s can trim electricity bills by 25–35%% with PM Surya Ghar support.', $primaryKeyword),
-        sprintf('Document net-metering steps early—Gemini spotted a %s backlog when DISCOM approvals start late.', strtolower($topic)),
-        'Capture installation photos and AMC commitments in the CRM to unlock referrals within 60 days.',
-    ];
-    $sources = [
-        'MNRE Rooftop Solar dashboard (May 2024)',
-        'Jharkhand Renewable Energy Development Agency circulars',
-        'Dentweb service intelligence & ticket heatmap',
-    ];
-
-    $articleHtml = build_research_article_html($headline, $tone, $length, $sections, $outline, $keywords, $preparedBy);
-    $excerpt = build_research_excerpt($articleHtml, $headline);
-    $wordCount = str_word_count(blog_extract_plain_text($articleHtml));
-    $readingTime = max(1, (int) ceil($wordCount / 180));
-
-    $coverPrompt = sprintf('%s illustration featuring %s for Jharkhand readers', $headline, $primaryKeyword);
-    [$coverImage, $coverAlt] = blog_generate_gemini_cover($headline, $coverPrompt);
-
-    return [
-        'title' => $headline,
-        'topic' => $topic,
-        'tone' => $tone,
-        'length' => $length,
-        'draftHtml' => $articleHtml,
-        'excerpt' => $excerpt,
-        'keywords' => $keywords,
-        'outline' => $outline,
-        'wordCount' => $wordCount,
-        'readingTimeMinutes' => $readingTime,
-        'research' => [
-            'brief' => $brief,
-            'sections' => $sections,
-            'takeaways' => $takeaways,
-            'sources' => $sources,
-            'preparedBy' => $preparedBy,
-        ],
-        'cover' => [
-            'image' => $coverImage,
-            'alt' => $coverAlt,
-            'prompt' => $coverPrompt,
-            'aspect' => '16:9',
-        ],
-    ];
-}
-
-function normalize_research_keywords(array|string $input): array
-{
-    if (is_array($input)) {
-        $keywords = $input;
-    } else {
-        $keywords = preg_split('/[,;\n]+/', (string) $input) ?: [];
-    }
-
-    $cleaned = [];
-    foreach ($keywords as $keyword) {
-        $keyword = trim((string) $keyword);
-        if ($keyword !== '' && !in_array($keyword, $cleaned, true)) {
-            $cleaned[] = $keyword;
-        }
-    }
-
-    return array_slice($cleaned, 0, 8);
-}
-
-function normalize_research_outline(array|string $input): array
-{
-    if (is_array($input)) {
-        $lines = $input;
-    } else {
-        $lines = preg_split('/\r?\n/', (string) $input) ?: [];
-    }
-
-    $cleaned = [];
-    foreach ($lines as $line) {
-        $line = trim((string) $line);
-        if ($line !== '') {
-            $cleaned[] = $line;
-        }
-    }
-
-    return array_slice($cleaned, 0, 10);
-}
-
-function generate_research_headline(string $topic): string
-{
-    $headline = trim($topic);
-    if ($headline === '') {
-        $headline = 'Solar adoption insights';
-    }
-
-    $normalized = preg_replace('/\s+/', ' ', $headline) ?? $headline;
-    $normalized = trim((string) $normalized);
-    if ($normalized === '') {
-        $normalized = 'Solar adoption insights';
-    }
-
-    if (!preg_match('/jharkhand/i', $normalized)) {
-        $normalized .= ' – Jharkhand outlook';
-    }
-
-    if (function_exists('mb_convert_case')) {
-        return mb_convert_case($normalized, MB_CASE_TITLE, 'UTF-8');
-    }
-
-    return ucwords(strtolower($normalized));
-}
-
-function build_research_sections(string $headline, string $primaryKeyword, string $secondaryKeyword, array $outline): array
-{
-    $sections = [];
-
-    $sections[] = [
-        'heading' => 'Market momentum & demand triggers',
-        'insight' => sprintf(
-            'Adoption of %s is accelerating across Jharkhand as households look to stabilise bills and unlock subsidies.',
-            strtolower($headline)
-        ),
-        'bullets' => [
-            sprintf('Average payback period is now 4–5 years when %s incentives are stacked.', $primaryKeyword),
-            'Digitised DISCOM workflows keep approval times within 18–21 days for compliant files.',
-            sprintf('Customers motivated by %s prefer vernacular explainers and AMC assurances.', strtolower($secondaryKeyword)),
-        ],
-    ];
-
-    $sections[] = [
-        'heading' => 'Policy watch & subsidy readiness',
-        'insight' => 'Gemini surfaced the latest MNRE and JREDA notifications that shape messaging cadence.',
-        'bullets' => [
-            'State rooftop targets prioritise tier-2 cities—feature recent installs from Ranchi and Jamshedpur.',
-            'Highlight simplified net-metering paperwork introduced in the April 2024 circular.',
-            'Promote the DISCOM reimbursement tracker so homeowners know when to expect subsidy credits.',
-        ],
-    ];
-
-    $sections[] = [
-        'heading' => 'Execution playbook for Dentweb teams',
-        'insight' => 'Blend customer storytelling with operational proof-points to build trust quickly.',
-        'bullets' => [
-            'Embed before/after energy bill visuals and rooftop drone shots to validate performance.',
-            'Reference installer safety drills and AMC commitments captured in the Dentweb CRM.',
-            'End with a bilingual CTA linking to subsidy calculators and WhatsApp concierge support.',
-        ],
-    ];
-
-    if (!empty($outline)) {
-        $sections[] = [
-            'heading' => 'Requested outline priorities',
-            'insight' => 'Include the following talking points exactly as requested by the content owner.',
-            'bullets' => $outline,
-        ];
-    }
-
-    return $sections;
-}
-
-function build_research_article_html(string $headline, string $tone, int $length, array $sections, array $outline, array $keywords, string $preparedBy): string
-{
-    $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
-    $parts = [];
-    $parts[] = '<article class="dashboard-ai-draft">';
-    $parts[] = '<h4>' . $escape($headline) . '</h4>';
-    $parts[] = '<p class="dashboard-muted">'
-        . $escape(sprintf(
-            'Tone: %s · Target length: %d words · Prepared by %s',
-            ucfirst($tone),
-            $length,
-            $preparedBy
-        ))
-        . '</p>';
-
-    foreach ($sections as $section) {
-        $parts[] = '<h5>' . $escape($section['heading'] ?? '') . '</h5>';
-        $parts[] = '<p>' . $escape($section['insight'] ?? '') . '</p>';
-        $bullets = $section['bullets'] ?? [];
-        if (!empty($bullets)) {
-            $parts[] = '<ul>';
-            foreach ($bullets as $bullet) {
-                $parts[] = '<li>' . $escape($bullet) . '</li>';
-            }
-            $parts[] = '</ul>';
-        }
-    }
-
-    if (!empty($outline)) {
-        $parts[] = '<h5>Editorial outline checkpoints</h5><ul>';
-        foreach ($outline as $item) {
-            $parts[] = '<li>' . $escape($item) . '</li>';
-        }
-        $parts[] = '</ul>';
-    }
-
-    if (!empty($keywords)) {
-        $parts[] = '<p><strong>Focus keywords:</strong> ' . $escape(implode(', ', $keywords)) . '</p>';
-    }
-
-    $parts[] = '<p class="dashboard-muted">Next: refine this copy, then use “Push to Blog Publishing” to request approval.</p>';
-    $parts[] = '</article>';
-
-    return implode('', $parts);
-}
-
-function build_research_excerpt(string $articleHtml, string $headline): string
-{
-    $text = blog_extract_plain_text($articleHtml);
-    if ($text === '') {
-        return $headline;
-    }
-
-    $excerpt = mb_substr($text, 0, 280);
-    if (mb_strlen($text) > 280) {
-        $excerpt = rtrim($excerpt) . '…';
-    }
-
-    return $excerpt;
-}
 
 function bootstrap_payload(PDO $db): array
 {
@@ -542,8 +249,6 @@ function bootstrap_payload(PDO $db): array
         'audit' => recent_audit_logs($db),
         'metrics' => current_metrics($db),
         'loginPolicy' => fetch_login_policy($db),
-        'gemini' => gemini_settings_admin_view($db),
-        'geminiDrafts' => gemini_prepare_drafts($blogPosts),
         'tasks' => [
             'items' => portal_list_tasks($db),
             'team' => portal_list_team($db),
