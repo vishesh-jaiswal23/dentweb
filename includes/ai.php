@@ -3,56 +3,113 @@ declare(strict_types=1);
 
 const AI_DAILY_NOTE_TYPES = ['work_done', 'next_plan'];
 
-function ai_settings_row(PDO $db): array
+function ai_storage_base(): string
 {
-    $db->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS ai_settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    enabled INTEGER NOT NULL DEFAULT 0,
-    provider TEXT NOT NULL DEFAULT 'Gemini',
-    api_key_hash TEXT,
-    text_model TEXT,
-    image_model TEXT,
-    last_test_result TEXT,
-    last_tested_at TEXT,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-)
-SQL
-    );
-    $db->exec("INSERT OR IGNORE INTO ai_settings(id, enabled, provider) VALUES (1, 0, 'Gemini')");
+    return __DIR__ . '/../storage/ai';
+}
 
-    $stmt = $db->query('SELECT enabled, provider, api_key_hash, text_model, image_model, last_test_result, last_tested_at, updated_at FROM ai_settings WHERE id = 1');
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+function ai_storage_path(string ...$segments): string
+{
+    $path = ai_storage_base();
+    foreach ($segments as $segment) {
+        $segment = str_replace(['\\', '..'], '/', $segment);
+        $segment = trim($segment, '/');
+        if ($segment === '') {
+            continue;
+        }
+        $path .= DIRECTORY_SEPARATOR . $segment;
+    }
+    return $path;
+}
 
-    return $row ?: [
-        'enabled' => 0,
+function ai_ensure_directory(string $path): void
+{
+    if (is_dir($path)) {
+        return;
+    }
+    if (!mkdir($path, 0775, true) && !is_dir($path)) {
+        throw new RuntimeException(sprintf('Unable to create directory: %s', $path));
+    }
+}
+
+function ai_bootstrap_storage(): void
+{
+    ai_ensure_directory(ai_storage_base());
+    ai_ensure_directory(ai_storage_path('drafts'));
+    ai_ensure_directory(ai_storage_path('images'));
+    ai_ensure_directory(ai_storage_path('notes'));
+}
+
+function ai_safe_write(string $path, string $contents): void
+{
+    ai_ensure_directory(dirname($path));
+    $result = @file_put_contents($path, $contents, LOCK_EX);
+    if ($result === false) {
+        throw new RuntimeException(sprintf('Unable to write to %s', $path));
+    }
+}
+
+function ai_read_json_file(string $path, array $default = []): array
+{
+    if (!is_file($path)) {
+        return $default;
+    }
+    $contents = @file_get_contents($path);
+    if ($contents === false || $contents === '') {
+        return $default;
+    }
+    $decoded = json_decode($contents, true);
+    return is_array($decoded) ? $decoded : $default;
+}
+
+function ai_write_json_file(string $path, array $data): void
+{
+    $encoded = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($encoded === false) {
+        throw new RuntimeException('Failed to encode AI data as JSON.');
+    }
+    ai_safe_write($path, $encoded);
+}
+
+function ai_settings_path(): string
+{
+    return ai_storage_path('settings.json');
+}
+
+function ai_settings_defaults(): array
+{
+    return [
+        'enabled' => false,
         'provider' => 'Gemini',
-        'api_key_hash' => null,
         'text_model' => '',
         'image_model' => '',
+        'api_key_hash' => null,
         'last_test_result' => null,
         'last_tested_at' => null,
         'updated_at' => null,
     ];
 }
 
-function ai_get_settings(PDO $db): array
+function ai_get_settings(): array
 {
-    $row = ai_settings_row($db);
-    return [
-        'enabled' => (bool) ($row['enabled'] ?? 0),
-        'provider' => $row['provider'] ?? 'Gemini',
-        'text_model' => $row['text_model'] ?? '',
-        'image_model' => $row['image_model'] ?? '',
-        'has_api_key' => isset($row['api_key_hash']) && $row['api_key_hash'] !== null && $row['api_key_hash'] !== '',
-        'last_test_result' => $row['last_test_result'] ?? null,
-        'last_tested_at' => $row['last_tested_at'] ?? null,
-        'updated_at' => $row['updated_at'] ?? null,
-    ];
+    ai_bootstrap_storage();
+    $settings = ai_read_json_file(ai_settings_path(), ai_settings_defaults());
+    $settings['enabled'] = (bool) ($settings['enabled'] ?? false);
+    $settings['provider'] = (string) ($settings['provider'] ?? 'Gemini');
+    $settings['text_model'] = (string) ($settings['text_model'] ?? '');
+    $settings['image_model'] = (string) ($settings['image_model'] ?? '');
+    $settings['api_key_hash'] = $settings['api_key_hash'] ?? null;
+    $settings['last_test_result'] = $settings['last_test_result'] ?? null;
+    $settings['last_tested_at'] = $settings['last_tested_at'] ?? null;
+    $settings['updated_at'] = $settings['updated_at'] ?? null;
+    $settings['has_api_key'] = is_string($settings['api_key_hash']) && $settings['api_key_hash'] !== '';
+    return $settings;
 }
 
-function ai_save_settings(PDO $db, array $input, int $actorId): array
+function ai_save_settings(array $input, int $actorId): array
 {
+    unset($actorId);
+    $settings = ai_get_settings();
     $enabled = !empty($input['enabled']);
     $provider = trim((string) ($input['provider'] ?? 'Gemini'));
     if ($provider === '') {
@@ -62,58 +119,41 @@ function ai_save_settings(PDO $db, array $input, int $actorId): array
     $imageModel = trim((string) ($input['image_model'] ?? ''));
     $apiKey = trim((string) ($input['api_key'] ?? ''));
 
-    $db->beginTransaction();
-    try {
-        $update = $db->prepare('UPDATE ai_settings SET enabled = :enabled, provider = :provider, text_model = :text_model, image_model = :image_model, updated_at = datetime(\'now\') WHERE id = 1');
-        $update->execute([
-            ':enabled' => $enabled ? 1 : 0,
-            ':provider' => $provider,
-            ':text_model' => $textModel !== '' ? $textModel : null,
-            ':image_model' => $imageModel !== '' ? $imageModel : null,
-        ]);
-
-        if ($apiKey !== '') {
-            $hash = password_hash($apiKey, PASSWORD_DEFAULT);
-            $keyStmt = $db->prepare('UPDATE ai_settings SET api_key_hash = :hash, last_test_result = NULL, last_tested_at = NULL WHERE id = 1');
-            $keyStmt->execute([':hash' => $hash]);
-        }
-
-        $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
-        $log->execute([
-            ':actor_id' => audit_resolve_actor_id($db, $actorId),
-            ':action' => 'ai.settings',
-            ':entity_type' => 'ai',
-            ':entity_id' => 1,
-            ':description' => 'Updated AI Studio settings',
-        ]);
-
-        $db->commit();
-    } catch (Throwable $exception) {
-        $db->rollBack();
-        throw $exception;
+    if ($apiKey !== '') {
+        $settings['api_key_hash'] = password_hash($apiKey, PASSWORD_DEFAULT);
+        $settings['last_test_result'] = null;
+        $settings['last_tested_at'] = null;
     }
 
-    return ai_get_settings($db);
+    $settings['enabled'] = $enabled;
+    $settings['provider'] = $provider;
+    $settings['text_model'] = $textModel;
+    $settings['image_model'] = $imageModel;
+    $settings['updated_at'] = gmdate(DateTimeInterface::ATOM);
+
+    ai_write_json_file(ai_settings_path(), $settings);
+    return ai_get_settings();
 }
 
-function ai_test_connection(PDO $db): array
+function ai_test_connection(): array
 {
-    $settings = ai_get_settings($db);
+    $settings = ai_get_settings();
     $pass = $settings['enabled'] && $settings['has_api_key'] && $settings['text_model'] !== '' && $settings['image_model'] !== '';
     $result = $pass ? 'pass' : 'fail';
     $message = $pass
         ? 'PASS — Configuration looks healthy. AI tools are ready.'
         : 'FAIL — Provide provider details, models, and a valid API key.';
 
-    $stmt = $db->prepare('UPDATE ai_settings SET last_test_result = :result, last_tested_at = datetime(\'now\') WHERE id = 1');
-    $stmt->execute([':result' => $result]);
+    $settings['last_test_result'] = $result;
+    $settings['last_tested_at'] = gmdate(DateTimeInterface::ATOM);
+    ai_write_json_file(ai_settings_path(), $settings);
 
     return ['status' => $result, 'message' => $message];
 }
 
-function ai_require_enabled(PDO $db): void
+function ai_require_enabled(): void
 {
-    $settings = ai_get_settings($db);
+    $settings = ai_get_settings();
     if (!$settings['enabled']) {
         throw new RuntimeException('Enable AI tools in settings to use this feature.');
     }
@@ -216,11 +256,157 @@ function ai_generate_blog_draft_content(string $prompt): array
     ];
 }
 
-function ai_generate_blog_draft_from_prompt(PDO $db, string $prompt, int $actorId): array
+function ai_generate_draft_id(): string
 {
-    ai_require_enabled($db);
-    ai_blog_tables($db);
+    return 'draft-' . bin2hex(random_bytes(8));
+}
 
+function ai_draft_path(string $id): string
+{
+    return ai_storage_path('drafts', $id . '.json');
+}
+
+function ai_load_draft(string $id): array
+{
+    $draft = ai_read_json_file(ai_draft_path($id));
+    if (!$draft) {
+        throw new RuntimeException('Draft not found.');
+    }
+    return $draft;
+}
+
+function ai_store_draft(array $draft): void
+{
+    if (empty($draft['id'])) {
+        throw new RuntimeException('Invalid draft payload.');
+    }
+    ai_write_json_file(ai_draft_path($draft['id']), $draft);
+}
+
+function ai_all_drafts(): array
+{
+    ai_bootstrap_storage();
+    $files = glob(ai_storage_path('drafts', '*.json')) ?: [];
+    $drafts = [];
+    foreach ($files as $file) {
+        $data = ai_read_json_file($file);
+        if (!is_array($data) || empty($data['id'])) {
+            continue;
+        }
+        $drafts[$data['id']] = $data;
+    }
+    return $drafts;
+}
+
+function ai_unique_draft_slug(string $slug, ?string $currentId = null): string
+{
+    $slug = blog_slugify($slug);
+    if ($slug === '') {
+        $slug = 'draft';
+    }
+    $drafts = ai_all_drafts();
+    $existing = array_map(static fn ($draft) => $draft['slug'] ?? '', $drafts);
+    $existing = array_filter($existing);
+
+    if ($currentId !== null && isset($drafts[$currentId])) {
+        $currentSlug = $drafts[$currentId]['slug'] ?? '';
+        $existing = array_diff($existing, [$currentSlug]);
+    }
+
+    $candidate = $slug;
+    $index = 2;
+    while (in_array($candidate, $existing, true)) {
+        $candidate = $slug . '-' . $index;
+        $index++;
+    }
+
+    return $candidate;
+}
+
+function ai_save_blog_draft(array $input, int $actorId): array
+{
+    unset($actorId);
+    ai_bootstrap_storage();
+    ai_require_enabled();
+
+    $draftId = isset($input['draft_id']) ? trim((string) $input['draft_id']) : '';
+    $isNew = $draftId === '';
+
+    if ($isNew) {
+        $draftId = ai_generate_draft_id();
+        $draft = [
+            'id' => $draftId,
+            'status' => 'draft',
+            'created_at' => gmdate(DateTimeInterface::ATOM),
+            'published_post_id' => null,
+            'published_slug' => null,
+            'published_at' => null,
+        ];
+    } else {
+        $draft = ai_load_draft($draftId);
+        if ($draft['status'] === 'published') {
+            throw new RuntimeException('Published drafts cannot be edited.');
+        }
+    }
+
+    $title = trim((string) ($input['title'] ?? ($draft['title'] ?? '')));
+    $body = (string) ($input['body'] ?? ($draft['body'] ?? ''));
+    $excerpt = trim((string) ($input['excerpt'] ?? ($draft['excerpt'] ?? '')));
+    $topic = trim((string) ($input['topic'] ?? ($draft['topic'] ?? $title)));
+    $tone = trim((string) ($input['tone'] ?? ($draft['tone'] ?? '')));
+    $audience = trim((string) ($input['audience'] ?? ($draft['audience'] ?? '')));
+    $purpose = trim((string) ($input['purpose'] ?? ($draft['purpose'] ?? '')));
+    $generatedTitle = trim((string) ($input['generated_title'] ?? ($draft['generated_title'] ?? '')));
+    $generatedBody = (string) ($input['generated_body'] ?? ($draft['generated_body'] ?? ''));
+    $keywords = ai_normalize_keywords($input['keywords'] ?? ($draft['keywords'] ?? []));
+    $imagePrompt = trim((string) ($input['image_prompt'] ?? ($draft['image_prompt'] ?? '')));
+    $authorName = trim((string) ($input['author_name'] ?? ($draft['author_name'] ?? '')));
+    $slugInput = trim((string) ($input['slug'] ?? ($draft['slug'] ?? $title)));
+
+    if ($title === '' || trim(strip_tags($body)) === '') {
+        throw new RuntimeException('Provide a title and body before saving the draft.');
+    }
+    if ($excerpt === '') {
+        $excerpt = blog_extract_plain_text($body);
+        if (mb_strlen($excerpt) > 240) {
+            $excerpt = trim(mb_substr($excerpt, 0, 240)) . '…';
+        }
+    }
+    if ($topic === '') {
+        $topic = $title;
+    }
+
+    $slug = ai_unique_draft_slug($slugInput !== '' ? $slugInput : $title, $isNew ? null : $draftId);
+
+    $draft['title'] = $title;
+    $draft['topic'] = $topic;
+    $draft['tone'] = $tone;
+    $draft['audience'] = $audience;
+    $draft['purpose'] = $purpose;
+    $draft['generated_title'] = $generatedTitle !== '' ? $generatedTitle : $title;
+    $draft['generated_body'] = $generatedBody !== '' ? $generatedBody : $body;
+    $draft['body'] = $body;
+    $draft['excerpt'] = $excerpt;
+    $draft['keywords'] = $keywords;
+    $draft['image_prompt'] = $imagePrompt;
+    $draft['author_name'] = $authorName;
+    $draft['slug'] = $slug;
+    $draft['updated_at'] = gmdate(DateTimeInterface::ATOM);
+
+    ai_store_draft($draft);
+
+    return [
+        'id' => $draftId,
+        'title' => $title,
+        'slug' => $slug,
+        'status' => $draft['status'],
+    ];
+}
+
+function ai_generate_blog_draft_from_prompt(string $prompt, int $actorId): array
+{
+    unset($actorId);
+    ai_require_enabled();
     $content = ai_generate_blog_draft_content($prompt);
 
     $payload = [
@@ -234,547 +420,336 @@ function ai_generate_blog_draft_from_prompt(PDO $db, string $prompt, int $actorI
         'generated_title' => $content['title'],
         'generated_body' => $content['body_html'],
         'keywords' => $content['keywords'],
-        'cover_image' => '',
-        'cover_image_alt' => '',
+        'image_prompt' => $content['image_prompt'],
         'author_name' => '',
     ];
 
-    $saved = ai_save_blog_draft($db, $payload, $actorId);
-    $draftId = (int) $saved['draftId'];
-
-    $updatePrompt = $db->prepare("UPDATE ai_blog_drafts SET image_prompt = :prompt, updated_at = datetime('now') WHERE id = :id");
-    $updatePrompt->execute([
-        ':prompt' => $content['image_prompt'],
-        ':id' => $draftId,
-    ]);
-
-    $image = ai_generate_image_for_draft($db, $draftId, $actorId);
+    $saved = ai_save_blog_draft($payload, 0);
+    ai_generate_image_for_draft($saved['id'], 0);
 
     return [
-        'post_id' => (int) $saved['id'],
-        'draft_id' => $draftId,
-        'title' => $saved['title'],
-        'image' => $image['image'] ?? '',
+        'draft_id' => $saved['id'],
+        'title' => $content['title'],
     ];
 }
 
-function ai_blog_tables(PDO $db): void
+function ai_image_file_path(string $draftId): string
 {
-    $db->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS ai_blog_drafts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    blog_post_id INTEGER NOT NULL UNIQUE,
-    topic TEXT NOT NULL,
-    tone TEXT,
-    audience TEXT,
-    keywords TEXT,
-    purpose TEXT,
-    generated_title TEXT,
-    generated_body TEXT,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','scheduled','published')),
-    scheduled_publish_at TEXT,
-    image_url TEXT,
-    image_alt TEXT,
-    image_prompt TEXT,
-    created_by INTEGER,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY(blog_post_id) REFERENCES blog_posts(id) ON DELETE CASCADE,
-    FOREIGN KEY(created_by) REFERENCES users(id)
-)
-SQL
-    );
+    return ai_storage_path('images', $draftId . '.svg');
 }
 
-function ai_save_blog_draft(PDO $db, array $input, int $actorId): array
+function ai_draft_image_data_uri(array $draft): string
 {
-    ai_require_enabled($db);
-    ai_blog_tables($db);
-    if (function_exists('blog_ensure_backup_table')) {
-        blog_ensure_backup_table($db);
+    $path = $draft['image_file'] ?? '';
+    if ($path === '' || !is_file(ai_storage_path($path))) {
+        return '';
     }
-
-    $postId = isset($input['post_id']) ? (int) $input['post_id'] : null;
-    $draftId = isset($input['draft_id']) ? (int) $input['draft_id'] : null;
-    $title = trim((string) ($input['title'] ?? ''));
-    $body = (string) ($input['body'] ?? '');
-    $excerpt = trim((string) ($input['excerpt'] ?? ''));
-    $topic = trim((string) ($input['topic'] ?? ''));
-    $tone = trim((string) ($input['tone'] ?? ''));
-    $audience = trim((string) ($input['audience'] ?? ''));
-    $purpose = trim((string) ($input['purpose'] ?? ''));
-    $generatedTitle = trim((string) ($input['generated_title'] ?? $title));
-    $generatedBody = (string) ($input['generated_body'] ?? $body);
-    $keywords = ai_normalize_keywords($input['keywords'] ?? []);
-
-    if ($title === '' || trim(strip_tags($body)) === '') {
-        throw new RuntimeException('Provide a title and body before saving the draft.');
+    $fullPath = ai_storage_path($path);
+    $contents = @file_get_contents($fullPath);
+    if ($contents === false) {
+        return '';
     }
-    if ($topic === '') {
-        $topic = $title;
-    }
-
-    $authorName = trim((string) ($input['author_name'] ?? ''));
-
-    $blogPayload = [
-        'id' => $postId ?: null,
-        'title' => $title,
-        'slug' => $input['slug'] ?? '',
-        'excerpt' => $excerpt !== '' ? $excerpt : null,
-        'body' => $body,
-        'authorName' => $authorName,
-        'status' => 'draft',
-        'tags' => $keywords,
-        'coverImage' => $input['cover_image'] ?? '',
-        'coverImageAlt' => $input['cover_image_alt'] ?? '',
-        'coverPrompt' => 'AI Studio auto cover',
-    ];
-
-    $saved = blog_save_post($db, $blogPayload, $actorId);
-    $postId = (int) $saved['id'];
-
-    $db->beginTransaction();
-    try {
-        $row = $db->prepare('SELECT id FROM ai_blog_drafts WHERE blog_post_id = :post_id');
-        $row->execute([':post_id' => $postId]);
-        $existingId = $row->fetchColumn();
-
-        if ($existingId) {
-            $update = $db->prepare(<<<'SQL'
-UPDATE ai_blog_drafts
-SET topic = :topic,
-    tone = :tone,
-    audience = :audience,
-    keywords = :keywords,
-    purpose = :purpose,
-    generated_title = :generated_title,
-    generated_body = :generated_body,
-    status = CASE WHEN status = 'published' THEN status ELSE 'draft' END,
-    updated_at = datetime('now')
-WHERE blog_post_id = :post_id
-SQL
-            );
-            $update->execute([
-                ':topic' => $topic,
-                ':tone' => $tone !== '' ? $tone : null,
-                ':audience' => $audience !== '' ? $audience : null,
-                ':keywords' => json_encode($keywords, JSON_UNESCAPED_UNICODE),
-                ':purpose' => $purpose !== '' ? $purpose : null,
-                ':generated_title' => $generatedTitle !== '' ? $generatedTitle : null,
-                ':generated_body' => $generatedBody !== '' ? $generatedBody : null,
-                ':post_id' => $postId,
-            ]);
-            $draftId = (int) $existingId;
-        } else {
-            $insert = $db->prepare(<<<'SQL'
-INSERT INTO ai_blog_drafts (blog_post_id, topic, tone, audience, keywords, purpose, generated_title, generated_body, status, created_by)
-VALUES (:post_id, :topic, :tone, :audience, :keywords, :purpose, :generated_title, :generated_body, 'draft', :created_by)
-SQL
-            );
-            $insert->execute([
-                ':post_id' => $postId,
-                ':topic' => $topic,
-                ':tone' => $tone !== '' ? $tone : null,
-                ':audience' => $audience !== '' ? $audience : null,
-                ':keywords' => json_encode($keywords, JSON_UNESCAPED_UNICODE),
-                ':purpose' => $purpose !== '' ? $purpose : null,
-                ':generated_title' => $generatedTitle !== '' ? $generatedTitle : null,
-                ':generated_body' => $generatedBody !== '' ? $generatedBody : null,
-                ':created_by' => $actorId > 0 ? $actorId : null,
-            ]);
-            $draftId = (int) $db->lastInsertId();
-        }
-
-        $db->commit();
-    } catch (Throwable $exception) {
-        $db->rollBack();
-        throw $exception;
-    }
-
-    $saved['draftId'] = $draftId;
-    return $saved;
+    return 'data:image/svg+xml;base64,' . base64_encode($contents);
 }
 
-function ai_list_blog_drafts(PDO $db): array
+function ai_generate_image_for_draft(string $draftId, int $actorId): array
 {
-    ai_blog_tables($db);
-    ai_publish_due_posts($db);
+    unset($actorId);
+    ai_require_enabled();
+    $draft = ai_load_draft($draftId);
+    if (($draft['status'] ?? 'draft') === 'published') {
+        throw new RuntimeException('Published drafts already carry a final cover.');
+    }
 
-    $stmt = $db->query(<<<'SQL'
-SELECT
-    ai_blog_drafts.id,
-    ai_blog_drafts.topic,
-    ai_blog_drafts.tone,
-    ai_blog_drafts.audience,
-    ai_blog_drafts.keywords,
-    ai_blog_drafts.status,
-    ai_blog_drafts.scheduled_publish_at,
-    ai_blog_drafts.image_url,
-    ai_blog_drafts.image_alt,
-    blog_posts.id AS post_id,
-    blog_posts.title,
-    blog_posts.updated_at,
-    blog_posts.status AS post_status,
-    blog_posts.cover_image,
-    blog_posts.cover_image_alt,
-    blog_posts.slug
-FROM ai_blog_drafts
-INNER JOIN blog_posts ON blog_posts.id = ai_blog_drafts.blog_post_id
-WHERE blog_posts.status IN ('draft','pending','published')
-ORDER BY blog_posts.updated_at DESC
-SQL
-    );
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $title = $draft['title'] ?? ($draft['topic'] ?? 'Blog draft');
+    $prompt = $draft['image_prompt'] ?? ($draft['topic'] ?? 'Clean energy insight');
+    [$imageDataUri, $alt] = blog_generate_placeholder_cover($title, (string) $prompt);
 
+    $parts = explode(',', $imageDataUri, 2);
+    $raw = $parts[1] ?? '';
+    $binary = base64_decode($raw, true);
+    if ($binary === false) {
+        throw new RuntimeException('Failed to prepare draft image.');
+    }
+
+    $relativePath = 'images/' . $draftId . '.svg';
+    ai_safe_write(ai_storage_path($relativePath), $binary);
+
+    $draft['image_file'] = $relativePath;
+    $draft['image_alt'] = $alt;
+    $draft['updated_at'] = gmdate(DateTimeInterface::ATOM);
+    ai_store_draft($draft);
+
+    return ['image' => $imageDataUri, 'alt' => $alt];
+}
+
+function ai_schedule_blog_draft(string $draftId, ?DateTimeImmutable $publishAtIst, int $actorId): void
+{
+    unset($actorId);
+    ai_require_enabled();
+    $draft = ai_load_draft($draftId);
+    if ($draft['status'] === 'published') {
+        throw new RuntimeException('Published drafts cannot be rescheduled.');
+    }
+
+    if ($publishAtIst instanceof DateTimeImmutable) {
+        $utc = $publishAtIst->setTimezone(new DateTimeZone('UTC'))->format(DateTimeInterface::ATOM);
+        $draft['schedule_at'] = $utc;
+        $draft['status'] = 'scheduled';
+    } else {
+        $draft['schedule_at'] = null;
+        $draft['status'] = 'draft';
+    }
+    $draft['updated_at'] = gmdate(DateTimeInterface::ATOM);
+    ai_store_draft($draft);
+}
+
+function ai_list_blog_drafts(): array
+{
+    ai_bootstrap_storage();
+    $drafts = ai_all_drafts();
     $timezone = new DateTimeZone('Asia/Kolkata');
 
-    return array_map(static function (array $row) use ($timezone): array {
-        $keywords = [];
-        if (!empty($row['keywords'])) {
-            $decoded = json_decode((string) $row['keywords'], true);
-            if (is_array($decoded)) {
-                $keywords = array_values(array_filter(array_map('trim', $decoded)));
-            }
-        }
+    uasort($drafts, static function (array $a, array $b): int {
+        $timeA = isset($a['updated_at']) ? strtotime((string) $a['updated_at']) : 0;
+        $timeB = isset($b['updated_at']) ? strtotime((string) $b['updated_at']) : 0;
+        return $timeB <=> $timeA;
+    });
+
+    return array_map(static function (array $draft) use ($timezone): array {
         $scheduledAt = null;
-        if (!empty($row['scheduled_publish_at'])) {
+        if (!empty($draft['schedule_at'])) {
             try {
-                $dt = new DateTimeImmutable((string) $row['scheduled_publish_at'], new DateTimeZone('UTC'));
-                $scheduledAt = $dt->setTimezone($timezone);
+                $scheduledAt = new DateTimeImmutable($draft['schedule_at']);
+                $scheduledAt = $scheduledAt->setTimezone($timezone);
             } catch (Throwable $exception) {
                 $scheduledAt = null;
             }
         }
+
+        $image = '';
+        if (!empty($draft['image_file'])) {
+            $image = ai_draft_image_data_uri($draft);
+        }
+
         return [
-            'id' => (int) $row['id'],
-            'post_id' => (int) $row['post_id'],
-            'title' => $row['title'],
-            'topic' => $row['topic'],
-            'tone' => $row['tone'] ?? '',
-            'audience' => $row['audience'] ?? '',
-            'keywords' => $keywords,
-            'status' => $row['status'],
-            'post_status' => $row['post_status'],
+            'id' => $draft['id'],
+            'title' => $draft['title'] ?? '',
+            'topic' => $draft['topic'] ?? '',
+            'tone' => $draft['tone'] ?? '',
+            'audience' => $draft['audience'] ?? '',
+            'keywords' => $draft['keywords'] ?? [],
+            'status' => $draft['status'] ?? 'draft',
+            'post_status' => ($draft['status'] ?? 'draft') === 'published' ? 'published' : 'draft',
             'scheduled_at' => $scheduledAt,
-            'image_url' => $row['image_url'] ?? '',
-            'image_alt' => $row['image_alt'] ?? '',
-            'cover_image' => $row['cover_image'] ?? '',
-            'cover_image_alt' => $row['cover_image_alt'] ?? '',
-            'slug' => $row['slug'] ?? '',
-            'updated_at' => $row['updated_at'],
+            'cover_image' => $image,
+            'cover_image_alt' => $draft['image_alt'] ?? '',
+            'slug' => $draft['slug'] ?? '',
+            'updated_at' => $draft['updated_at'] ?? '',
+            'published_post_id' => $draft['published_post_id'] ?? null,
+            'published_slug' => $draft['published_slug'] ?? null,
         ];
-    }, $rows);
-}
-
-function ai_generate_image_for_draft(PDO $db, int $draftId, int $actorId): array
-{
-    ai_require_enabled($db);
-    ai_blog_tables($db);
-
-    $stmt = $db->prepare(<<<'SQL'
-SELECT ai_blog_drafts.id, ai_blog_drafts.topic, ai_blog_drafts.image_prompt, blog_posts.id AS post_id, blog_posts.title
-FROM ai_blog_drafts
-INNER JOIN blog_posts ON blog_posts.id = ai_blog_drafts.blog_post_id
-WHERE ai_blog_drafts.id = :id
-LIMIT 1
-SQL
-    );
-    $stmt->execute([':id' => $draftId]);
-    $draft = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$draft) {
-        throw new RuntimeException('Draft not found.');
-    }
-
-    $title = $draft['title'] ?? $draft['topic'] ?? 'Blog draft';
-    $prompt = $draft['image_prompt'] ?? ($draft['topic'] ?? 'Clean energy insight');
-    [$image, $alt] = blog_generate_placeholder_cover($title, (string) $prompt);
-
-    $db->beginTransaction();
-    try {
-        $updatePost = $db->prepare("UPDATE blog_posts SET cover_image = :image, cover_image_alt = :alt, updated_at = datetime('now') WHERE id = :id");
-        $updatePost->execute([
-            ':image' => $image,
-            ':alt' => $alt,
-            ':id' => (int) $draft['post_id'],
-        ]);
-
-        $updateDraft = $db->prepare(<<<'SQL'
-UPDATE ai_blog_drafts
-SET image_url = :image,
-    image_alt = :alt,
-    image_prompt = :prompt,
-    updated_at = datetime('now')
-WHERE id = :id
-SQL
-        );
-        $updateDraft->execute([
-            ':image' => $image,
-            ':alt' => $alt,
-            ':prompt' => $prompt,
-            ':id' => $draftId,
-        ]);
-
-        $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
-        $log->execute([
-            ':actor_id' => audit_resolve_actor_id($db, $actorId),
-            ':action' => 'ai.image',
-            ':entity_type' => 'blog_post',
-            ':entity_id' => (int) $draft['post_id'],
-            ':description' => 'Generated AI cover image for blog draft',
-        ]);
-
-        $db->commit();
-    } catch (Throwable $exception) {
-        $db->rollBack();
-        throw $exception;
-    }
-
-    return ['image' => $image, 'alt' => $alt];
-}
-
-function ai_schedule_blog_draft(PDO $db, int $draftId, ?DateTimeImmutable $publishAtIst, int $actorId): void
-{
-    ai_blog_tables($db);
-
-    $stmt = $db->prepare('SELECT blog_post_id FROM ai_blog_drafts WHERE id = :id');
-    $stmt->execute([':id' => $draftId]);
-    $postId = $stmt->fetchColumn();
-    if (!$postId) {
-        throw new RuntimeException('Draft not found.');
-    }
-
-    $utcTime = null;
-    if ($publishAtIst instanceof DateTimeImmutable) {
-        $utcTime = $publishAtIst->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-    }
-
-    $status = $utcTime ? 'scheduled' : 'draft';
-
-    $update = $db->prepare(<<<'SQL'
-UPDATE ai_blog_drafts
-SET scheduled_publish_at = :scheduled,
-    status = :status,
-    updated_at = datetime('now')
-WHERE id = :id
-SQL
-    );
-    $update->execute([
-        ':scheduled' => $utcTime,
-        ':status' => $status,
-        ':id' => $draftId,
-    ]);
-
-    $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
-    $log->execute([
-        ':actor_id' => audit_resolve_actor_id($db, $actorId),
-        ':action' => 'ai.schedule',
-        ':entity_type' => 'blog_post',
-        ':entity_id' => (int) $postId,
-        ':description' => $utcTime ? 'Scheduled AI blog draft for publishing' : 'Cleared AI blog draft schedule',
-    ]);
+    }, array_values($drafts));
 }
 
 function ai_publish_due_posts(PDO $db, ?DateTimeImmutable $now = null): int
 {
-    ai_blog_tables($db);
-    $now = $now ?: new DateTimeImmutable('now', new DateTimeZone('UTC'));
-
-    $stmt = $db->prepare(<<<'SQL'
-SELECT ai_blog_drafts.id, ai_blog_drafts.blog_post_id
-FROM ai_blog_drafts
-INNER JOIN blog_posts ON blog_posts.id = ai_blog_drafts.blog_post_id
-WHERE ai_blog_drafts.status = 'scheduled'
-  AND ai_blog_drafts.scheduled_publish_at IS NOT NULL
-  AND ai_blog_drafts.scheduled_publish_at <= :now
-SQL
-    );
-    $stmt->execute([':now' => $now->format('Y-m-d H:i:s')]);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    if (!$rows) {
+    ai_bootstrap_storage();
+    $drafts = ai_all_drafts();
+    if (!$drafts) {
         return 0;
     }
 
+    $now = $now ?: new DateTimeImmutable('now', new DateTimeZone('UTC'));
     $count = 0;
-    foreach ($rows as $row) {
-        $postId = (int) $row['blog_post_id'];
-        blog_publish_post($db, $postId, true, 0);
-        $update = $db->prepare("UPDATE ai_blog_drafts SET status = 'published', scheduled_publish_at = NULL, updated_at = datetime('now') WHERE id = :id");
-        $update->execute([':id' => (int) $row['id']]);
-        $count++;
+    foreach ($drafts as $draft) {
+        if (($draft['status'] ?? 'draft') !== 'scheduled') {
+            continue;
+        }
+        if (empty($draft['schedule_at'])) {
+            continue;
+        }
+        try {
+            $scheduledUtc = new DateTimeImmutable($draft['schedule_at']);
+        } catch (Throwable $exception) {
+            continue;
+        }
+        if ($scheduledUtc > $now) {
+            continue;
+        }
+
+        if (ai_publish_single_draft($db, $draft, $now)) {
+            $count++;
+        }
     }
 
     return $count;
 }
 
-function ai_daily_notes_table(PDO $db): void
+function ai_publish_single_draft(PDO $db, array $draft, DateTimeImmutable $nowUtc): bool
 {
-    $db->exec(<<<'SQL'
-CREATE TABLE IF NOT EXISTS ai_daily_notes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    note_date TEXT NOT NULL,
-    note_type TEXT NOT NULL CHECK(note_type IN ('work_done','next_plan')),
-    content TEXT NOT NULL,
-    generated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(note_date, note_type)
-)
-SQL
-    );
+    if (empty($draft['id'])) {
+        return false;
+    }
+
+    try {
+        $slug = ai_resolve_publish_slug($db, (string) ($draft['slug'] ?? ''));
+        $coverImage = '';
+        if (!empty($draft['image_file']) && is_file(ai_storage_path($draft['image_file']))) {
+            $coverContents = @file_get_contents(ai_storage_path($draft['image_file']));
+            if ($coverContents !== false) {
+                $coverImage = 'data:image/svg+xml;base64,' . base64_encode($coverContents);
+            }
+        }
+        if ($coverImage === '') {
+            [$fallbackImage, $fallbackAlt] = blog_generate_placeholder_cover($draft['title'] ?? 'AI Draft', $draft['topic'] ?? '');
+            $coverImage = $fallbackImage;
+            if (empty($draft['image_alt'])) {
+                $draft['image_alt'] = $fallbackAlt;
+            }
+        }
+
+        $payload = [
+            'title' => $draft['title'] ?? 'AI Draft',
+            'slug' => $slug,
+            'excerpt' => $draft['excerpt'] ?? '',
+            'body' => $draft['body'] ?? '',
+            'authorName' => $draft['author_name'] ?? '',
+            'status' => 'published',
+            'tags' => $draft['keywords'] ?? [],
+            'coverImage' => $coverImage,
+            'coverImageAlt' => $draft['image_alt'] ?? '',
+            'coverPrompt' => $draft['image_prompt'] ?? '',
+        ];
+
+        $saved = blog_save_post($db, $payload, 0);
+    } catch (Throwable $exception) {
+        return false;
+    }
+
+    $draft['status'] = 'published';
+    $draft['published_post_id'] = (int) ($saved['id'] ?? 0);
+    $draft['published_slug'] = $saved['slug'] ?? $slug;
+    $draft['slug'] = $draft['published_slug'];
+    $draft['published_at'] = $nowUtc->format(DateTimeInterface::ATOM);
+    $draft['schedule_at'] = null;
+    $draft['updated_at'] = $nowUtc->format(DateTimeInterface::ATOM);
+
+    try {
+        ai_store_draft($draft);
+    } catch (Throwable $exception) {
+        return false;
+    }
+
+    return true;
 }
 
-function ai_daily_notes_generate_if_due(PDO $db, ?DateTimeImmutable $now = null): void
+function ai_resolve_publish_slug(PDO $db, string $desired): string
 {
-    ai_daily_notes_table($db);
+    $slug = $desired !== '' ? blog_slugify($desired) : '';
+    if ($slug === '') {
+        $slug = 'ai-draft';
+    }
+    $candidate = $slug;
+    $index = 2;
+    while (ai_blog_slug_exists($db, $candidate)) {
+        $candidate = $slug . '-' . $index;
+        $index++;
+    }
+    return $candidate;
+}
 
-    $now = $now ?: new DateTimeImmutable('now', new DateTimeZone('UTC'));
-    $istZone = new DateTimeZone('Asia/Kolkata');
-    $istNow = $now->setTimezone($istZone);
-    $todayDate = $istNow->format('Y-m-d');
+function ai_blog_slug_exists(PDO $db, string $slug): bool
+{
+    $stmt = $db->prepare('SELECT 1 FROM blog_posts WHERE slug = :slug LIMIT 1');
+    $stmt->execute([':slug' => $slug]);
+    return (bool) $stmt->fetchColumn();
+}
 
-    $schedule = [
-        'work_done' => ['hour' => 20, 'minute' => 0],
-        'next_plan' => ['hour' => 21, 'minute' => 0],
-    ];
+function ai_daily_notes_generate_if_due(?DateTimeImmutable $now = null): void
+{
+    ai_bootstrap_storage();
+    $nowIst = ($now ?: new DateTimeImmutable('now', new DateTimeZone('UTC')))->setTimezone(new DateTimeZone('Asia/Kolkata'));
+    $dateKey = $nowIst->format('Y-m-d');
 
-    foreach ($schedule as $type => $slot) {
-        $target = new DateTimeImmutable(sprintf('%s %02d:%02d:00', $todayDate, $slot['hour'], $slot['minute']), $istZone);
-        if ($istNow < $target) {
+    foreach (AI_DAILY_NOTE_TYPES as $type) {
+        $targetHour = $type === 'work_done' ? 20 : 21;
+        $target = $nowIst->setTime($targetHour, 0);
+        if ($nowIst < $target) {
             continue;
         }
 
-        $exists = $db->prepare('SELECT 1 FROM ai_daily_notes WHERE note_date = :date AND note_type = :type LIMIT 1');
-        $exists->execute([
-            ':date' => $todayDate,
-            ':type' => $type,
-        ]);
-        if ($exists->fetchColumn()) {
+        $path = ai_storage_path('notes', sprintf('%s-%s.json', $dateKey, $type));
+        if (is_file($path)) {
             continue;
         }
 
         $content = $type === 'work_done'
-            ? ai_daily_notes_build_work_summary($db, $istNow)
-            : ai_daily_notes_build_plan_summary($db, $istNow);
+            ? ai_daily_notes_build_work_summary($nowIst)
+            : ai_daily_notes_build_plan_summary($nowIst);
 
-        if (trim($content) === '') {
-            $content = 'No significant updates recorded yet. Check again after data sync.';
+        $payload = [
+            'date' => $dateKey,
+            'type' => $type,
+            'content' => $content,
+            'generated_at' => $nowIst->setTimezone(new DateTimeZone('UTC'))->format(DateTimeInterface::ATOM),
+        ];
+        ai_write_json_file($path, $payload);
+    }
+}
+
+function ai_daily_notes_recent(int $limit = 6): array
+{
+    ai_bootstrap_storage();
+    $files = glob(ai_storage_path('notes', '*.json')) ?: [];
+    $notes = [];
+    foreach ($files as $file) {
+        $data = ai_read_json_file($file);
+        if (!is_array($data) || empty($data['type']) || empty($data['content'])) {
+            continue;
         }
-
-        $insert = $db->prepare('INSERT INTO ai_daily_notes(note_date, note_type, content, generated_at, created_at) VALUES(:date, :type, :content, datetime(\'now\'), datetime(\'now\'))');
-        $insert->execute([
-            ':date' => $todayDate,
-            ':type' => $type,
-            ':content' => $content,
-        ]);
-    }
-}
-
-function ai_daily_notes_build_work_summary(PDO $db, DateTimeImmutable $nowIst): string
-{
-    $istZone = new DateTimeZone('Asia/Kolkata');
-    $startIst = $nowIst->setTimezone($istZone)->setTime(0, 0);
-    $endIst = $startIst->modify('+1 day');
-    $startUtc = $startIst->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-    $endUtc = $endIst->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-
-    $queries = [
-        'leads' => 'SELECT COUNT(*) FROM crm_leads WHERE updated_at >= :start AND updated_at < :end',
-        'installations' => 'SELECT COUNT(*) FROM installations WHERE updated_at >= :start AND updated_at < :end',
-        'complaints' => 'SELECT COUNT(*) FROM complaints WHERE updated_at >= :start AND updated_at < :end',
-        'subsidy' => 'SELECT COUNT(*) FROM subsidy_tracker WHERE updated_at >= :start AND updated_at < :end',
-        'reminders' => "SELECT COUNT(*) FROM reminders WHERE updated_at >= :start AND updated_at < :end AND deleted_at IS NULL",
-    ];
-
-    $counts = [];
-    foreach ($queries as $key => $sql) {
-        $stmt = $db->prepare($sql);
-        $stmt->execute([':start' => $startUtc, ':end' => $endUtc]);
-        $counts[$key] = (int) $stmt->fetchColumn();
+        $notes[] = $data;
     }
 
-    $phrases = [
-        'leads' => sprintf('%d lead %s touched', $counts['leads'], $counts['leads'] === 1 ? 'record' : 'records'),
-        'installations' => sprintf('%d installation %s progressed', $counts['installations'], $counts['installations'] === 1 ? 'site' : 'sites'),
-        'complaints' => sprintf('%d complaint %s updated', $counts['complaints'], $counts['complaints'] === 1 ? 'case' : 'cases'),
-        'subsidy' => sprintf('%d subsidy %s logged', $counts['subsidy'], $counts['subsidy'] === 1 ? 'stage' : 'stages'),
-        'reminders' => sprintf('%d reminder %s actioned', $counts['reminders'], $counts['reminders'] === 1 ? 'item' : 'items'),
-    ];
+    usort($notes, static function (array $a, array $b): int {
+        $timeA = isset($a['generated_at']) ? strtotime((string) $a['generated_at']) : 0;
+        $timeB = isset($b['generated_at']) ? strtotime((string) $b['generated_at']) : 0;
+        return $timeB <=> $timeA;
+    });
 
-    $summary = sprintf(
-        'Work Done Today: %s. Focus on quality follow-through as teams close their day.',
-        implode(', ', $phrases)
-    );
-
-    return $summary;
-}
-
-function ai_daily_notes_build_plan_summary(PDO $db, DateTimeImmutable $nowIst): string
-{
-    $startNextIst = $nowIst->setTimezone(new DateTimeZone('Asia/Kolkata'))->modify('+1 day')->setTime(0, 0);
-    $endNextIst = $startNextIst->modify('+1 day');
-    $startNextUtc = $startNextIst->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-    $endNextUtc = $endNextIst->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-
-    $pendingLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status IN ('new','visited','quotation')")->fetchColumn();
-    $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status != 'cancelled'")->fetchColumn();
-    $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
-    $pendingSubsidyStmt = $db->query(<<<'SQL'
-WITH ranked AS (
-    SELECT application_reference, stage, stage_date, id,
-           ROW_NUMBER() OVER (PARTITION BY application_reference ORDER BY stage_date DESC, id DESC) AS rn
-    FROM subsidy_tracker
-)
-SELECT COUNT(*) FROM ranked WHERE rn = 1 AND stage != 'disbursed'
-SQL
-    );
-    $pendingSubsidy = (int) ($pendingSubsidyStmt ? $pendingSubsidyStmt->fetchColumn() : 0);
-
-    $dueTomorrowStmt = $db->prepare(<<<'SQL'
-SELECT COUNT(*) FROM reminders
-WHERE status IN ('proposed','active')
-  AND deleted_at IS NULL
-  AND due_at >= :start
-  AND due_at < :end
-SQL
-    );
-    $dueTomorrowStmt->execute([':start' => $startNextUtc, ':end' => $endNextUtc]);
-    $dueTomorrow = (int) $dueTomorrowStmt->fetchColumn();
-
-    $lines = [];
-    $lines[] = sprintf('Leads: %d awaiting conversion pushes.', $pendingLeads);
-    $lines[] = sprintf('Installations: %d projects still in-flight.', $activeInstallations);
-    $lines[] = sprintf('Complaints: %d open tickets to resolve quickly.', $openComplaints);
-    $lines[] = sprintf('Subsidy: %d applications pending approval or disbursal.', $pendingSubsidy);
-    $lines[] = sprintf('Reminders: %d follow-ups due tomorrow.', $dueTomorrow);
-
-    return 'Next-Day Plan: ' . implode(' ', $lines) . ' Align owners before 10 AM IST stand-up.';
-}
-
-function ai_daily_notes_recent(PDO $db, int $limit = 6): array
-{
-    ai_daily_notes_table($db);
-    $stmt = $db->prepare('SELECT note_date, note_type, content, generated_at FROM ai_daily_notes ORDER BY generated_at DESC LIMIT :limit');
-    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
-    $stmt->execute();
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $notes = array_slice($notes, 0, $limit);
     $istZone = new DateTimeZone('Asia/Kolkata');
 
-    return array_map(static function (array $row) use ($istZone): array {
+    return array_map(static function (array $note) use ($istZone): array {
         $generatedAt = null;
         try {
-            $generatedAt = new DateTimeImmutable($row['generated_at'], new DateTimeZone('UTC'));
+            $generatedAt = new DateTimeImmutable($note['generated_at'] ?? 'now', new DateTimeZone('UTC'));
         } catch (Throwable $exception) {
-            $generatedAt = null;
+            $generatedAt = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         }
-        $displayTime = $generatedAt ? $generatedAt->setTimezone($istZone)->format('d M Y · h:i A') : '';
-        $label = $row['note_type'] === 'work_done' ? 'Work Done Today' : 'Next-Day Plan';
+        $displayTime = $generatedAt->setTimezone($istZone)->format('d M Y · h:i A');
+        $label = $note['type'] === 'work_done' ? 'Work Done Today' : 'Next-Day Plan';
+
         return [
-            'date' => $row['note_date'],
-            'type' => $row['note_type'],
+            'date' => $note['date'] ?? '',
+            'type' => $note['type'],
             'label' => $label,
-            'content' => $row['content'],
-            'generated_at' => $row['generated_at'],
+            'content' => $note['content'],
+            'generated_at' => $note['generated_at'] ?? '',
             'display_time' => $displayTime,
-            'display_label' => $displayTime !== '' ? 'Generated ' . $displayTime : 'Generated recently',
+            'display_label' => 'Generated ' . $displayTime,
         ];
-    }, $rows);
+    }, $notes);
+}
+
+function ai_daily_notes_build_work_summary(DateTimeImmutable $nowIst): string
+{
+    $dateLabel = $nowIst->format('d M Y');
+    return sprintf('Work Done Today (%s): Capture the day\'s wins, log customer escalations, and share quick updates before sign-off.', $dateLabel);
+}
+
+function ai_daily_notes_build_plan_summary(DateTimeImmutable $nowIst): string
+{
+    $nextDay = $nowIst->modify('+1 day')->format('d M Y');
+    return sprintf('Next-Day Plan (%s): Align morning priorities, lock installation checklists, and confirm subsidy follow-ups for the team.', $nextDay);
 }

@@ -36,8 +36,8 @@ $counts = admin_overview_counts($db);
 $highlights = admin_today_highlights($db, 20);
 $reminderDueCounts = reminder_due_counts($db);
 
-ai_daily_notes_generate_if_due($db);
-$aiDashboardNotes = ai_daily_notes_recent($db, 2);
+ai_daily_notes_generate_if_due();
+$aiDashboardNotes = ai_daily_notes_recent(2);
 
 $todayIst = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
 $todayDate = $todayIst->format('Y-m-d');
