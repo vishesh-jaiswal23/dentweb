@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/blog.php';
 require_once __DIR__ . '/ai.php';
 require_once __DIR__ . '/user_storage.php';
+require_once __DIR__ . '/customer_records.php';
 
 function safe_get_constant(string $name, $default = null)
 {
@@ -3022,6 +3023,7 @@ function admin_list_accounts(PDO $db, array $filters = []): array
             'full_name' => $normalized['full_name'],
             'email' => $normalized['email'],
             'username' => $normalized['username'],
+            'phone' => $normalized['phone'],
             'role' => $normalized['role'],
             'status' => $normalized['status'],
             'permissions_note' => $normalized['permissions_note'],

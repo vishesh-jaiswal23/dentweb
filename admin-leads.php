@@ -7,6 +7,12 @@ require_once __DIR__ . '/includes/bootstrap.php';
 require_admin();
 $admin = current_user();
 $db = get_db();
+$recordStore = null;
+try {
+    $recordStore = customer_record_store();
+} catch (Throwable $recordStoreError) {
+    error_log('Unable to initialise customer record storage: ' . $recordStoreError->getMessage());
+}
 
 $flashData = consume_flash();
 $flashMessage = '';
@@ -47,6 +53,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'create':
                 admin_create_lead($db, $_POST, $adminId);
                 set_flash('success', 'Lead created successfully.');
+                break;
+            case 'records-import':
+                if (!$recordStore instanceof CustomerRecordStore) {
+                    throw new RuntimeException('Customer record storage is not available.');
+                }
+                $recordType = isset($_POST['record_type']) && is_string($_POST['record_type'])
+                    ? strtolower(trim($_POST['record_type']))
+                    : 'leads';
+                $recordType = in_array($recordType, ['customers', 'customer'], true) ? 'customers' : 'leads';
+
+                $upload = $_FILES['records_csv'] ?? null;
+                if (!is_array($upload) || !isset($upload['error']) || (int) $upload['error'] !== UPLOAD_ERR_OK) {
+                    throw new RuntimeException('Upload a CSV file to import lead or customer records.');
+                }
+
+                $contents = file_get_contents((string) $upload['tmp_name']);
+                if ($contents === false || trim($contents) === '') {
+                    throw new RuntimeException('The uploaded CSV file was empty.');
+                }
+
+                $summary = $recordStore->importCsv($recordType, $contents);
+                $details = [];
+                $details[] = sprintf('%d processed', (int) ($summary['processed'] ?? 0));
+                if (!empty($summary['created'])) {
+                    $details[] = sprintf('%d new', (int) $summary['created']);
+                }
+                if (!empty($summary['updated'])) {
+                    $details[] = sprintf('%d updated', (int) $summary['updated']);
+                }
+                if (!empty($summary['customers'])) {
+                    $details[] = sprintf('%d customers', (int) $summary['customers']);
+                }
+                if (!empty($summary['leads'])) {
+                    $details[] = sprintf('%d leads', (int) $summary['leads']);
+                }
+
+                set_flash('success', 'CSV import completed: ' . implode(', ', $details) . '.');
+                break;
+            case 'records-update-status':
+                if (!$recordStore instanceof CustomerRecordStore) {
+                    throw new RuntimeException('Customer record storage is not available.');
+                }
+                $recordId = isset($_POST['record_id']) ? (int) $_POST['record_id'] : 0;
+                if ($recordId <= 0) {
+                    throw new RuntimeException('Select a valid record to update.');
+                }
+                $statusInput = isset($_POST['installation_status']) && is_string($_POST['installation_status'])
+                    ? $_POST['installation_status']
+                    : '';
+                $updatedRecord = $recordStore->updateInstallationStatus($recordId, $statusInput);
+                $statusMessage = strtolower((string) ($updatedRecord['record_type'] ?? 'lead')) === 'customer'
+                    ? 'Record marked as commissioned and moved to customers.'
+                    : 'Record status updated.';
+                set_flash('success', $statusMessage);
                 break;
             case 'assign':
                 $leadId = (int) ($_POST['lead_id'] ?? 0);
@@ -121,6 +181,21 @@ foreach ($referrers as $referrerOption) {
     $referrerLookup[(int) $referrerOption['id']] = $referrerOption['name'];
 }
 $leads = admin_fetch_lead_overview($db);
+$recordLeads = [];
+$recordCustomers = [];
+try {
+    $recordLeads = customer_records_leads();
+    $recordCustomers = customer_records_customers();
+} catch (Throwable $recordLoadError) {
+    error_log('Unable to list customer record data: ' . $recordLoadError->getMessage());
+}
+$installationStatusOptions = [
+    'pending' => 'Pending',
+    'in_progress' => 'In Progress',
+    'commissioned' => 'Commissioned',
+    'on_hold' => 'On Hold',
+    'cancelled' => 'Cancelled',
+];
 $csrfToken = $_SESSION['csrf_token'] ?? '';
 $stageOptions = [
     'new' => 'New',
@@ -172,6 +247,134 @@ $stageOptions = [
       <span><?= htmlspecialchars($flashMessage, ENT_QUOTES) ?></span>
     </div>
     <?php endif; ?>
+
+    <section class="admin-panel" aria-labelledby="records-panel">
+      <div class="admin-panel__header">
+        <div>
+          <h2 id="records-panel">Customer &amp; lead records</h2>
+          <p>Upload CSV files to maintain communication details and commissioned customers without relying on the SQL database.</p>
+        </div>
+        <span class="admin-panel__count"><?= count($recordLeads) ?> leads · <?= count($recordCustomers) ?> customers</span>
+      </div>
+      <form
+        method="post"
+        enctype="multipart/form-data"
+        action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>"
+        class="admin-form"
+      >
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+        <input type="hidden" name="action" value="records-import" />
+        <label>
+          Record type
+          <select name="record_type">
+            <option value="leads">Leads / Non-Customers</option>
+            <option value="customers">Commissioned Customers</option>
+          </select>
+        </label>
+        <label>
+          CSV file
+          <input type="file" name="records_csv" accept=".csv,text/csv" required />
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import</button>
+        <p class="text-xs">
+          Download templates:
+          <a href="<?= htmlspecialchars($pathFor('customer-records-template.php?type=leads'), ENT_QUOTES) ?>">Leads CSV</a>
+          ·
+          <a href="<?= htmlspecialchars($pathFor('customer-records-template.php?type=customers'), ENT_QUOTES) ?>">Customers CSV</a>
+        </p>
+      </form>
+
+      <div class="admin-table-wrapper" aria-live="polite">
+        <table class="admin-table">
+          <caption class="sr-only">Leads &amp; Non-Customer records uploaded via CSV</caption>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Mobile</th>
+              <th scope="col">District</th>
+              <th scope="col">Lead status</th>
+              <th scope="col">Installation</th>
+              <th scope="col">Updated</th>
+              <th scope="col" class="admin-table__actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php if (empty($recordLeads)): ?>
+            <tr>
+              <td colspan="7">
+                <p class="admin-empty">No CSV-based leads recorded yet. Import a leads CSV to populate this list.</p>
+              </td>
+            </tr>
+            <?php else: ?>
+            <?php foreach ($recordLeads as $record): ?>
+            <tr>
+              <td data-label="Name"><?= htmlspecialchars($record['full_name'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="Mobile"><?= htmlspecialchars($record['mobile_number'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="District"><?= htmlspecialchars($record['district'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="Lead status"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($record['lead_status'] ?? ''))), ENT_QUOTES) ?></td>
+              <td data-label="Installation"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($record['installation_status'] ?? 'pending'))), ENT_QUOTES) ?></td>
+              <td data-label="Updated"><?= htmlspecialchars(admin_format_datetime($record['updated_at'] ?? ''), ENT_QUOTES) ?></td>
+              <td class="admin-table__actions" data-label="Actions">
+                <form method="post" class="admin-inline-form" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>">
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+                  <input type="hidden" name="action" value="records-update-status" />
+                  <input type="hidden" name="record_id" value="<?= (int) ($record['id'] ?? 0) ?>" />
+                  <label class="sr-only" for="record-status-<?= (int) ($record['id'] ?? 0) ?>">Installation status</label>
+                  <select name="installation_status" id="record-status-<?= (int) ($record['id'] ?? 0) ?>">
+                    <?php foreach ($installationStatusOptions as $statusValue => $statusLabel): ?>
+                    <option value="<?= htmlspecialchars($statusValue, ENT_QUOTES) ?>"<?= strtolower((string) ($record['installation_status'] ?? '')) === $statusValue ? ' selected' : '' ?>>
+                      <?= htmlspecialchars($statusLabel, ENT_QUOTES) ?>
+                    </option>
+                    <?php endforeach; ?>
+                  </select>
+                  <button type="submit" class="btn btn-ghost btn-xs">Update</button>
+                </form>
+              </td>
+            </tr>
+            <?php endforeach; ?>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="admin-table-wrapper" aria-live="polite">
+        <table class="admin-table">
+          <caption class="sr-only">Commissioned customer records uploaded via CSV</caption>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Mobile</th>
+              <th scope="col">Installation</th>
+              <th scope="col">Lead status</th>
+              <th scope="col">Handover</th>
+              <th scope="col">Complaints</th>
+              <th scope="col">Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php if (empty($recordCustomers)): ?>
+            <tr>
+              <td colspan="7">
+                <p class="admin-empty">No commissioned customers have been uploaded yet.</p>
+              </td>
+            </tr>
+            <?php else: ?>
+            <?php foreach ($recordCustomers as $record): ?>
+            <tr>
+              <td data-label="Name"><?= htmlspecialchars($record['full_name'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="Mobile"><?= htmlspecialchars($record['mobile_number'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="Installation"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($record['installation_status'] ?? ''))), ENT_QUOTES) ?></td>
+              <td data-label="Lead status"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($record['lead_status'] ?? ''))), ENT_QUOTES) ?></td>
+              <td data-label="Handover"><?= htmlspecialchars(admin_format_datetime($record['handover_date'] ?? ''), ENT_QUOTES) ?></td>
+              <td data-label="Complaints"><?= htmlspecialchars($record['complaint_status'] ?? '—', ENT_QUOTES) ?></td>
+              <td data-label="Updated"><?= htmlspecialchars(admin_format_datetime($record['updated_at'] ?? ''), ENT_QUOTES) ?></td>
+            </tr>
+            <?php endforeach; ?>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <section class="admin-panel" aria-labelledby="lead-create">
       <div class="admin-panel__header">

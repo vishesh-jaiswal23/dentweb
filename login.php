@@ -271,6 +271,7 @@ if ($requestMethod === 'POST') {
             $identifier = $identifierValue;
             $password = $passwordValue;
             $user = null;
+            $customerAccessDenied = false;
 
               $rateLimitKey = $identifier;
               if ($selectedRole === 'customer') {
@@ -290,9 +291,27 @@ if ($requestMethod === 'POST') {
                 }
             }
 
-              if ($error === '') {
-                  try {
-                      $user = authenticate_user($identifier, $password, $selectedRole);
+            if ($error === '' && $selectedRole === 'customer') {
+                $normalizedMobile = normalize_customer_mobile($identifier);
+                if ($normalizedMobile === '') {
+                    $customerAccessDenied = true;
+                } else {
+                    try {
+                        if (!customer_records_can_login($normalizedMobile)) {
+                            $customerAccessDenied = true;
+                        }
+                    } catch (Throwable $lookupError) {
+                        error_log('Customer login verification failed: ' . $lookupError->getMessage());
+                        $customerAccessDenied = true;
+                    }
+                }
+            }
+
+            if ($error === '') {
+                try {
+                    if (!$customerAccessDenied) {
+                        $user = authenticate_user($identifier, $password, $selectedRole);
+                    }
                 } catch (Throwable $exception) {
                     $error = 'Error: The login service is temporarily unavailable because the server cannot access its secure database. Please contact support.';
                     if ($supportEmail !== '') {
@@ -304,12 +323,9 @@ if ($requestMethod === 'POST') {
             }
 
             if ($error === '') {
-                  if (!$user) {
-                      $error = $selectedRole === 'customer'
-                          ? 'The mobile number or password is incorrect, or the account is inactive.'
-                          : 'The provided credentials were incorrect or the account is inactive.';
-                      if ($db instanceof PDO && $rateLimitKey !== '') {
-                          $lockState = login_rate_limit_register_failure($db, $rateLimitKey, $ipAddress, $loginPolicy);
+                if ($customerAccessDenied || !$user) {
+                    if ($db instanceof PDO && $rateLimitKey !== '') {
+                        $lockState = login_rate_limit_register_failure($db, $rateLimitKey, $ipAddress, $loginPolicy);
                         if ($lockState['locked']) {
                             $minutes = max(1, (int) ceil($lockState['seconds_until_unlock'] / 60));
                             $error = sprintf('Too many incorrect attempts. Your login is locked for %d minute%s.', $minutes, $minutes === 1 ? '' : 's');
@@ -317,9 +333,17 @@ if ($requestMethod === 'POST') {
                             $rateLimitMessage = sprintf('Attempts remaining before lockout: %d of %d.', $lockState['remaining_attempts'], $loginPolicy['retry_limit']);
                         }
                     }
+
+                    if ($error === '') {
+                        $error = $customerAccessDenied
+                            ? 'You are not a registered customer yet.'
+                            : ($selectedRole === 'customer'
+                                ? 'The mobile number or password is incorrect, or the account is inactive.'
+                                : 'The provided credentials were incorrect or the account is inactive.');
+                    }
                 } else {
-                      if ($db instanceof PDO && $rateLimitKey !== '') {
-                          login_rate_limit_register_success($db, $rateLimitKey, $ipAddress);
+                    if ($db instanceof PDO && $rateLimitKey !== '') {
+                        login_rate_limit_register_success($db, $rateLimitKey, $ipAddress);
                     }
 
                     session_regenerate_id(true);
