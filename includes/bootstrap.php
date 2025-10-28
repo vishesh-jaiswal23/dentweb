@@ -261,6 +261,30 @@ CREATE TABLE IF NOT EXISTS lead_visits (
 SQL
     );
 
+    try {
+        $visitColumns = $db->query('PRAGMA table_info(lead_visits)')->fetchAll(PDO::FETCH_COLUMN, 1);
+    } catch (Throwable $exception) {
+        error_log(sprintf('ensure_lead_tables: unable to inspect lead_visits columns: %s', $exception->getMessage()));
+        $visitColumns = [];
+    }
+    if (!is_array($visitColumns)) {
+        $visitColumns = [];
+    }
+    $visitColumnMap = [];
+    foreach ($visitColumns as $columnName) {
+        $visitColumnMap[strtolower((string) $columnName)] = true;
+    }
+    $ensureVisitColumn = static function (string $column, string $definition) use ($db, &$visitColumnMap): void {
+        if (isset($visitColumnMap[$column])) {
+            return;
+        }
+        $db->exec(sprintf('ALTER TABLE lead_visits ADD COLUMN %s %s', $column, $definition));
+        $visitColumnMap[$column] = true;
+    };
+    $ensureVisitColumn('photo_name', 'TEXT');
+    $ensureVisitColumn('photo_mime', 'TEXT');
+    $ensureVisitColumn('photo_data', 'TEXT');
+
     $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_visits_lead ON lead_visits(lead_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_visits_created_at ON lead_visits(created_at DESC)');
 
