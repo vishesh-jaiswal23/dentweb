@@ -1,0 +1,33 @@
+{
+  "cards": {
+    "employees": { "value": 18 },
+    "leads": { "value": 5 },
+    "referrers": { "value": 7 },
+    "installations": { "value": 3 },
+    "complaints": { "value": 2 },
+    "subsidy": { "value": 4 },
+    "reminders": { "value": 6 }
+  },
+  "reminders": {
+    "due_today": 2,
+    "overdue": 1,
+    "upcoming": 5
+  },
+  "highlights": [
+    {
+      "module": "leads",
+      "summary": "Lead \"Shreya Kulkarni\" scheduled for site survey",
+      "timestamp": "2024-05-13T09:15:00+05:30"
+    },
+    {
+      "module": "installations",
+      "summary": "Installation DW-2418 now wiring complete",
+      "timestamp": "2024-05-12T16:45:00+05:30"
+    },
+    {
+      "module": "complaints",
+      "summary": "Complaint #4312 assigned to field engineer",
+      "timestamp": "2024-05-12T11:30:00+05:30"
+    }
+  ]
+}
