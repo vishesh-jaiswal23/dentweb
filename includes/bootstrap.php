@@ -5409,6 +5409,8 @@ function admin_list_referrers(PDO $db, string $status = 'all'): array
         $status = 'all';
     }
 
+    $statusSortExpr = "CASE WHEN r.status = 'active' THEN 1 ELSE 0 END";
+
     $sql = <<<SQL
 SELECT
     r.id,
@@ -5429,8 +5431,18 @@ SELECT
 FROM referrers r
 LEFT JOIN crm_leads l ON l.referrer_id = r.id
 %s
-GROUP BY r.id
-ORDER BY r.status = 'active' DESC, r.updated_at DESC, r.name COLLATE NOCASE
+GROUP BY
+    r.id,
+    r.name,
+    r.company,
+    r.email,
+    r.phone,
+    r.status,
+    r.notes,
+    r.last_lead_at,
+    r.created_at,
+    r.updated_at
+ORDER BY {$statusSortExpr} DESC, r.updated_at DESC, LOWER(r.name)
 SQL;
 
     $where = '';
@@ -5663,7 +5675,7 @@ function admin_assign_referrer(PDO $db, int $leadId, ?int $referrerId, int $acto
 
 function admin_active_referrers(PDO $db): array
 {
-    $stmt = $db->query("SELECT id, name FROM referrers WHERE status = 'active' ORDER BY name COLLATE NOCASE");
+    $stmt = $db->query("SELECT id, name FROM referrers WHERE status = 'active' ORDER BY LOWER(name)");
     $results = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $results[] = [
@@ -7211,7 +7223,20 @@ function portal_notify_reminder_status(PDO $db, array $reminder, string $status)
 function admin_list_employees(PDO $db, string $status = 'active'): array
 {
     $status = strtolower(trim($status));
-    $stmt = $db->prepare('SELECT users.full_name, users.email, users.status, users.created_at, users.last_login_at FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = \"employee\" AND (:status = \"all\" OR users.status = :status) ORDER BY users.full_name COLLATE NOCASE');
+    $stmt = $db->prepare(<<<'SQL'
+SELECT
+    users.full_name,
+    users.email,
+    users.status,
+    users.created_at,
+    users.last_login_at
+FROM users
+INNER JOIN roles ON users.role_id = roles.id
+WHERE roles.name = 'employee'
+  AND (:status = 'all' OR users.status = :status)
+ORDER BY users.full_name COLLATE NOCASE
+SQL
+    );
     $stmt->execute([
         ':status' => $status === 'all' ? 'all' : $status,
     ]);
