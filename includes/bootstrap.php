@@ -5377,7 +5377,7 @@ SQL;
 
 function admin_referrer_leads(PDO $db, int $referrerId): array
 {
-    $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
+    $orderExpr = "CASE l.status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
     $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.referrer_id = :referrer_id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
     $stmt->execute([':referrer_id' => $referrerId]);
 
@@ -5675,7 +5675,7 @@ function admin_update_lead_stage(PDO $db, int $leadId, string $stage, int $actor
 
 function admin_fetch_lead_overview(PDO $db): array
 {
-    $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
+    $orderExpr = "CASE l.status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
     $stmt = $db->query("SELECT l.*, assignee.full_name AS assigned_name, creator.full_name AS created_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN users creator ON l.created_by = creator.id LEFT JOIN referrers r ON l.referrer_id = r.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
 
     return lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -5683,7 +5683,7 @@ function admin_fetch_lead_overview(PDO $db): array
 
 function employee_list_leads(PDO $db, int $employeeId): array
 {
-    $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
+    $orderExpr = "CASE l.status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
     $stmt = $db->prepare("SELECT l.*, assignee.full_name AS assigned_name, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id WHERE l.assigned_to = :employee_id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
     $stmt->execute([':employee_id' => $employeeId]);
 
@@ -7075,7 +7075,7 @@ function admin_list_employees(PDO $db, string $status = 'active'): array
 function admin_list_leads(PDO $db, string $status = 'new'): array
 {
     $status = strtolower(trim($status));
-    $orderExpr = "CASE status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
+    $orderExpr = "CASE l.status WHEN 'new' THEN 0 WHEN 'visited' THEN 1 WHEN 'quotation' THEN 2 WHEN 'converted' THEN 3 WHEN 'lost' THEN 4 ELSE 5 END";
     if ($status === 'all') {
         $stmt = $db->query("SELECT l.name, l.phone, l.email, l.status, l.source, l.assigned_to, assignee.full_name AS assigned_name, l.created_at, l.updated_at, l.referrer_id, r.name AS referrer_name FROM crm_leads l LEFT JOIN users assignee ON l.assigned_to = assignee.id LEFT JOIN referrers r ON l.referrer_id = r.id ORDER BY $orderExpr, COALESCE(l.updated_at, l.created_at) DESC");
         return $stmt->fetchAll();
