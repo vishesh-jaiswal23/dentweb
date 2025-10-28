@@ -244,6 +244,9 @@ function ai_save_blog_draft(PDO $db, array $input, int $actorId): array
 {
     ai_require_enabled($db);
     ai_blog_tables($db);
+    if (function_exists('blog_ensure_backup_table')) {
+        blog_ensure_backup_table($db);
+    }
 
     $postId = isset($input['post_id']) ? (int) $input['post_id'] : null;
     $draftId = isset($input['draft_id']) ? (int) $input['draft_id'] : null;
