@@ -946,35 +946,11 @@ function set_setting(string $key, string $value, ?PDO $db = null): void
 
 function apply_schema_patches(PDO $db): void
 {
-    upgrade_users_table($db);
     upgrade_blog_posts_table($db);
     upgrade_installations_table($db);
     ensure_login_policy_row($db);
     ensure_portal_tables($db);
     ensure_lead_tables($db);
-}
-
-function upgrade_users_table(PDO $db): void
-{
-    $columns = $db->query('PRAGMA table_info(users)')->fetchAll(PDO::FETCH_ASSOC);
-    $columnNames = array_column($columns, 'name');
-
-    if (!in_array('username', $columnNames, true)) {
-        $db->exec('ALTER TABLE users ADD COLUMN username TEXT');
-        $db->exec("UPDATE users SET username = CASE WHEN instr(email, '@') > 0 THEN lower(substr(email, 1, instr(email, '@') - 1)) ELSE email END WHERE username IS NULL OR username = ''");
-    }
-
-    if (!in_array('permissions_note', $columnNames, true)) {
-        $db->exec('ALTER TABLE users ADD COLUMN permissions_note TEXT');
-    }
-
-    if (!in_array('password_last_set_at', $columnNames, true)) {
-        $db->exec('ALTER TABLE users ADD COLUMN password_last_set_at TEXT');
-    }
-
-    $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)');
-    $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)');
-
     ensure_blog_indexes($db);
 }
 
@@ -2986,66 +2962,6 @@ function admin_normalise_user_record(array $record): array
     ];
 }
 
-function admin_sync_user_record(PDO $db, array $record, ?int $roleId = null): void
-{
-    $normalized = admin_normalise_user_record($record);
-    if ($normalized['id'] <= 0) {
-        throw new RuntimeException('User record is missing an identifier.');
-    }
-
-    $email = strtolower($normalized['email']);
-    $username = strtolower($normalized['username']);
-    $status = strtolower($normalized['status']);
-    $permissionsNote = $normalized['permissions_note'] !== '' ? $normalized['permissions_note'] : null;
-    $lastLoginAt = $normalized['last_login_at'] ?? null;
-    $passwordLastSetAt = $normalized['password_last_set_at'] ?? null;
-    $createdAt = $normalized['created_at'] !== '' ? $normalized['created_at'] : now_ist();
-    $updatedAt = $normalized['updated_at'] !== '' ? $normalized['updated_at'] : now_ist();
-
-    $resolvedRoleId = $roleId;
-    if ($resolvedRoleId === null) {
-        $resolvedRoleId = admin_resolve_role_id($db, $normalized['role']);
-    }
-
-    $existsStmt = $db->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
-    $existsStmt->execute([':id' => $normalized['id']]);
-    $existingId = $existsStmt->fetchColumn();
-
-    if ($existingId === false) {
-        $insert = $db->prepare('INSERT INTO users(id, full_name, email, username, password_hash, role_id, status, permissions_note, last_login_at, password_last_set_at, created_at, updated_at) VALUES(:id, :full_name, :email, :username, :password_hash, :role_id, :status, :permissions_note, :last_login_at, :password_last_set_at, :created_at, :updated_at)');
-        $insert->execute([
-            ':id' => $normalized['id'],
-            ':full_name' => $normalized['full_name'],
-            ':email' => $email,
-            ':username' => $username,
-            ':password_hash' => $normalized['password_hash'],
-            ':role_id' => $resolvedRoleId,
-            ':status' => $status,
-            ':permissions_note' => $permissionsNote,
-            ':last_login_at' => $lastLoginAt,
-            ':password_last_set_at' => $passwordLastSetAt,
-            ':created_at' => $createdAt,
-            ':updated_at' => $updatedAt,
-        ]);
-        return;
-    }
-
-    $update = $db->prepare('UPDATE users SET full_name = :full_name, email = :email, username = :username, password_hash = :password_hash, role_id = :role_id, status = :status, permissions_note = :permissions_note, last_login_at = :last_login_at, password_last_set_at = :password_last_set_at, updated_at = :updated_at WHERE id = :id');
-    $update->execute([
-        ':id' => $normalized['id'],
-        ':full_name' => $normalized['full_name'],
-        ':email' => $email,
-        ':username' => $username,
-        ':password_hash' => $normalized['password_hash'],
-        ':role_id' => $resolvedRoleId,
-        ':status' => $status,
-        ':permissions_note' => $permissionsNote,
-        ':last_login_at' => $lastLoginAt,
-        ':password_last_set_at' => $passwordLastSetAt,
-        ':updated_at' => $updatedAt,
-    ]);
-}
-
 function admin_fetch_user(PDO $db, int $userId): array
 {
     $store = user_store();
@@ -3190,8 +3106,6 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
         'role' => $roleKey,
         'status' => $status,
     ]);
-
-    admin_sync_user_record($db, $record, $roleId);
 
     portal_log_action($db, $actorId, 'create', 'user', (int) $record['id'], sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
 
@@ -3358,13 +3272,6 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
         }
         $db->prepare('DELETE FROM reminders WHERE proposer_id = :id')->execute($idParam);
 
-        $deleteUser = $db->prepare('DELETE FROM users WHERE id = :id');
-        $deleteUser->execute($idParam);
-        $deletedFromDatabase = $deleteUser->rowCount() > 0;
-        if (!$deletedFromDatabase) {
-            error_log(sprintf('admin_delete_user: database row already missing for user %d', $userId));
-        }
-
         portal_log_action($db, $actorId, 'delete', 'user', $userId, sprintf('Inactive account %s permanently removed', $email));
 
         $db->commit();
@@ -3378,7 +3285,6 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
         'event' => 'admin_delete_user',
         'actor_id' => $actorId,
         'user_id' => $userId,
-        'database_removed' => $deletedFromDatabase,
     ]);
 }
 
@@ -3717,8 +3623,6 @@ function admin_apply_profile_updates(PDO $db, array $updates, int $userId, int $
         'user_id' => $userId,
         'fields' => array_values(array_intersect($allowed, array_keys($updates))),
     ]);
-
-    admin_sync_user_record($db, $updated);
 
     portal_log_action($db, $actorId, 'update', 'user', $userId, 'Profile updates applied via approval');
 }
