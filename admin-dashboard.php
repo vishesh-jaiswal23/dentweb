@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/bootstrap.php';
-require_once __DIR__ . '/includes/dashboard_metrics.php';
 
 require_admin();
 $user = current_user();
@@ -33,41 +32,9 @@ if (is_array($flashData)) {
     }
 }
 
-$metrics = dashboard_metrics_load();
-
-$counts = [
-    'employees' => 0,
-    'leads' => 0,
-    'installations' => 0,
-    'complaints' => 0,
-    'subsidy' => 0,
-    'reminders' => 0,
-    'referrers' => 0,
-];
-
-$useFileCards = ($metrics['sources']['cards'] ?? 'default') === 'file' && $metrics['cards'] !== [];
-if ($useFileCards) {
-    foreach (array_keys($counts) as $key) {
-        $card = $metrics['cards'][$key] ?? null;
-        if (is_array($card) && isset($card['value'])) {
-            $counts[$key] = (int) $card['value'];
-        }
-    }
-} else {
-    $counts = admin_overview_counts($db);
-}
-
-$reminderDueCounts = [
-    'due_today' => 0,
-    'overdue' => 0,
-    'upcoming' => 0,
-];
-$useFileReminders = ($metrics['sources']['reminders'] ?? 'default') === 'file';
-if ($useFileReminders) {
-    $reminderDueCounts = array_merge($reminderDueCounts, $metrics['reminders']);
-} else {
-    $reminderDueCounts = reminder_due_counts($db);
-}
+$counts = admin_overview_counts($db);
+$highlights = admin_today_highlights($db, 20);
+$reminderDueCounts = reminder_due_counts($db);
 
 ai_daily_notes_generate_if_due();
 $aiDashboardNotes = ai_daily_notes_recent(2);
@@ -91,71 +58,57 @@ $reminderPath = $pathFor('admin-reminders.php');
 $dueTodayLink = $reminderPath . '?status=active&from=' . urlencode($todayDate) . '&to=' . urlencode($todayDate) . '#reminder-list';
 $overdueLink = $reminderPath . '?status=active&to=' . urlencode($yesterdayDate) . '#reminder-list';
 
-$cardBlueprints = [
-    'employees' => [
+$cardConfigs = [
+    [
         'label' => 'Active Employees',
+        'value' => $counts['employees'],
         'icon' => 'fa-user-check',
         'description' => 'Staff with Dentweb access who are currently enabled.',
         'link' => $pathFor('admin-records.php') . '?module=employees&filter=active',
     ],
-    'leads' => [
+    [
         'label' => 'New Leads',
+        'value' => $counts['leads'],
         'icon' => 'fa-user-plus',
         'description' => 'Enquiries that still require qualification or hand-off.',
         'link' => $pathFor('admin-leads.php'),
     ],
-    'referrers' => [
+    [
         'label' => 'Active Referrers',
+        'value' => $counts['referrers'],
         'icon' => 'fa-handshake-angle',
         'description' => 'Channel partners enabled to submit and track leads.',
         'link' => $pathFor('admin-referrers.php'),
     ],
-    'installations' => [
+    [
         'label' => 'Ongoing Installations',
+        'value' => $counts['installations'],
         'icon' => 'fa-solar-panel',
         'description' => 'Projects that are live on-site and awaiting closure.',
         'link' => $pathFor('admin-records.php') . '?module=installations&filter=ongoing',
     ],
-    'complaints' => [
+    [
         'label' => 'Open Complaints',
+        'value' => $counts['complaints'],
         'icon' => 'fa-headset',
         'description' => 'Active complaints pending field work or admin approval.',
         'link' => $pathFor('admin-complaints.php') . '?filter=open',
     ],
-    'subsidy' => [
+    [
         'label' => 'Subsidy Pending',
+        'value' => $counts['subsidy'],
         'icon' => 'fa-indian-rupee-sign',
         'description' => 'Applications awaiting approval or disbursal.',
         'link' => $pathFor('admin-subsidy-tracker.php') . '?stage=pending',
     ],
-    'reminders' => [
+    [
         'label' => 'Active Reminders',
+        'value' => $counts['reminders'],
         'icon' => 'fa-bell',
         'description' => 'Follow-ups awaiting admin attention.',
         'link' => $pathFor('admin-reminders.php'),
     ],
 ];
-
-$cardConfigs = [];
-foreach ($cardBlueprints as $key => $card) {
-    $card['value'] = $counts[$key] ?? 0;
-    $metricCard = $metrics['cards'][$key] ?? null;
-    if (is_array($metricCard)) {
-        if (isset($metricCard['value'])) {
-            $card['value'] = (int) $metricCard['value'];
-        }
-        if (($metricCard['label'] ?? '') !== '') {
-            $card['label'] = $metricCard['label'];
-        }
-        if (($metricCard['description'] ?? '') !== '') {
-            $card['description'] = $metricCard['description'];
-        }
-        if (($metricCard['link'] ?? '') !== '') {
-            $card['link'] = dashboard_metrics_resolve_link($metricCard['link'], $pathFor);
-        }
-    }
-    $cardConfigs[] = $card;
-}
 
 $moduleMeta = [
     'employees' => ['label' => 'Employees', 'icon' => 'fa-user-check'],
@@ -167,49 +120,24 @@ $moduleMeta = [
 ];
 
 $indiaTz = new DateTimeZone('Asia/Kolkata');
-$highlightItems = [];
-$useFileHighlights = ($metrics['sources']['highlights'] ?? 'default') === 'file' && $metrics['highlights'] !== [];
-
-if ($useFileHighlights) {
-    foreach ($metrics['highlights'] as $item) {
-        $module = $moduleMeta[$item['module']] ?? ['label' => ucfirst($item['module']), 'icon' => 'fa-circle-info'];
-        try {
-            $timestamp = new DateTimeImmutable($item['timestamp']);
-        } catch (Throwable $exception) {
-            continue;
-        }
-        $localTime = $timestamp->setTimezone($indiaTz);
-
-        $highlightItems[] = [
-            'moduleKey' => $item['module'],
-            'moduleLabel' => $module['label'],
-            'icon' => $module['icon'],
-            'summary' => $item['summary'],
-            'timeDisplay' => $localTime->format('d M · h:i A'),
-            'isoTime' => $localTime->format(DateTimeInterface::ATOM),
-        ];
+$highlightItems = array_map(static function (array $item) use ($moduleMeta, $indiaTz): array {
+    $module = $moduleMeta[$item['module']] ?? ['label' => ucfirst($item['module']), 'icon' => 'fa-circle-info'];
+    try {
+        $timestamp = new DateTimeImmutable($item['timestamp']);
+    } catch (Throwable $exception) {
+        $timestamp = new DateTimeImmutable('now', new DateTimeZone('UTC'));
     }
-} else {
-    $highlights = admin_today_highlights($db, 20);
-    $highlightItems = array_map(static function (array $item) use ($moduleMeta, $indiaTz): array {
-        $module = $moduleMeta[$item['module']] ?? ['label' => ucfirst($item['module']), 'icon' => 'fa-circle-info'];
-        try {
-            $timestamp = new DateTimeImmutable($item['timestamp']);
-        } catch (Throwable $exception) {
-            $timestamp = new DateTimeImmutable('now', new DateTimeZone('UTC'));
-        }
-        $localTime = $timestamp->setTimezone($indiaTz);
+    $localTime = $timestamp->setTimezone($indiaTz);
 
-        return [
-            'moduleKey' => $item['module'],
-            'moduleLabel' => $module['label'],
-            'icon' => $module['icon'],
-            'summary' => $item['summary'],
-            'timeDisplay' => $localTime->format('d M · h:i A'),
-            'isoTime' => $localTime->format(DateTimeInterface::ATOM),
-        ];
-    }, $highlights);
-}
+    return [
+        'moduleKey' => $item['module'],
+        'moduleLabel' => $module['label'],
+        'icon' => $module['icon'],
+        'summary' => $item['summary'],
+        'timeDisplay' => $localTime->format('d M · h:i A'),
+        'isoTime' => $localTime->format(DateTimeInterface::ATOM),
+    ];
+}, $highlights);
 
 ?><!DOCTYPE html>
 <html lang="en">
