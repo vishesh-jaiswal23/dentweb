@@ -236,66 +236,100 @@ function ensure_api_access(string $requiredRole = 'admin'): void
 
 function authenticate_user(string $identifier, string $password, string $roleName): ?array
 {
+    $identifier = trim($identifier);
+    if ($identifier === '' || $password === '') {
+        return null;
+    }
+
     try {
-        $db = get_db();
-    } catch (Throwable $dbError) {
-        return authenticate_user_fallback($identifier, $password, $roleName, $dbError);
+        $store = user_store();
+    } catch (Throwable $storeError) {
+        return authenticate_user_fallback($identifier, $password, $roleName, $storeError);
     }
 
-    $loginIdentifier = trim($identifier);
-    $mobileIdentifier = '';
-    if ($roleName === 'customer' && $loginIdentifier !== '') {
-        $mobileIdentifier = normalize_customer_mobile($loginIdentifier);
+    try {
+        $user = $store->findByLoginIdentifier($identifier, $roleName);
+    } catch (Throwable $storeError) {
+        return authenticate_user_fallback($identifier, $password, $roleName, $storeError);
     }
 
-    $conditions = '(LOWER(users.email) = LOWER(:identifier) OR LOWER(users.username) = LOWER(:identifier))';
-    $params = [
-        ':identifier' => $loginIdentifier,
-        ':role' => $roleName,
+    if (!$user) {
+        return null;
+    }
+
+    if (($user['status'] ?? 'inactive') !== 'active') {
+        return null;
+    }
+
+    $hash = (string) ($user['password_hash'] ?? '');
+    if ($hash === '' || !password_verify($password, $hash)) {
+        return null;
+    }
+
+    try {
+        $updated = $store->recordLogin((int) $user['id']);
+        if (is_array($updated)) {
+            $user = $updated;
+        }
+    } catch (Throwable $recordError) {
+        $store->appendAudit([
+            'event' => 'login_metadata_failed',
+            'user_id' => (int) ($user['id'] ?? 0),
+            'role' => $user['role'] ?? $roleName,
+            'message' => 'Unable to record last login timestamp.',
+            'error' => $recordError->getMessage(),
+        ]);
+    }
+
+    $result = [
+        'id' => (int) ($user['id'] ?? 0),
+        'full_name' => (string) ($user['full_name'] ?? ''),
+        'email' => (string) ($user['email'] ?? ''),
+        'username' => (string) ($user['username'] ?? ($user['email'] ?? '')),
+        'role_name' => (string) ($user['role'] ?? $roleName),
+        'status' => (string) ($user['status'] ?? 'inactive'),
+        'permissions_note' => (string) ($user['permissions_note'] ?? ''),
+        'password_hash' => $hash,
+        'last_login_at' => $user['last_login_at'] ?? null,
+        'password_last_set_at' => $user['password_last_set_at'] ?? null,
+        'offline_mode' => false,
     ];
 
-    if ($mobileIdentifier !== '') {
-        $conditions .= ' OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(users.username, " ", ""), "-", ""), "+", ""), "(", ""), ")", "") = :mobile_identifier';
-        $conditions .= ' OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(users.email, " ", ""), "-", ""), "+", ""), "(", ""), ")", "") = :mobile_identifier';
-        $params[':mobile_identifier'] = $mobileIdentifier;
-    }
-
     try {
-        $sql = 'SELECT users.*, roles.name AS role_name FROM users '
-            . 'INNER JOIN roles ON users.role_id = roles.id '
-            . 'WHERE roles.name = :role AND (' . $conditions . ') LIMIT 1';
-        $stmt = $db->prepare($sql);
-        $stmt->execute($params);
-
-        $user = $stmt->fetch();
-        if (!$user) {
-            return null;
+        $db = get_db();
+        try {
+            portal_log_action(
+                $db,
+                (int) $result['id'],
+                'login',
+                'user',
+                (int) $result['id'],
+                sprintf(
+                    'User %s logged in to the %s portal',
+                    $result['email'] !== '' ? $result['email'] : $result['username'],
+                    $roleName
+                )
+            );
+        } catch (Throwable $logError) {
+            $store->appendAudit([
+                'event' => 'login_audit_fallback',
+                'user_id' => (int) $result['id'],
+                'role' => $result['role_name'],
+                'message' => 'Database audit log unavailable for login event.',
+                'error' => $logError->getMessage(),
+            ]);
         }
-
-        if ($user['status'] !== 'active') {
-            return null;
-        }
-
-        if (!password_verify($password, $user['password_hash'])) {
-            return null;
-        }
-
-        $update = $db->prepare("UPDATE users SET last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
-        $update->execute([':id' => $user['id']]);
-
-        $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
-        $log->execute([
-            ':actor_id' => audit_resolve_actor_id($db, (int) $user['id']),
-            ':action' => 'login',
-            ':entity_type' => 'user',
-            ':entity_id' => $user['id'],
-            ':description' => sprintf('User %s logged in to the %s portal', $user['email'], $roleName),
+    } catch (Throwable $dbError) {
+        $store->appendAudit([
+            'event' => 'login_audit_skipped',
+            'user_id' => (int) $result['id'],
+            'role' => $result['role_name'],
+            'message' => 'Login recorded without database access.',
+            'error' => $dbError->getMessage(),
         ]);
-
-        return $user;
-    } catch (Throwable $queryError) {
-        return authenticate_user_fallback($identifier, $password, $roleName, $queryError);
     }
+
+    return $result;
 }
 
 function find_account_profile(string $identifier): ?array
@@ -303,6 +337,24 @@ function find_account_profile(string $identifier): ?array
     $normalized = trim($identifier);
     if ($normalized === '') {
         return null;
+    }
+
+    try {
+        $store = user_store();
+        $record = $store->findByIdentifier($normalized);
+        if (is_array($record)) {
+            return [
+                'id' => (int) ($record['id'] ?? 0),
+                'full_name' => (string) ($record['full_name'] ?? ''),
+                'email' => (string) ($record['email'] ?? ''),
+                'username' => (string) ($record['username'] ?? ($record['email'] ?? '')),
+                'status' => (string) ($record['status'] ?? 'inactive'),
+                'role_name' => (string) ($record['role'] ?? ''),
+                'offline_mode' => false,
+            ];
+        }
+    } catch (Throwable $storeError) {
+        // Fall back to offline account or legacy database flow below.
     }
 
     try {

@@ -120,13 +120,138 @@ final class FileUserStore
         return $users;
     }
 
+    public function findByIdentifier(string $identifier): ?array
+    {
+        $identifier = trim($identifier);
+        if ($identifier === '') {
+            return null;
+        }
+
+        $emailKey = strtolower($identifier);
+        $usernameKey = strtolower($identifier);
+        $phoneKey = preg_replace('/\D+/', '', $identifier);
+        if (!is_string($phoneKey)) {
+            $phoneKey = '';
+        }
+
+        $index = $this->readIndex();
+        $candidates = [];
+        $addCandidate = static function ($id) use (&$candidates): void {
+            $id = (int) $id;
+            if ($id <= 0) {
+                return;
+            }
+            if (!in_array($id, $candidates, true)) {
+                $candidates[] = $id;
+            }
+        };
+
+        if ($emailKey !== '') {
+            $addCandidate($index['email_to_id'][$emailKey] ?? null);
+        }
+        if ($usernameKey !== '') {
+            $addCandidate($index['username_to_id'][$usernameKey] ?? null);
+        }
+        if ($phoneKey !== '') {
+            $addCandidate($index['phone_to_id'][$phoneKey] ?? null);
+        }
+
+        foreach ($candidates as $candidateId) {
+            $record = $this->get((int) $candidateId);
+            if ($record !== null) {
+                return $record;
+            }
+        }
+
+        return null;
+    }
+
+    public function findByLoginIdentifier(string $identifier, string $role): ?array
+    {
+        $role = $this->normaliseRole($role);
+        $identifier = trim($identifier);
+        if ($identifier === '') {
+            return null;
+        }
+
+        $emailKey = strtolower($identifier);
+        $usernameKey = strtolower($identifier);
+        $phoneKey = preg_replace('/\D+/', '', $identifier);
+        if (!is_string($phoneKey)) {
+            $phoneKey = '';
+        }
+
+        $index = $this->readIndex();
+        $candidates = [];
+        $register = static function ($key, $id) use (&$candidates): void {
+            $id = (int) $id;
+            if ($id <= 0) {
+                return;
+            }
+            $compoundKey = $key . ':' . $id;
+            if (!isset($candidates[$compoundKey])) {
+                $candidates[$compoundKey] = $id;
+            }
+        };
+
+        if ($emailKey !== '') {
+            $register('email', $index['email_to_id'][$emailKey] ?? null);
+        }
+        if ($usernameKey !== '') {
+            $register('username', $index['username_to_id'][$usernameKey] ?? null);
+        }
+        if ($role === 'customer' && $phoneKey !== '') {
+            $register('phone', $index['phone_to_id'][$phoneKey] ?? null);
+        }
+
+        foreach ($candidates as $candidateId) {
+            $record = $this->get((int) $candidateId);
+            if ($record === null) {
+                continue;
+            }
+
+            if ($this->normaliseRole($record['role']) !== $role) {
+                continue;
+            }
+
+            if ($role === 'customer' && $phoneKey !== '' && $record['phone'] !== null && $record['phone'] === $phoneKey) {
+                return $record;
+            }
+
+            if ($emailKey !== '' && $record['email'] !== null && strtolower($record['email']) === $emailKey) {
+                return $record;
+            }
+
+            if ($usernameKey !== '' && $record['username'] !== null && strtolower($record['username']) === $usernameKey) {
+                return $record;
+            }
+
+            return $record;
+        }
+
+        return null;
+    }
+
+    public function recordLogin(int $userId): ?array
+    {
+        $user = $this->get($userId);
+        if ($user === null) {
+            return null;
+        }
+
+        $user['last_login_at'] = $this->now();
+
+        return $this->save($user);
+    }
+
     /**
      * Insert or update a user record.
      *
-     * @param array{ id?: int|null, full_name?: string|null, email?: string|null, phone?: string|null,
-     *               role?: string|null, status?: string|null, password_hash?: string|null,
+     * @param array{ id?: int|null, full_name?: string|null, email?: string|null, username?: string|null,
+     *               phone?: string|null, role?: string|null, status?: string|null, password_hash?: string|null,
      *               created_at?: string|null, updated_at?: string|null, last_login_at?: string|null,
-     *               password_reset_token?: string|null, password_reset_expires_at?: string|null,
+     *               password_last_set_at?: string|null, password_reset_token?: string|null,
+     *               password_reset_expires_at?: string|null, permissions_note?: string|null,
      *               flags?: array<string, mixed>|null } $input
      */
     public function save(array $input): array
@@ -165,6 +290,10 @@ final class FileUserStore
             if (isset($metadata['email'])) {
                 $email = strtolower((string) $metadata['email']);
                 unset($index['email_to_id'][$email]);
+            }
+            if (isset($metadata['username']) && $metadata['username'] !== null && $metadata['username'] !== '') {
+                $username = strtolower((string) $metadata['username']);
+                unset($index['username_to_id'][$username]);
             }
             if (isset($metadata['phone'])) {
                 $phone = (string) $metadata['phone'];
@@ -365,6 +494,24 @@ final class FileUserStore
             $record['id'] = (int) $index['last_id'] + 1;
             $index['last_id'] = $record['id'];
             $record['created_at'] = $record['created_at'] ?? $now;
+        } else {
+            $existingMetadata = $index['users'][(string) $record['id']] ?? null;
+            if (is_array($existingMetadata)) {
+                $priorEmail = isset($existingMetadata['email']) ? $this->normaliseEmail($existingMetadata['email']) : null;
+                if ($priorEmail !== null && $priorEmail !== $record['email']) {
+                    unset($index['email_to_id'][$priorEmail]);
+                }
+
+                $priorUsername = isset($existingMetadata['username']) ? $this->normaliseUsername($existingMetadata['username']) : null;
+                if ($priorUsername !== null && $priorUsername !== $record['username']) {
+                    unset($index['username_to_id'][$priorUsername]);
+                }
+
+                $priorPhone = isset($existingMetadata['phone']) ? $this->normalisePhone($existingMetadata['phone']) : null;
+                if ($priorPhone !== null && $priorPhone !== $record['phone']) {
+                    unset($index['phone_to_id'][$priorPhone]);
+                }
+            }
         }
 
         $record['updated_at'] = $now;
@@ -378,6 +525,14 @@ final class FileUserStore
             $existingId = $index['email_to_id'][$email] ?? null;
             if ($existingId !== null && (int) $existingId !== (int) $record['id']) {
                 throw new RuntimeException('Email address already in use.');
+            }
+        }
+
+        $username = $record['username'] ?? null;
+        if ($username !== null && $username !== '') {
+            $existingId = $index['username_to_id'][$username] ?? null;
+            if ($existingId !== null && (int) $existingId !== (int) $record['id']) {
+                throw new RuntimeException('Username already in use.');
             }
         }
 
@@ -398,6 +553,7 @@ final class FileUserStore
             'id' => isset($input['id']) ? (int) $input['id'] : null,
             'full_name' => $this->normaliseName($input['full_name'] ?? ''),
             'email' => $this->normaliseEmail($input['email'] ?? null),
+            'username' => $this->normaliseUsername($input['username'] ?? null),
             'phone' => $this->normalisePhone($input['phone'] ?? null),
             'role' => $this->normaliseRole($input['role'] ?? 'employee'),
             'status' => $this->normaliseStatus($input['status'] ?? 'active'),
@@ -405,8 +561,10 @@ final class FileUserStore
             'created_at' => $input['created_at'] ?? null,
             'updated_at' => $input['updated_at'] ?? null,
             'last_login_at' => $input['last_login_at'] ?? null,
+            'password_last_set_at' => $input['password_last_set_at'] ?? null,
             'password_reset_token' => $input['password_reset_token'] ?? null,
             'password_reset_expires_at' => $input['password_reset_expires_at'] ?? null,
+            'permissions_note' => $this->normalisePermissionsNote($input['permissions_note'] ?? ''),
             'flags' => $this->normaliseFlags($input['flags'] ?? []),
         ];
 
@@ -435,6 +593,9 @@ final class FileUserStore
         if ($record['last_login_at'] !== null) {
             $record['last_login_at'] = $this->normaliseTimestamp($record['last_login_at']);
         }
+        if ($record['password_last_set_at'] !== null) {
+            $record['password_last_set_at'] = $this->normaliseTimestamp($record['password_last_set_at']);
+        }
         if ($record['password_reset_expires_at'] !== null) {
             $record['password_reset_expires_at'] = $this->normaliseTimestamp($record['password_reset_expires_at']);
         }
@@ -449,10 +610,12 @@ final class FileUserStore
             throw new InvalidArgumentException('Cannot index a record without an identifier.');
         }
 
+        $previous = $index['users'][(string) $userId] ?? null;
         $index['users'][(string) $userId] = [
             'id' => $userId,
             'full_name' => $record['full_name'],
             'email' => $record['email'],
+            'username' => $record['username'],
             'phone' => $record['phone'],
             'role' => $record['role'],
             'status' => $record['status'],
@@ -461,11 +624,31 @@ final class FileUserStore
             'last_login_at' => $record['last_login_at'],
         ];
 
+        if (is_array($previous)) {
+            foreach (['role', 'status'] as $bucketType) {
+                $previousKey = (string) ($previous[$bucketType] ?? '');
+                if ($previousKey === '' || $previousKey === (string) $record[$bucketType]) {
+                    continue;
+                }
+
+                $bucketName = $bucketType . '_buckets';
+                if (isset($index[$bucketName][$previousKey])) {
+                    $index[$bucketName][$previousKey] = array_values(array_filter(
+                        array_map('intval', $index[$bucketName][$previousKey]),
+                        static fn (int $id): bool => $id !== $userId
+                    ));
+                    if (count($index[$bucketName][$previousKey]) === 0) {
+                        unset($index[$bucketName][$previousKey]);
+                    }
+                }
+            }
+        }
+
         if (!$skipSequence) {
             $index['last_id'] = max($index['last_id'], $userId);
         }
 
-        foreach (['email' => 'email_to_id', 'phone' => 'phone_to_id'] as $field => $mapName) {
+        foreach (['email' => 'email_to_id', 'username' => 'username_to_id', 'phone' => 'phone_to_id'] as $field => $mapName) {
             $value = $record[$field];
             if ($value === null || $value === '') {
                 continue;
@@ -497,6 +680,7 @@ final class FileUserStore
             'last_id' => 0,
             'users' => [],
             'email_to_id' => [],
+            'username_to_id' => [],
             'phone_to_id' => [],
             'role_buckets' => [],
             'status_buckets' => [],
@@ -555,6 +739,9 @@ final class FileUserStore
                     'email' => isset($metadata['email']) && $metadata['email'] !== null && $metadata['email'] !== ''
                         ? strtolower(trim((string) $metadata['email']))
                         : null,
+                    'username' => isset($metadata['username']) && $metadata['username'] !== null && $metadata['username'] !== ''
+                        ? $this->normaliseUsername($metadata['username'])
+                        : null,
                     'phone' => isset($metadata['phone']) && $metadata['phone'] !== ''
                         ? preg_replace('/\D+/', '', (string) $metadata['phone'])
                         : null,
@@ -569,6 +756,7 @@ final class FileUserStore
 
         foreach ([
             'email_to_id' => static fn ($value): string => strtolower(trim((string) $value)),
+            'username_to_id' => static fn ($value): string => strtolower(trim((string) $value)),
             'phone_to_id' => static fn ($value): string => preg_replace('/\D+/', '', (string) $value) ?? '',
         ] as $mapName => $normaliser) {
             if (!isset($index[$mapName]) || !is_array($index[$mapName])) {
@@ -632,6 +820,20 @@ final class FileUserStore
         return $digits === '' ? null : $digits;
     }
 
+    private function normaliseUsername($username): ?string
+    {
+        if (!is_string($username)) {
+            return null;
+        }
+
+        $username = strtolower(trim($username));
+        if ($username === '') {
+            return null;
+        }
+
+        return $username;
+    }
+
     private function normaliseRole($role): string
     {
         $role = is_string($role) ? strtolower(trim($role)) : 'employee';
@@ -647,6 +849,15 @@ final class FileUserStore
         $status = is_string($status) ? strtolower(trim($status)) : 'active';
         $valid = ['active', 'inactive', 'pending'];
         return in_array($status, $valid, true) ? $status : 'active';
+    }
+
+    private function normalisePermissionsNote($note): string
+    {
+        if (!is_string($note)) {
+            return '';
+        }
+
+        return trim($note);
     }
 
     private function normaliseFlags($flags): array
@@ -689,7 +900,7 @@ final class FileUserStore
     {
         $canonical = static function (array $index): array {
             ksort($index['users']);
-            foreach (['email_to_id', 'phone_to_id'] as $map) {
+            foreach (['email_to_id', 'username_to_id', 'phone_to_id'] as $map) {
                 if (isset($index[$map])) {
                     ksort($index[$map]);
                 }
