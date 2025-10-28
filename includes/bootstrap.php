@@ -3152,6 +3152,15 @@ function admin_sync_user_record(?PDO $db, array $record): void
         throw new RuntimeException('admin_sync_user_record: invalid user id.');
     }
 
+    $role = strtolower((string) ($normalized['role'] ?? ''));
+    if (function_exists('canonical_role_name')) {
+        $role = canonical_role_name($role);
+    }
+
+    if ($role === 'customer') {
+        return;
+    }
+
     $status = strtolower($normalized['status']);
     if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
         $status = 'active';
