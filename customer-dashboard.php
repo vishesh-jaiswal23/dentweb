@@ -121,6 +121,18 @@ function customer_format_datetime(?string $value): string
     }
 }
 
+$kolkataIsoTime = '';
+$kolkataDisplayTime = '';
+try {
+    $kolkataZone = new DateTimeZone('Asia/Kolkata');
+    $kolkataNow = new DateTimeImmutable('now', $kolkataZone);
+    $kolkataIsoTime = $kolkataNow->format(DATE_ATOM);
+    $kolkataDisplayTime = $kolkataNow->format('d M Y · h:i A');
+} catch (Throwable $exception) {
+    $kolkataIsoTime = date(DATE_ATOM);
+    $kolkataDisplayTime = date('d M Y · h:i A');
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -153,6 +165,15 @@ function customer_format_datetime(?string $value): string
           <div>
             <small>Signed in as</small>
             <strong><?= htmlspecialchars($customerName, ENT_QUOTES) ?> · Customer</strong>
+          </div>
+        </div>
+        <div class="dashboard-auth-time" role="status" aria-live="polite">
+          <i class="fa-regular fa-clock" aria-hidden="true"></i>
+          <div>
+            <small>Current time (Kolkata)</small>
+            <time datetime="<?= htmlspecialchars($kolkataIsoTime, ENT_QUOTES) ?>">
+              <?= htmlspecialchars($kolkataDisplayTime, ENT_QUOTES) ?> IST
+            </time>
           </div>
         </div>
         <div class="dashboard-auth-actions">
