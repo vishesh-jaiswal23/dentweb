@@ -3135,6 +3135,8 @@ function admin_update_user_status(PDO $db, int $userId, string $status, int $act
         'status' => $status,
     ]);
 
+    admin_sync_user_record($db, $updated);
+
     portal_log_action($db, $actorId, 'status_change', 'user', $userId, 'Account marked as ' . $status);
 
     return admin_list_accounts($db, ['status' => 'all']);
@@ -3166,6 +3168,8 @@ function admin_reset_user_password(PDO $db, int $userId, string $password, int $
         'user_id' => $userId,
     ]);
 
+    admin_sync_user_record($db, $updated);
+
     portal_log_action($db, $actorId, 'password_reset', 'user', $userId, 'Password reset by administrator');
 
     return admin_list_accounts($db, ['status' => 'all']);
@@ -3192,6 +3196,7 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
     $email = (string) ($user['email'] ?? ('user #' . $userId));
 
     $db->beginTransaction();
+    $deletedFromDatabase = false;
     try {
         $idParam = [':id' => $userId];
 
