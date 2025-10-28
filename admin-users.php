@@ -10,6 +10,18 @@ $db = get_db();
 $admin = current_user();
 $csrfToken = $_SESSION['csrf_token'] ?? '';
 
+$customerRecordStore = null;
+$customerRecords = [];
+$customerRecordError = '';
+try {
+    $customerRecordStore = customer_record_store();
+    $customerRecords = $customerRecordStore->customers();
+} catch (Throwable $customerRecordException) {
+    $customerRecordError = $customerRecordException->getMessage();
+    error_log('Unable to initialise customer record storage: ' . $customerRecordError);
+    $customerRecords = [];
+}
+
 $flashData = consume_flash();
 $flashMessage = '';
 $flashTone = 'info';
@@ -112,6 +124,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 admin_delete_user($db, $userId, $actorId);
                 set_flash('success', 'Inactive account deleted.');
                 break;
+            case 'records-import':
+                if ($view !== 'customers') {
+                    throw new RuntimeException('Switch to the Customers tab before importing records.');
+                }
+                if (!$customerRecordStore instanceof CustomerRecordStore) {
+                    $customerRecordStore = customer_record_store();
+                }
+
+                $upload = $_FILES['records_csv'] ?? null;
+                if (!is_array($upload) || !isset($upload['error']) || (int) $upload['error'] !== UPLOAD_ERR_OK) {
+                    throw new RuntimeException('Upload a commissioned customer CSV file.');
+                }
+
+                $contents = file_get_contents((string) $upload['tmp_name']);
+                if ($contents === false || trim($contents) === '') {
+                    throw new RuntimeException('The uploaded CSV file was empty.');
+                }
+
+                $summary = $customerRecordStore->importCsv('customers', $contents);
+                $details = [];
+                $details[] = sprintf('%d processed', (int) ($summary['processed'] ?? 0));
+                if (!empty($summary['created'])) {
+                    $details[] = sprintf('%d new', (int) $summary['created']);
+                }
+                if (!empty($summary['updated'])) {
+                    $details[] = sprintf('%d updated', (int) $summary['updated']);
+                }
+                if (!empty($summary['customers'])) {
+                    $details[] = sprintf('%d customers', (int) $summary['customers']);
+                }
+
+                set_flash('success', 'Customer CSV import completed: ' . implode(', ', $details) . '.');
+                break;
             default:
                 throw new RuntimeException('Unsupported action.');
         }
@@ -128,25 +173,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $accounts = admin_list_accounts($db, ['status' => 'all']);
 $commissionedMobiles = [];
-try {
-    foreach (customer_records_customers() as $customerRecord) {
-        if (!is_array($customerRecord)) {
+foreach ($customerRecords as $customerRecord) {
+    if (!is_array($customerRecord)) {
+        continue;
+    }
+    $mobileCandidates = [
+        $customerRecord['mobile_normalized'] ?? '',
+        $customerRecord['mobile_number'] ?? '',
+    ];
+    foreach ($mobileCandidates as $candidate) {
+        $normalizedMobile = normalize_customer_mobile((string) $candidate);
+        if ($normalizedMobile === '') {
             continue;
         }
-        $mobileCandidates = [
-            $customerRecord['mobile_normalized'] ?? '',
-            $customerRecord['mobile_number'] ?? '',
-        ];
-        foreach ($mobileCandidates as $candidate) {
-            $normalizedMobile = normalize_customer_mobile((string) $candidate);
-            if ($normalizedMobile === '') {
-                continue;
-            }
-            $commissionedMobiles[$normalizedMobile] = true;
-        }
+        $commissionedMobiles[$normalizedMobile] = true;
     }
-} catch (Throwable $customerRecordsError) {
-    error_log('Failed to read customer record store: ' . $customerRecordsError->getMessage());
 }
 
 $teamAccounts = array_values(array_filter($accounts, static fn (array $account): bool => strtolower((string) ($account['role'] ?? '')) !== 'customer'));
@@ -323,6 +364,92 @@ function admin_users_format_datetime(?string $value): string
       </a>
       <?php endforeach; ?>
     </nav>
+
+    <?php if ($isCustomerView): ?>
+    <section class="admin-panel" aria-labelledby="customer-records-panel">
+      <div class="admin-panel__header">
+        <div>
+          <h2 id="customer-records-panel">Commissioned customer records</h2>
+          <p>Import the commissioned customer CSV to control who appears here and who can access the customer portal.</p>
+        </div>
+        <span class="admin-panel__count"><?= count($customerRecords) ?> customers</span>
+      </div>
+
+      <?php if ($customerRecordError !== ''): ?>
+      <div class="admin-alert admin-alert--error" role="alert">
+        <i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>
+        <span><?= htmlspecialchars($customerRecordError, ENT_QUOTES) ?></span>
+      </div>
+      <?php endif; ?>
+
+      <form
+        method="post"
+        enctype="multipart/form-data"
+        action="admin-users.php?<?= htmlspecialchars(http_build_query(['view' => $view, 'status' => $statusFilter], '', '&', PHP_QUERY_RFC3986), ENT_QUOTES) ?>"
+        class="admin-form"
+      >
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+        <input type="hidden" name="action" value="records-import" />
+        <input type="hidden" name="view" value="<?= htmlspecialchars($view, ENT_QUOTES) ?>" />
+        <input type="hidden" name="status_filter" value="<?= htmlspecialchars($statusFilter, ENT_QUOTES) ?>" />
+        <label>
+          CSV file
+          <input type="file" name="records_csv" accept=".csv,text/csv" required />
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-file-import" aria-hidden="true"></i> Import customers</button>
+        <p class="text-xs">
+          Download templates:
+          <a href="customer-records-template.php?type=customers">Customers CSV</a>
+          ·
+          <a href="customer-records-template.php?type=leads">Leads CSV</a>
+        </p>
+      </form>
+
+      <div class="admin-table-wrapper" aria-live="polite">
+        <table class="admin-table">
+          <caption class="sr-only">Commissioned customer records maintained via CSV</caption>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Mobile</th>
+              <th scope="col">District</th>
+              <th scope="col">System</th>
+              <th scope="col">Installation</th>
+              <th scope="col">Complaint status</th>
+              <th scope="col">Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php if (empty($customerRecords)): ?>
+            <tr>
+              <td colspan="7">
+                <p class="admin-empty">No commissioned customers have been uploaded yet.</p>
+              </td>
+            </tr>
+            <?php else: ?>
+            <?php foreach ($customerRecords as $record): ?>
+            <?php
+            $installationLabel = trim((string) ($record['installation_status'] ?? ''));
+            $installationLabel = $installationLabel === '' ? '—' : ucwords(str_replace('_', ' ', $installationLabel));
+            $complaintLabel = trim((string) ($record['complaint_status'] ?? ''));
+            $complaintLabel = $complaintLabel === '' ? '—' : ucwords(str_replace('_', ' ', $complaintLabel));
+            ?>
+            <tr>
+              <td data-label="Name"><?= htmlspecialchars($record['full_name'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="Mobile"><?= htmlspecialchars($record['mobile_number'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="District"><?= htmlspecialchars($record['district'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="System"><?= htmlspecialchars($record['system_type_kw'] ?? '', ENT_QUOTES) ?></td>
+              <td data-label="Installation"><?= htmlspecialchars($installationLabel, ENT_QUOTES) ?></td>
+              <td data-label="Complaint status"><?= htmlspecialchars($complaintLabel, ENT_QUOTES) ?></td>
+              <td data-label="Updated"><?= htmlspecialchars(admin_users_format_datetime($record['updated_at'] ?? null), ENT_QUOTES) ?></td>
+            </tr>
+            <?php endforeach; ?>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <?php endif; ?>
 
     <section class="admin-overview__cards admin-overview__cards--compact">
       <article class="admin-overview__card">
