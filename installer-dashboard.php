@@ -99,6 +99,11 @@ function installer_format_date(?string $value): string
 
 $logoutUrl = 'logout.php';
 
+$portalClock = portal_current_time();
+$portalTimeIso = (string) ($portalClock['iso'] ?? '');
+$portalTimeDisplay = (string) ($portalClock['display'] ?? '');
+$portalTimeLabel = (string) ($portalClock['label'] ?? 'IST');
+
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -129,6 +134,15 @@ $logoutUrl = 'logout.php';
         <div>
           <p class="installer-subtitle">Installer workspace</p>
           <h1 class="installer-title">Welcome back, <?= htmlspecialchars($installerName, ENT_QUOTES) ?></h1>
+        </div>
+      </div>
+      <div class="dashboard-auth-time installer-header__clock" role="status" aria-live="polite">
+        <i class="fa-regular fa-clock" aria-hidden="true"></i>
+        <div>
+          <small>Current time (Kolkata)</small>
+          <time datetime="<?= htmlspecialchars($portalTimeIso, ENT_QUOTES) ?>">
+            <?= htmlspecialchars($portalTimeDisplay, ENT_QUOTES) ?> <?= htmlspecialchars($portalTimeLabel, ENT_QUOTES) ?>
+          </time>
         </div>
       </div>
       <a href="<?= htmlspecialchars($logoutUrl, ENT_QUOTES) ?>" class="btn btn-ghost">

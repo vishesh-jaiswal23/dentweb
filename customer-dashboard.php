@@ -121,6 +121,10 @@ function customer_format_datetime(?string $value): string
     }
 }
 
+$kolkataNow = portal_current_time();
+$kolkataIsoTime = (string) ($kolkataNow['iso'] ?? '');
+$kolkataDisplayTime = (string) ($kolkataNow['display'] ?? '');
+$kolkataTimeAbbr = (string) ($kolkataNow['label'] ?? 'IST');
 $kolkataIsoTime = '';
 $kolkataDisplayTime = '';
 try {
@@ -172,6 +176,7 @@ try {
           <div>
             <small>Current time (Kolkata)</small>
             <time datetime="<?= htmlspecialchars($kolkataIsoTime, ENT_QUOTES) ?>">
+              <?= htmlspecialchars($kolkataDisplayTime, ENT_QUOTES) ?> <?= htmlspecialchars($kolkataTimeAbbr, ENT_QUOTES) ?>
               <?= htmlspecialchars($kolkataDisplayTime, ENT_QUOTES) ?> IST
             </time>
           </div>

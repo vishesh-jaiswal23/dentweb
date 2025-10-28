@@ -58,6 +58,11 @@ $reminderPath = $pathFor('admin-reminders.php');
 $dueTodayLink = $reminderPath . '?status=active&from=' . urlencode($todayDate) . '&to=' . urlencode($todayDate) . '#reminder-list';
 $overdueLink = $reminderPath . '?status=active&to=' . urlencode($yesterdayDate) . '#reminder-list';
 
+$portalClock = portal_current_time();
+$portalTimeIso = (string) ($portalClock['iso'] ?? '');
+$portalTimeDisplay = (string) ($portalClock['display'] ?? '');
+$portalTimeLabel = (string) ($portalClock['label'] ?? 'IST');
+
 $cardConfigs = [
     [
         'label' => 'Active Employees',
@@ -180,6 +185,15 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
         </div>
       </div>
       <div class="admin-overview__actions">
+        <div class="dashboard-auth-time admin-overview__clock" role="status" aria-live="polite">
+          <i class="fa-regular fa-clock" aria-hidden="true"></i>
+          <div>
+            <small>Current time (Kolkata)</small>
+            <time datetime="<?= htmlspecialchars($portalTimeIso, ENT_QUOTES) ?>">
+              <?= htmlspecialchars($portalTimeDisplay, ENT_QUOTES) ?> <?= htmlspecialchars($portalTimeLabel, ENT_QUOTES) ?>
+            </time>
+          </div>
+        </div>
         <a href="<?= htmlspecialchars($pathFor('admin-users.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
           <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
           Users

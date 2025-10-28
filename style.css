@@ -10089,6 +10089,24 @@ button[data-task-undo]:focus-visible {
   align-items: center;
   gap: 1rem;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.installer-header__clock {
+  background: rgba(148, 163, 184, 0.15);
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.installer-header__clock time {
+  color: var(--base-800);
+}
+
+.installer-dashboard[data-theme='dark'] .installer-header__clock {
+  background: rgba(30, 41, 59, 0.75);
+  box-shadow: none;
+  border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
 .installer-identity {
@@ -10730,6 +10748,21 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.admin-overview__clock {
+  background: rgba(148, 163, 184, 0.15);
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-overview[data-theme='dark'] .admin-overview__clock {
+  background: rgba(30, 41, 59, 0.75);
+  box-shadow: none;
+  border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
 .admin-overview__cards {
