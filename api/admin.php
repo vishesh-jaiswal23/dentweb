@@ -262,8 +262,12 @@ function bootstrap_payload(PDO $db): array
 
 function list_users(PDO $db): array
 {
-    $stmt = $db->query('SELECT users.id, users.full_name, users.email, users.username, users.status, users.permissions_note, users.created_at, users.password_last_set_at, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id ORDER BY users.created_at DESC');
-    return $stmt->fetchAll();
+    $accounts = admin_list_accounts($db, ['status' => 'all']);
+
+    return array_map(static function (array $account): array {
+        $account['role_name'] = $account['role'];
+        return $account;
+    }, $accounts);
 }
 
 function list_invitations(PDO $db): array
@@ -354,7 +358,7 @@ function create_user(PDO $db, array $input): array
 {
     $fullName = trim((string)($input['fullName'] ?? ''));
     $email = strtolower(trim((string)($input['email'] ?? '')));
-    $username = trim((string)($input['username'] ?? ''));
+    $username = strtolower(trim((string)($input['username'] ?? '')));
     $password = (string)($input['password'] ?? '');
     $requestedRole = strtolower(trim((string)($input['role'] ?? '')));
     $permissions = trim((string)($input['permissions'] ?? ''));
@@ -377,31 +381,34 @@ function create_user(PDO $db, array $input): array
         throw new RuntimeException('Password must contain at least 8 characters.');
     }
 
-    $roleId = resolve_role_id($db, $roleName);
-    $hash = password_hash($password, PASSWORD_DEFAULT);
-    $now = (new DateTimeImmutable())->format('Y-m-d H:i:s');
+    resolve_role_id($db, $roleName);
 
-    $stmt = $db->prepare('INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, "active", :permissions, :password_last_set_at, :created_at, :updated_at)');
+    $hash = password_hash($password, PASSWORD_DEFAULT);
+    $now = now_ist();
+
+    $store = user_store();
+
     try {
-        $stmt->execute([
-            ':full_name' => $fullName,
-            ':email' => $email,
-            ':username' => strtolower($username),
-            ':password_hash' => $hash,
-            ':role_id' => $roleId,
-            ':permissions' => $permissions ?: null,
-            ':password_last_set_at' => $now,
-            ':created_at' => $now,
-            ':updated_at' => $now,
+        $record = $store->save([
+            'full_name' => $fullName,
+            'email' => $email,
+            'username' => $username,
+            'role' => $roleName,
+            'status' => 'active',
+            'permissions_note' => $permissions,
+            'password_hash' => $hash,
+            'password_last_set_at' => $now,
+            'created_at' => $now,
         ]);
-    } catch (PDOException $exception) {
-        if ($exception->getCode() === '23000') {
-            throw new RuntimeException('A user with that email or username already exists.');
+    } catch (RuntimeException $exception) {
+        $message = $exception->getMessage();
+        if (stripos($message, 'already in use') !== false) {
+            throw new RuntimeException('A user with that email, username, or phone already exists.');
         }
         throw $exception;
     }
 
-    $userId = (int)$db->lastInsertId();
+    $userId = (int) ($record['id'] ?? 0);
     $auditMessage = sprintf('User %s (%s) created with role %s', $fullName, $email, $roleName);
     if ($roleName !== $requestedRole) {
         $auditMessage .= sprintf(' (requested %s)', $requestedRole);
@@ -446,13 +453,7 @@ function resolve_role_id(PDO $db, string $roleName): int
 
 function fetch_user(PDO $db, int $userId): array
 {
-    $stmt = $db->prepare('SELECT users.id, users.full_name, users.email, users.username, users.status, users.permissions_note, users.created_at, users.password_last_set_at, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE users.id = :id LIMIT 1');
-    $stmt->execute([':id' => $userId]);
-    $user = $stmt->fetch();
-    if (!$user) {
-        throw new RuntimeException('User not found.');
-    }
-    return $user;
+    return admin_fetch_user($db, $userId);
 }
 
 function update_user_status(PDO $db, array $input): array
@@ -463,11 +464,15 @@ function update_user_status(PDO $db, array $input): array
     if (!in_array($status, $validStatuses, true)) {
         throw new RuntimeException('Invalid status provided.');
     }
-    $stmt = $db->prepare("UPDATE users SET status = :status, updated_at = datetime('now') WHERE id = :id");
-    $stmt->execute([
-        ':status' => $status,
-        ':id' => $userId,
-    ]);
+    $store = user_store();
+    $record = $store->get($userId);
+    if (!$record) {
+        throw new RuntimeException('User not found.');
+    }
+
+    $record['status'] = $status;
+    $store->save($record);
+
     audit('update_user_status', 'user', $userId, sprintf('User status changed to %s', $status));
     return ['user' => fetch_user($db, $userId), 'metrics' => current_metrics($db)];
 }
@@ -547,34 +552,43 @@ function approve_invitation(PDO $db, array $input): array
     $fullName = $invite['invitee_name'];
     $email = strtolower($invite['invitee_email']);
 
+    $roleStmt = $db->prepare('SELECT name FROM roles WHERE id = :id LIMIT 1');
+    $roleStmt->execute([':id' => $roleId]);
+    $roleValue = $roleStmt->fetchColumn();
+    if ($roleValue === false) {
+        throw new RuntimeException('Invitation role is not available.');
+    }
+    $roleName = normalize_role_name((string) $roleValue);
+
     $hash = password_hash($password, PASSWORD_DEFAULT);
-    $now = (new DateTimeImmutable())->format('Y-m-d H:i:s');
+    $now = now_ist();
+
+    $store = user_store();
+
     $db->beginTransaction();
     try {
-        $stmt = $db->prepare('INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, "active", :permissions_note, :password_last_set_at, :created_at, :updated_at)');
-        $stmt->execute([
-            ':full_name' => $fullName,
-            ':email' => $email,
-            ':username' => strtolower($username),
-            ':password_hash' => $hash,
-            ':role_id' => $roleId,
-            ':permissions_note' => null,
-            ':password_last_set_at' => $now,
-            ':created_at' => $now,
-            ':updated_at' => $now,
+        $record = $store->save([
+            'full_name' => $fullName,
+            'email' => $email,
+            'username' => strtolower($username),
+            'role' => $roleName,
+            'status' => 'active',
+            'password_hash' => $hash,
+            'password_last_set_at' => $now,
+            'created_at' => $now,
         ]);
 
         $db->prepare("UPDATE invitations SET status = 'approved', approved_at = datetime('now') WHERE id = :id")->execute([':id' => $inviteId]);
         $db->commit();
     } catch (Throwable $exception) {
         $db->rollBack();
-        if ($exception instanceof PDOException && $exception->getCode() === '23000') {
-            throw new RuntimeException('A user with that email or username already exists.');
+        if ($exception instanceof RuntimeException && stripos($exception->getMessage(), 'already in use') !== false) {
+            throw new RuntimeException('A user with that email, username, or phone already exists.');
         }
         throw $exception;
     }
 
-    $userId = (int)$db->lastInsertId();
+    $userId = (int) ($record['id'] ?? 0);
     audit('approve_invitation', 'invitation', $inviteId, sprintf('Invitation %d approved and converted to user %s', $inviteId, $fullName));
 
     return [
@@ -619,29 +633,26 @@ function change_password(PDO $db, array $input): array
         throw new RuntimeException('New password must be at least 8 characters long.');
     }
 
-    $stmt = $db->prepare('SELECT id, password_hash FROM users WHERE id = :id LIMIT 1');
-    $stmt->execute([':id' => $user['id']]);
-    $record = $stmt->fetch();
+    $store = user_store();
+    $record = $store->get((int) $user['id']);
     if (!$record) {
         throw new RuntimeException('Unable to load the current user.');
     }
 
-    if (!password_verify($current, $record['password_hash'])) {
+    if (!password_verify($current, (string) ($record['password_hash'] ?? ''))) {
         throw new RuntimeException('Current password is incorrect.');
     }
 
-    if (password_verify($new, $record['password_hash'])) {
+    if (password_verify($new, (string) ($record['password_hash'] ?? ''))) {
         throw new RuntimeException('New password must differ from the current password.');
     }
 
     $hash = password_hash($new, PASSWORD_DEFAULT);
-    $updatedAt = (new DateTimeImmutable())->format(DateTimeInterface::ATOM);
+    $updatedAt = now_ist();
 
-    $update = $db->prepare("UPDATE users SET password_hash = :hash, password_last_set_at = datetime('now'), updated_at = datetime('now') WHERE id = :id");
-    $update->execute([
-        ':hash' => $hash,
-        ':id' => $user['id'],
-    ]);
+    $record['password_hash'] = $hash;
+    $record['password_last_set_at'] = $updatedAt;
+    $store->save($record);
 
     start_session();
     $_SESSION['user']['password_last_set_at'] = $updatedAt;
