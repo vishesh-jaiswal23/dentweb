@@ -7,6 +7,10 @@ require_once __DIR__ . '/user_storage.php';
 require_once __DIR__ . '/customer_records.php';
 require_once __DIR__ . '/portal_file_storage.php';
 
+if (date_default_timezone_get() !== 'Asia/Kolkata') {
+    date_default_timezone_set('Asia/Kolkata');
+}
+
 function safe_get_constant(string $name, $default = null)
 {
     if (!defined($name)) {
