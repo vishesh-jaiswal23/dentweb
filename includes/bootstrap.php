@@ -103,6 +103,26 @@ function get_db(): PDO
     return $db;
 }
 
+function audit_resolve_actor_id(PDO $db, ?int $actorId): ?int
+{
+    if ($actorId === null || $actorId <= 0) {
+        return null;
+    }
+
+    $cacheKey = (int) $actorId;
+    static $cache = [];
+    if (array_key_exists($cacheKey, $cache)) {
+        return $cache[$cacheKey];
+    }
+
+    $stmt = $db->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $cacheKey]);
+    $resolved = $stmt->fetchColumn();
+
+    $cache[$cacheKey] = $resolved !== false ? (int) $resolved : null;
+    return $cache[$cacheKey];
+}
+
 function initialize_schema(PDO $db): void
 {
     $db->exec(<<<'SQL'
@@ -2948,7 +2968,7 @@ function portal_log_action(PDO $db, int $actorId, string $action, string $entity
 {
     $stmt = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description, created_at) VALUES(:actor_id, :action, :entity_type, :entity_id, :description, :created_at)');
     $stmt->execute([
-        ':actor_id' => $actorId ?: null,
+        ':actor_id' => audit_resolve_actor_id($db, $actorId),
         ':action' => $action,
         ':entity_type' => $entityType,
         ':entity_id' => $entityId,

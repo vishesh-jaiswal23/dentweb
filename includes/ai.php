@@ -80,7 +80,7 @@ function ai_save_settings(PDO $db, array $input, int $actorId): array
 
         $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
         $log->execute([
-            ':actor_id' => $actorId,
+            ':actor_id' => audit_resolve_actor_id($db, $actorId),
             ':action' => 'ai.settings',
             ':entity_type' => 'ai',
             ':entity_id' => 1,
@@ -516,7 +516,7 @@ SQL
 
         $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
         $log->execute([
-            ':actor_id' => $actorId,
+            ':actor_id' => audit_resolve_actor_id($db, $actorId),
             ':action' => 'ai.image',
             ':entity_type' => 'blog_post',
             ':entity_id' => (int) $draft['post_id'],
@@ -566,7 +566,7 @@ SQL
 
     $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
     $log->execute([
-        ':actor_id' => $actorId,
+        ':actor_id' => audit_resolve_actor_id($db, $actorId),
         ':action' => 'ai.schedule',
         ':entity_type' => 'blog_post',
         ':entity_id' => (int) $postId,

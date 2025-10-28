@@ -285,7 +285,7 @@ function authenticate_user(string $identifier, string $password, string $roleNam
 
         $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
         $log->execute([
-            ':actor_id' => $user['id'],
+            ':actor_id' => audit_resolve_actor_id($db, (int) $user['id']),
             ':action' => 'login',
             ':entity_type' => 'user',
             ':entity_id' => $user['id'],
