@@ -644,6 +644,7 @@ CREATE TABLE IF NOT EXISTS blog_post_tags (
 SQL
     );
 
+    blog_ensure_backup_table($db);
     $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_posts_status_published_at ON blog_posts(status, published_at DESC)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_post_tags_tag ON blog_post_tags(tag_id)');
 
@@ -1007,19 +1008,139 @@ function upgrade_users_table(PDO $db): void
 
 function upgrade_blog_posts_table(PDO $db): void
 {
-    $schema = (string) $db->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'blog_posts'")->fetchColumn();
-    if ($schema === '') {
-        return;
-    }
+    $schema = $db->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'blog_posts'")->fetchColumn();
+    $schema = is_string($schema) ? $schema : '';
+    blog_ensure_backup_table($db);
 
-    if (str_contains($schema, "'pending'")) {
+    if ($schema === '') {
         ensure_blog_indexes($db);
         return;
     }
 
+    if (str_contains(strtolower($schema), "'pending'")) {
+        ensure_blog_indexes($db);
+        return;
+    }
+
+    $foreignKeysInitiallyEnabled = (int) $db->query('PRAGMA foreign_keys')->fetchColumn() === 1;
+    if ($foreignKeysInitiallyEnabled) {
+        $db->exec('PRAGMA foreign_keys = OFF');
+    }
+
     $db->beginTransaction();
     try {
-        $db->exec('ALTER TABLE blog_posts RENAME TO blog_posts_backup');
+        $columns = $db->query('PRAGMA table_info(blog_posts)')->fetchAll(PDO::FETCH_ASSOC);
+        $columnNames = array_map(static function (array $column): string {
+            return strtolower((string) ($column['name'] ?? ''));
+        }, $columns ?: []);
+
+        $hasBodyText = in_array('body_text', $columnNames, true);
+        $hasCoverImageAlt = in_array('cover_image_alt', $columnNames, true);
+        $hasStatus = in_array('status', $columnNames, true);
+        $hasPublishedAt = in_array('published_at', $columnNames, true);
+
+        $db->exec('DELETE FROM blog_posts_backup');
+        $db->exec(<<<'SQL'
+INSERT INTO blog_posts_backup (id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at)
+SELECT
+    COALESCE(id, rowid),
+    COALESCE(title, ''),
+    COALESCE(slug, ''),
+    excerpt,
+    COALESCE(body_html, ''),
+    body_text,
+    cover_image,
+    cover_image_alt,
+    author_name,
+    status,
+    published_at,
+    COALESCE(created_at, datetime('now')),
+    COALESCE(updated_at, COALESCE(created_at, datetime('now')))
+FROM blog_posts
+SQL
+        );
+
+        $db->exec("UPDATE blog_posts_backup SET body_html = COALESCE(body_html, '')");
+        $db->exec("UPDATE blog_posts_backup SET excerpt = COALESCE(excerpt, '')");
+        $db->exec("UPDATE blog_posts_backup SET author_name = NULLIF(trim(COALESCE(author_name, '')), '')");
+
+        $bodyRows = null;
+        if ($hasBodyText) {
+            $db->exec("UPDATE blog_posts_backup SET body_text = COALESCE(body_text, '')");
+            $bodyRows = $db->query("SELECT id, COALESCE(body_html, '') AS body_html FROM blog_posts_backup WHERE trim(body_text) = ''");
+        } else {
+            $bodyRows = $db->query("SELECT id, COALESCE(body_html, '') AS body_html FROM blog_posts_backup");
+        }
+
+        if ($bodyRows instanceof PDOStatement) {
+            $updateBody = $db->prepare('UPDATE blog_posts_backup SET body_text = :body_text WHERE id = :id');
+            while (($row = $bodyRows->fetch(PDO::FETCH_ASSOC)) !== false) {
+                $plain = blog_extract_plain_text((string) ($row['body_html'] ?? ''));
+                $updateBody->execute([
+                    ':body_text' => $plain,
+                    ':id' => (int) ($row['id'] ?? 0),
+                ]);
+            }
+        }
+
+        $db->exec("UPDATE blog_posts_backup SET body_text = COALESCE(body_text, '')");
+
+        if (!$hasCoverImageAlt) {
+            $db->exec("UPDATE blog_posts_backup SET cover_image_alt = NULL");
+        }
+
+        if (!$hasStatus) {
+            $db->exec("UPDATE blog_posts_backup SET status = 'draft' WHERE status IS NULL OR trim(status) = ''");
+        }
+
+        if (!$hasPublishedAt) {
+            $db->exec("UPDATE blog_posts_backup SET published_at = NULL");
+        }
+
+        $db->exec("UPDATE blog_posts_backup SET created_at = COALESCE(created_at, datetime('now'))");
+        $db->exec("UPDATE blog_posts_backup SET updated_at = COALESCE(updated_at, created_at)");
+
+        $db->exec("UPDATE blog_posts_backup SET title = CASE WHEN trim(title) = '' THEN 'Untitled Post' ELSE title END");
+
+        $fetchBackupRows = $db->query("SELECT id, COALESCE(title, '') AS title, COALESCE(slug, '') AS slug FROM blog_posts_backup ORDER BY id");
+        $updateSlug = $db->prepare('UPDATE blog_posts_backup SET slug = :slug WHERE id = :id');
+        $seenSlugs = [];
+        while (($row = $fetchBackupRows->fetch(PDO::FETCH_ASSOC)) !== false) {
+            $id = (int) ($row['id'] ?? 0);
+            $title = (string) ($row['title'] ?? '');
+            $slug = trim((string) ($row['slug'] ?? ''));
+
+            $baseSlug = $slug !== '' ? $slug : blog_slugify($title);
+            if ($baseSlug === '') {
+                try {
+                    $baseSlug = bin2hex(random_bytes(6));
+                } catch (Throwable $exception) {
+                    $baseSlug = uniqid('post_', true);
+                }
+            }
+
+            $candidate = $baseSlug;
+            $suffix = 2;
+            while ($candidate === '' || isset($seenSlugs[$candidate])) {
+                $candidate = $baseSlug . '-' . $suffix;
+                $suffix++;
+            }
+
+            if ($candidate !== $slug) {
+                $updateSlug->execute([
+                    ':slug' => $candidate,
+                    ':id' => $id,
+                ]);
+            }
+
+            $seenSlugs[$candidate] = true;
+        }
+
+        $db->exec("UPDATE blog_posts_backup SET status = lower(status) WHERE status IS NOT NULL");
+        $db->exec("UPDATE blog_posts_backup SET status = 'draft' WHERE status IS NULL OR trim(status) = ''");
+        $db->exec("UPDATE blog_posts_backup SET status = 'draft' WHERE status NOT IN ('draft','pending','published','archived')");
+
+        $db->exec('DROP TABLE IF EXISTS blog_posts');
         $db->exec(<<<'SQL'
 CREATE TABLE blog_posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1038,18 +1159,36 @@ CREATE TABLE blog_posts (
 )
 SQL
         );
+
         $db->exec(<<<'SQL'
 INSERT INTO blog_posts (id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at)
-SELECT id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at
+SELECT
+    id,
+    title,
+    slug,
+    excerpt,
+    body_html,
+    body_text,
+    cover_image,
+    cover_image_alt,
+    author_name,
+    status,
+    published_at,
+    created_at,
+    updated_at
 FROM blog_posts_backup
 SQL
         );
-        $db->exec('DROP TABLE blog_posts_backup');
+
         ensure_blog_indexes($db);
         $db->commit();
     } catch (Throwable $exception) {
         $db->rollBack();
         throw $exception;
+    } finally {
+        if ($foreignKeysInitiallyEnabled) {
+            $db->exec('PRAGMA foreign_keys = ON');
+        }
     }
 }
 
@@ -1522,6 +1661,30 @@ function perform_admin_recovery(PDO $db, string $email, string $username, string
     }
 
     return $userId;
+}
+
+function blog_ensure_backup_table(PDO $db): void
+{
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS blog_posts_backup (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    excerpt TEXT,
+    body_html TEXT NOT NULL,
+    body_text TEXT NOT NULL,
+    cover_image TEXT,
+    cover_image_alt TEXT,
+    author_name TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','pending','published','archived')),
+    published_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+SQL
+    );
+
+    $db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_posts_backup_slug ON blog_posts_backup(slug)');
 }
 
 function ensure_blog_indexes(PDO $db): void
