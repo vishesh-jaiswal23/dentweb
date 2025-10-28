@@ -449,7 +449,7 @@ if ($requestMethod === 'POST') {
                           echo 'Manage approvals, oversight dashboards, and user permissions.';
                           break;
                       case 'employee':
-                          echo 'Work leads, installations, complaints, reminders, and requests.';
+                          echo 'Work leads, complaints, reminders, and requests.';
                           break;
                       case 'installer':
                           echo 'Review scheduled jobs, AMC checklists, and submit site updates.';

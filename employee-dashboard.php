@@ -76,10 +76,21 @@ if (is_array($flashData)) {
 
 $employeeRecord = null;
 if (!empty($user['id'])) {
-    $employeeRecord = portal_find_user($db, (int) $user['id']);
+    try {
+        $employeeRecord = portal_find_user($db, (int) $user['id']);
+    } catch (Throwable $exception) {
+        error_log('Unable to load employee record: ' . $exception->getMessage());
+        $employeeRecord = null;
+    }
 }
 $employeeId = (int) ($employeeRecord['id'] ?? ($user['id'] ?? 0));
-$reminderBannerAlerts = portal_consume_reminder_banners($db, $employeeId);
+
+try {
+    $reminderBannerAlerts = portal_consume_reminder_banners($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to fetch reminder banners: ' . $exception->getMessage());
+    $reminderBannerAlerts = [];
+}
 
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -124,25 +135,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 employee_submit_lead_proposal($db, $payload, $employeeId);
                 set_flash('success', 'Proposal submitted for admin approval.');
                 $redirectView = 'leads';
-                break;
-            case 'update_installation_stage':
-                $installationId = (int) ($_POST['installation_id'] ?? 0);
-                $targetStage = (string) ($_POST['target_stage'] ?? '');
-                $remarks = trim((string) ($_POST['remarks'] ?? ''));
-                $photo = trim((string) ($_POST['photo_label'] ?? ''));
-                installation_update_stage($db, $installationId, $targetStage, $employeeId, 'employee', $remarks, $photo);
-                $message = strtolower($targetStage) === 'commissioned'
-                    ? 'Commissioning request sent to Admin.'
-                    : 'Installation update saved.';
-                set_flash('success', $message);
-                $redirectView = 'installations';
-                break;
-            case 'toggle_installation_amc':
-                $installationId = (int) ($_POST['installation_id'] ?? 0);
-                $targetAmc = isset($_POST['target_amc']) && $_POST['target_amc'] === '1';
-                installation_toggle_amc($db, $installationId, $targetAmc, $employeeId);
-                set_flash('success', $targetAmc ? 'AMC commitment recorded.' : 'AMC commitment removed.');
-                $redirectView = 'installations';
                 break;
             case 'propose_reminder':
                 $module = (string) ($_POST['module'] ?? '');
@@ -239,7 +231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Throwable $exception) {
         set_flash('error', $exception->getMessage());
         if (!$redirectViewProvided) {
-            $redirectView = 'installations';
+            $redirectView = 'leads';
         }
     }
 
@@ -247,7 +239,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$complaints = portal_employee_complaints($db, $employeeId);
+try {
+    $complaints = portal_employee_complaints($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to load employee complaints: ' . $exception->getMessage());
+    $complaints = [];
+}
 
 $employeeName = trim((string) ($employeeRecord['full_name'] ?? $user['full_name'] ?? ''));
 if ($employeeName === '') {
@@ -291,8 +288,13 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
-$bootstrapData = employee_bootstrap_payload($db, $employeeId);
-$complaints = $bootstrapData['complaints'] ?? [];
+try {
+    $bootstrapData = employee_bootstrap_payload($db, $employeeId);
+} catch (Throwable $exception) {
+    error_log('Unable to prepare employee workspace payload: ' . $exception->getMessage());
+    $bootstrapData = [];
+}
+$complaints = $bootstrapData['complaints'] ?? $complaints ?? [];
 $reminders = $bootstrapData['reminders'] ?? [];
 $requestsRaw = $bootstrapData['requests'] ?? [];
 $syncSnapshot = $bootstrapData['sync'] ?? null;
@@ -303,10 +305,6 @@ $viewDefinitions = [
     'leads' => [
         'label' => 'My Leads / Visits',
         'icon' => 'fa-solid fa-user-plus',
-    ],
-    'installations' => [
-        'label' => 'My Installations',
-        'icon' => 'fa-solid fa-route',
     ],
     'complaints' => [
         'label' => 'My Complaints',
@@ -454,6 +452,11 @@ foreach ($complaints as $complaint) {
     $customerName = $complaint['customerName'] !== '' ? $complaint['customerName'] : $complaint['reference'];
     $contactDisplay = $complaint['customerContact'] !== '' ? $complaint['customerContact'] : 'Shared via Admin';
 
+    $assigneeName = $complaint['assigneeName'] !== '' ? $complaint['assigneeName'] : 'Unassigned (Admin review)';
+    $assigneeRole = $complaint['assigneeRole'] !== '' ? $complaint['assigneeRole'] : '';
+    $assigneeLabel = $assigneeRole !== '' ? sprintf('%s · %s', $assigneeName, $assigneeRole) : $assigneeName;
+    $assignedToMe = (int) ($complaint['assignedTo'] ?? 0) === $employeeId;
+
     $tickets[] = [
         'id' => $complaint['reference'],
         'complaintId' => (int) ($complaint['id'] ?? 0),
@@ -463,7 +466,8 @@ foreach ($complaints as $complaint) {
         'status' => $map['key'],
         'statusLabel' => $map['label'],
         'statusTone' => $map['tone'],
-        'assignedBy' => 'Admin Control Center',
+        'assignedBy' => $assigneeLabel,
+        'assignedToMe' => $assignedToMe,
         'sla' => $complaint['slaDue'] !== '' ? date('d M Y', strtotime($complaint['slaDue'])) : 'Not set',
         'slaBadgeLabel' => $complaint['slaLabel'] ?? 'SLA not set',
         'slaBadgeTone' => $complaint['slaStatus'] ?? 'muted',
@@ -741,148 +745,20 @@ $attachmentIcon = static function (string $filename): string {
           </section>
           <?php endif; ?>
 
-          <?php if ($currentView === 'installations'): ?>
-          <section id="installations" class="dashboard-section" data-section>
-            <h2>My installations</h2>
-            <p class="dashboard-section-sub">
-              Review every scheduled installation or maintenance visit, capture geo-tags when available, and close assignments so Admin can review commissioning evidence before locking tickets.
-            </p>
-            <div class="installation-layout">
-              <?php if (empty($installations)): ?>
-              <p class="empty-state">No installations assigned yet. Admin will share projects as soon as they are scheduled.</p>
-              <?php else: ?>
-              <div class="installation-grid">
-                <?php foreach ($installations as $installation): ?>
-                <?php $stageLabel = $installation['requestedStage'] === 'commissioned' ? 'Commissioning Pending' : $installation['stageLabel']; ?>
-                <article class="installation-card dashboard-panel">
-                  <header class="installation-card__header">
-                    <div>
-                      <h3><?= htmlspecialchars($installation['project'] ?: $installation['customer'], ENT_QUOTES) ?></h3>
-                      <p class="installation-card__customer">Customer: <?= htmlspecialchars($installation['customer'], ENT_QUOTES) ?></p>
-                    </div>
-                    <span class="installation-card__stage installation-card__stage--<?= htmlspecialchars($installation['stageTone'], ENT_QUOTES) ?>">
-                      <?= htmlspecialchars($stageLabel, ENT_QUOTES) ?>
-                    </span>
-                  </header>
-                  <ul class="installation-card__meta">
-                    <li><i class="fa-solid fa-calendar-days" aria-hidden="true"></i> Scheduled: <?= htmlspecialchars(employee_format_date($installation['scheduled'] ?? ''), ENT_QUOTES) ?></li>
-                    <li><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i> Target handover: <?= htmlspecialchars(employee_format_date($installation['handover'] ?? ''), ENT_QUOTES) ?></li>
-                    <li><i class="fa-solid fa-bolt" aria-hidden="true"></i> Capacity: <?= htmlspecialchars($installation['capacity'] ? number_format($installation['capacity'], 1) . ' kW' : '—', ENT_QUOTES) ?></li>
-                  </ul>
-                  <ol class="installation-card__progress">
-                    <?php foreach ($installation['progress'] as $step): ?>
-                    <li class="installation-card__progress-item installation-card__progress-item--<?= htmlspecialchars($step['state'], ENT_QUOTES) ?>">
-                      <?= htmlspecialchars($step['label'], ENT_QUOTES) ?>
-                    </li>
-                    <?php endforeach; ?>
-                  </ol>
-                  <form class="installation-card__amc" method="post">
-                    <input type="hidden" name="action" value="toggle_installation_amc" />
-                    <input type="hidden" name="installation_id" value="<?= (int) $installation['id'] ?>" />
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
-                    <input type="hidden" name="redirect_view" value="installations" />
-                    <input type="hidden" name="target_amc" value="<?= $installation['amcCommitted'] ? '0' : '1' ?>" />
-                    <label>
-                      <input type="checkbox" <?= $installation['amcCommitted'] ? 'checked' : '' ?> onchange="this.form.submit()" />
-                      AMC committed
-                    </label>
-                  </form>
-                  <form class="installation-card__form" method="post">
-                    <input type="hidden" name="action" value="update_installation_stage" />
-                    <input type="hidden" name="installation_id" value="<?= (int) $installation['id'] ?>" />
-                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
-                    <input type="hidden" name="redirect_view" value="installations" />
-                    <div class="installation-card__form-row">
-                      <label>
-                        Stage
-                        <select name="target_stage">
-                          <?php foreach ($installation['stageOptions'] as $option): ?>
-                          <option value="<?= htmlspecialchars($option['value'], ENT_QUOTES) ?>" <?= $option['value'] === $installation['stage'] ? 'selected' : '' ?><?= !empty($option['disabled']) ? ' disabled' : '' ?>><?= htmlspecialchars($option['label'], ENT_QUOTES) ?></option>
-                          <?php endforeach; ?>
-                        </select>
-                      </label>
-                      <label>
-                        Remarks
-                        <input type="text" name="remarks" placeholder="Site note" />
-                      </label>
-                      <label>
-                        Photo reference
-                        <input type="text" name="photo_label" placeholder="Filename or link" />
-                      </label>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-sm">Save update</button>
-                  </form>
-                  <details class="reminder-proposal reminder-proposal--inline">
-                    <summary><i class="fa-solid fa-bell" aria-hidden="true"></i> Propose reminder</summary>
-                    <form method="post" class="reminder-proposal__form">
-                      <input type="hidden" name="action" value="propose_reminder" />
-                      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($portalCsrfToken, ENT_QUOTES) ?>" />
-                      <input type="hidden" name="module" value="installation" />
-                      <input type="hidden" name="linked_id" value="<?= (int) $installation['id'] ?>" />
-                      <input type="hidden" name="redirect_view" value="installations" />
-                      <p class="reminder-proposal__meta">
-                        Linked to Installation #<?= (int) $installation['id'] ?> <?= ($installation['project'] ?: $installation['customer']) !== '' ? '· ' . htmlspecialchars($installation['project'] ?: $installation['customer'], ENT_QUOTES) : '' ?>
-                      </p>
-                      <label>
-                        Title
-                        <input type="text" name="title" maxlength="150" required placeholder="Commissioning follow-up" />
-                      </label>
-                      <label>
-                        Due date &amp; time
-                        <input type="datetime-local" name="due_at" required />
-                      </label>
-                      <label>
-                        Notes (optional)
-                        <textarea name="notes" rows="2" placeholder="Add site context for admin review."></textarea>
-                      </label>
-                      <button type="submit" class="btn btn-ghost btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Send proposal</button>
-                    </form>
-                  </details>
-                  <?php if (!empty($installation['entries'])): ?>
-                  <div class="installation-card__timeline">
-                    <h4>Recent notes</h4>
-                    <ol>
-                      <?php foreach (array_slice(array_reverse($installation['entries']), 0, 4) as $entry): ?>
-                      <li>
-                        <div>
-                          <strong><?= htmlspecialchars($entry['stageLabel'], ENT_QUOTES) ?></strong>
-                          <span><?= htmlspecialchars($entry['actorName'], ENT_QUOTES) ?> · <?= htmlspecialchars(employee_format_datetime($entry['timestamp']), ENT_QUOTES) ?></span>
-                        </div>
-                        <?php if ($entry['remarks'] !== ''): ?>
-                        <p><?= htmlspecialchars($entry['remarks'], ENT_QUOTES) ?></p>
-                        <?php endif; ?>
-                        <?php if ($entry['photo'] !== ''): ?>
-                        <p class="installation-card__photo">Photo: <?= htmlspecialchars($entry['photo'], ENT_QUOTES) ?></p>
-                        <?php endif; ?>
-                        <?php if ($entry['type'] === 'request'): ?>
-                        <span class="installation-card__badge">Awaiting admin approval</span>
-                        <?php elseif ($entry['type'] === 'amc'): ?>
-                        <span class="installation-card__badge">AMC updated</span>
-                        <?php endif; ?>
-                      </li>
-                      <?php endforeach; ?>
-                    </ol>
-                  </div>
-                  <?php endif; ?>
-                </article>
-                <?php endforeach; ?>
-              </div>
-              <?php endif; ?>
-            </div>
-          </section>
-          <?php endif; ?>
+          
 
           <?php if ($currentView === 'complaints'): ?>
           <section id="complaints" class="dashboard-section" data-section>
             <h2>My complaints</h2>
             <p class="dashboard-section-sub">
-              Tickets are provisioned by Admin with customer details, SLA timers, and attachments. Update status, add field notes, or escalate back to Admin for complex issues—every action updates the timeline automatically.
+              Tickets logged by Admin or customers are visible to the entire team. Update the ones assigned to you and follow the rest for context—every action updates the shared timeline automatically.
             </p>
             <div class="ticket-board">
               <?php if (empty($tickets)): ?>
-              <p class="empty-state">No service tickets assigned yet. New tickets from Admin will appear here instantly.</p>
+              <p class="empty-state">No service tickets available yet. New tickets from Admin will appear here instantly.</p>
               <?php else: ?>
               <?php foreach ($tickets as $ticket): ?>
+              <?php $ticketEditable = $employeeStatus === 'active' && !empty($ticket['assignedToMe']); ?>
               <article class="ticket-card" data-ticket-id="<?= htmlspecialchars($ticket['id'], ENT_QUOTES) ?>" data-status="<?= htmlspecialchars($ticket['status'], ENT_QUOTES) ?>">
                 <header class="ticket-card__header">
                   <div>
@@ -893,8 +769,11 @@ $attachmentIcon = static function (string $filename): string {
                 </header>
                 <dl class="ticket-details">
                   <div>
-                    <dt>Assigned by</dt>
-                    <dd data-ticket-assigned-by><?= htmlspecialchars($ticket['assignedBy'], ENT_QUOTES) ?></dd>
+                    <dt>Assigned to</dt>
+                    <dd data-ticket-assigned-by>
+                      <?= htmlspecialchars($ticket['assignedBy'], ENT_QUOTES) ?>
+                      <span class="badge badge-soft"><?= !empty($ticket['assignedToMe']) ? 'Assigned to you' : 'View only' ?></span>
+                    </dd>
                   </div>
                   <div>
                     <dt>SLA target</dt>
@@ -922,17 +801,17 @@ $attachmentIcon = static function (string $filename): string {
                 <div class="ticket-actions">
                   <label class="ticket-actions__field">
                     <span>Status</span>
-                    <select data-ticket-status <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
+                    <select data-ticket-status <?= $ticketEditable ? '' : 'disabled' ?>>
                       <?php foreach ($statusOptions as $value => $label): ?>
                       <option value="<?= htmlspecialchars($value, ENT_QUOTES) ?>"<?= $ticket['status'] === $value ? ' selected' : '' ?>><?= htmlspecialchars($label, ENT_QUOTES) ?></option>
                       <?php endforeach; ?>
                     </select>
                   </label>
-                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
+                  <button type="button" class="btn btn-ghost btn-sm" data-ticket-note <?= $ticketEditable ? '' : 'disabled' ?>>
                     <i class="<?= htmlspecialchars($ticket['noteIcon'], ENT_QUOTES) ?>" aria-hidden="true"></i>
                     <?= htmlspecialchars($ticket['noteLabel'], ENT_QUOTES) ?>
                   </button>
-                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>
+                  <button type="button" class="btn btn-secondary btn-sm" data-ticket-escalate <?= $ticketEditable ? '' : 'disabled' ?>>
                     <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
                     Return to Admin
                   </button>
@@ -960,7 +839,7 @@ $attachmentIcon = static function (string $filename): string {
                       Notes (optional)
                       <textarea name="notes" rows="2" placeholder="Add context for admin approval."></textarea>
                     </label>
-                    <button type="submit" class="btn btn-ghost btn-xs" <?= $employeeStatus !== 'active' ? 'disabled' : '' ?>>Send proposal</button>
+                      <button type="submit" class="btn btn-ghost btn-xs" <?= $ticketEditable ? '' : 'disabled' ?>>Send proposal</button>
                   </form>
                 </details>
                 <?php if (!empty($ticket['attachments'])): ?>
@@ -1016,7 +895,7 @@ $attachmentIcon = static function (string $filename): string {
               <details class="reminder-proposal reminder-proposal--wide">
                 <summary><i class="fa-solid fa-bell" aria-hidden="true"></i> Propose reminder</summary>
                 <?php if (empty($reminderLinkOptions)): ?>
-                <p class="text-muted">Link a lead, installation, or complaint to unlock reminder proposals.</p>
+                <p class="text-muted">Link a lead or complaint to unlock reminder proposals.</p>
                 <?php else: ?>
                 <form method="post" class="reminder-proposal__form">
                   <input type="hidden" name="action" value="propose_reminder" />
@@ -1051,7 +930,7 @@ $attachmentIcon = static function (string $filename): string {
             <div class="reminder-list">
               <h3>Reminder proposals</h3>
               <?php if (empty($reminders)): ?>
-              <p class="empty-state">No reminder proposals yet. Submit one from a lead, installation, or complaint to get started.</p>
+              <p class="empty-state">No reminder proposals yet. Submit one from a lead or complaint to get started.</p>
               <?php else: ?>
               <div class="reminder-table-wrapper">
                 <table class="reminder-table">
@@ -1323,7 +1202,6 @@ $attachmentIcon = static function (string $filename): string {
                       <select name="correction_module" required>
                         <option value="">Select module</option>
                         <option value="lead">Lead</option>
-                        <option value="installation">Installation</option>
                         <option value="complaint">Complaint</option>
                         <option value="other">Other</option>
                       </select>
