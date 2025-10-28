@@ -7,7 +7,6 @@ require_once __DIR__ . '/includes/bootstrap.php';
 require_role('installer');
 
 $user = current_user();
-$db = get_db();
 $installerId = (int) ($user['id'] ?? 0);
 $portalCsrfToken = $_SESSION['csrf_token'] ?? '';
 
@@ -50,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $targetStage = (string) ($_POST['target_stage'] ?? '');
                 $remarks = trim((string) ($_POST['remarks'] ?? ''));
                 $photo = trim((string) ($_POST['photo_label'] ?? ''));
-                installation_update_stage($db, $installationId, $targetStage, $installerId, 'installer', $remarks, $photo);
+                file_installation_update_stage($installationId, $targetStage, $installerId, 'installer', $remarks, $photo);
                 set_flash('success', 'Installation update saved.');
                 break;
             default:
@@ -65,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$installations = installation_list_for_role($db, 'installer', $installerId);
+$installations = file_installation_list_for_role('installer', $installerId);
 
 $installerName = trim((string) ($user['full_name'] ?? 'Installer'));
 if ($installerName === '') {
