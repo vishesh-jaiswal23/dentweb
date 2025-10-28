@@ -1682,7 +1682,20 @@ CREATE TABLE crm_leads (
 )
 SQL
             );
-            $db->exec(<<<'SQL'
+            $backupExists = (bool) $db->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads_backup'")->fetchColumn();
+            $hasBackup = false;
+            if ($backupExists) {
+                try {
+                    $db->query('SELECT 1 FROM crm_leads_backup LIMIT 1');
+                    $hasBackup = true;
+                } catch (Throwable $probeException) {
+                    error_log(sprintf('ensure_lead_tables: crm_leads_backup probe failed, dropping stale table: %s', $probeException->getMessage()));
+                    $db->exec('DROP TABLE IF EXISTS crm_leads_backup');
+                }
+            }
+            if ($hasBackup) {
+                try {
+                    $db->exec(<<<'SQL'
 INSERT INTO crm_leads (id, name, phone, email, source, status, assigned_to, created_by, referrer_id, site_location, site_details, notes, created_at, updated_at)
 SELECT id, name, phone, email, source,
        CASE
@@ -1701,8 +1714,19 @@ SELECT id, name, phone, email, source,
         updated_at
 FROM crm_leads_backup
 SQL
-            );
-            $db->exec('DROP TABLE crm_leads_backup');
+                    );
+                    $db->exec('DROP TABLE crm_leads_backup');
+                } catch (Throwable $exception) {
+                    if (stripos($exception->getMessage(), 'crm_leads_backup') !== false) {
+                        error_log(sprintf('ensure_lead_tables: skipping migration copy because crm_leads_backup is unavailable: %s', $exception->getMessage()));
+                        $db->exec('DROP TABLE IF EXISTS crm_leads_backup');
+                    } else {
+                        throw $exception;
+                    }
+                }
+            } else {
+                error_log('ensure_lead_tables: crm_leads_backup missing during migration; continuing with empty crm_leads table');
+            }
         } catch (Throwable $exception) {
             $db->rollBack();
             throw $exception;
@@ -1785,6 +1809,53 @@ SQL
     );
     $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_lead ON lead_proposals(lead_id)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_lead_proposals_status ON lead_proposals(status)');
+}
+
+/**
+ * Returns the lead tables that should be cleaned up when unlinking user
+ * relationships. The metadata includes the available columns for each table so
+ * callers can safely skip updates that the schema does not support (for
+ * example, legacy backups that predate new columns).
+ *
+ * @return array<string, array<string, bool>>
+ */
+function crm_lead_cleanup_tables(PDO $db): array
+{
+    $tables = ['crm_leads'];
+
+    try {
+        $backupExists = (bool) $db
+            ->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads_backup'")
+            ->fetchColumn();
+    } catch (Throwable $exception) {
+        $backupExists = false;
+    }
+
+    if ($backupExists) {
+        $tables[] = 'crm_leads_backup';
+    }
+
+    $metadata = [];
+    foreach ($tables as $table) {
+        try {
+            $columns = $db->query('PRAGMA table_info(' . $table . ')')->fetchAll(PDO::FETCH_COLUMN, 1);
+        } catch (Throwable $exception) {
+            $columns = [];
+        }
+
+        if (!is_array($columns)) {
+            $columns = [];
+        }
+
+        $columnMap = [];
+        foreach ($columns as $column) {
+            $columnMap[strtolower((string) $column)] = true;
+        }
+
+        $metadata[$table] = $columnMap;
+    }
+
+    return $metadata;
 }
 
 
@@ -2939,8 +3010,14 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
 
         $db->prepare('DELETE FROM invitations WHERE inviter_id = :id')->execute($idParam);
 
-        $db->prepare('UPDATE crm_leads SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
-        $db->prepare('UPDATE crm_leads SET created_by = NULL WHERE created_by = :id')->execute($idParam);
+        foreach (crm_lead_cleanup_tables($db) as $table => $columns) {
+            if (isset($columns['assigned_to'])) {
+                $db->prepare("UPDATE $table SET assigned_to = NULL WHERE assigned_to = :id")->execute($idParam);
+            }
+            if (isset($columns['created_by'])) {
+                $db->prepare("UPDATE $table SET created_by = NULL WHERE created_by = :id")->execute($idParam);
+            }
+        }
 
         $db->prepare('DELETE FROM lead_visits WHERE employee_id = :id')->execute($idParam);
         $db->prepare('DELETE FROM lead_proposals WHERE employee_id = :id')->execute($idParam);
