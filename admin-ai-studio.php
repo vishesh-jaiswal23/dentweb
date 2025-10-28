@@ -122,6 +122,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_flash('success', 'Draft updated successfully.');
                 $activeTab = 'generator';
                 break;
+            case 'publish-now':
+                $draftId = trim((string) ($_POST['draft_id'] ?? ''));
+                if ($draftId === '') {
+                    throw new RuntimeException('Select a draft to publish.');
+                }
+                $published = ai_publish_blog_draft_now($db, $draftId, $adminId);
+                $slug = $published['published_slug'] ?? ($published['slug'] ?? '');
+                $message = 'Draft published immediately.';
+                if ($slug !== '') {
+                    $message .= sprintf(' Post slug: %s.', $slug);
+                }
+                set_flash('success', $message);
+                $activeTab = 'generator';
+                $draftId = '';
+                break;
+            case 'delete-draft':
+                $draftId = trim((string) ($_POST['draft_id'] ?? ''));
+                if ($draftId === '') {
+                    throw new RuntimeException('Select a draft to delete.');
+                }
+                ai_delete_blog_draft($draftId, $adminId);
+                set_flash('success', 'Draft deleted successfully.');
+                $activeTab = 'generator';
+                $draftId = '';
+                break;
             default:
                 throw new RuntimeException('Unsupported action.');
         }
@@ -380,7 +405,19 @@ function ai_tab_class(string $current, string $tab): string
                     <button type="submit" name="action" value="clear-schedule" class="btn btn-ghost btn-xs" <?= $aiEnabled ? '' : 'disabled' ?>>Clear</button>
                   </div>
                 </form>
+                <form method="post">
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+                  <input type="hidden" name="tab" value="generator" />
+                  <input type="hidden" name="draft_id" value="<?= htmlspecialchars($draft['id'], ENT_QUOTES) ?>" />
+                  <button type="submit" name="action" value="publish-now" class="btn btn-success btn-xs">Post Now</button>
+                </form>
                 <?php endif; ?>
+                <form method="post" onsubmit="return confirm('Delete this draft? This action cannot be undone.');">
+                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+                  <input type="hidden" name="tab" value="generator" />
+                  <input type="hidden" name="draft_id" value="<?= htmlspecialchars($draft['id'], ENT_QUOTES) ?>" />
+                  <button type="submit" name="action" value="delete-draft" class="btn btn-danger btn-xs" <?= $draft['post_status'] === 'published' ? 'disabled' : '' ?>>Delete</button>
+                </form>
                 <a href="admin-ai-studio.php?tab=generator&amp;draft=<?= urlencode($draft['id']) ?>#ai-draft-editor" class="btn btn-ghost btn-xs">Edit</a>
               </td>
             </tr>
