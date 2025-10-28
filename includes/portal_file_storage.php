@@ -631,6 +631,7 @@ function file_admin_referrer_leads(int $referrerId): array
         $rows[] = [
             'id' => (int) ($lead['id'] ?? 0),
             'name' => (string) ($lead['name'] ?? ''),
+            'phone' => trim((string) ($lead['phone'] ?? '')),
             'status' => $status,
             'statusLabel' => function_exists('lead_status_label') ? lead_status_label($status) : ucfirst($status),
             'source' => (string) ($lead['source'] ?? ''),

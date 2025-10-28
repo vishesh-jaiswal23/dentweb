@@ -371,6 +371,7 @@ function format_admin_date(?string $value): string
           <thead>
             <tr>
               <th scope="col">Lead</th>
+              <th scope="col">Phone</th>
               <th scope="col">Stage</th>
               <th scope="col">Source</th>
               <th scope="col">Assigned</th>
@@ -380,12 +381,13 @@ function format_admin_date(?string $value): string
           <tbody>
             <?php if (empty($referrerLeads)): ?>
             <tr>
-              <td colspan="5" class="admin-referrers__empty">No leads linked to this referrer yet.</td>
+              <td colspan="6" class="admin-referrers__empty">No leads linked to this referrer yet.</td>
             </tr>
             <?php else: ?>
             <?php foreach ($referrerLeads as $lead): ?>
             <tr>
               <td><?= htmlspecialchars($lead['name'], ENT_QUOTES) ?></td>
+              <td><?= $lead['phone'] !== '' ? htmlspecialchars($lead['phone'], ENT_QUOTES) : '—' ?></td>
               <td><span class="admin-badge admin-badge--<?= htmlspecialchars($lead['status'], ENT_QUOTES) ?>"><?= htmlspecialchars($lead['statusLabel'], ENT_QUOTES) ?></span></td>
               <td><?= $lead['source'] !== '' ? htmlspecialchars($lead['source'], ENT_QUOTES) : '—' ?></td>
               <td><?= $lead['assignedName'] !== '' ? htmlspecialchars($lead['assignedName'], ENT_QUOTES) : 'Unassigned' ?></td>
