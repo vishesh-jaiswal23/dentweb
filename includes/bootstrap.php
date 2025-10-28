@@ -1124,7 +1124,7 @@ CREATE TABLE blog_posts (
 )
 SQL
         );
-        $db->exec(<<<'SQL'
+        $db->exec(<<<SQL
 INSERT INTO blog_posts (id, title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at, created_at, updated_at)
 SELECT
     id,
