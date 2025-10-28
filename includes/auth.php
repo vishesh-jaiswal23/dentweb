@@ -298,6 +298,17 @@ function authenticate_user(string $identifier, string $password, string $roleNam
     try {
         $db = get_db();
         try {
+            admin_sync_user_record($db, $user);
+        } catch (Throwable $syncError) {
+            $store->appendAudit([
+                'event' => 'login_sync_failed',
+                'user_id' => (int) ($user['id'] ?? 0),
+                'role' => $user['role'] ?? $roleName,
+                'message' => 'Unable to synchronise login metadata to the database.',
+                'error' => $syncError->getMessage(),
+            ]);
+        }
+        try {
             portal_log_action(
                 $db,
                 (int) $result['id'],
