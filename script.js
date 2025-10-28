@@ -74,7 +74,7 @@ const INLINE_PARTIALS = {
         <div class="nav-mobile-section" aria-label="Primary pages">
           <a href="/index.html">Home</a>
           <a href="/about.html">About Us</a>
-          <a href="/solar-projects.html">Solar Projects</a>
+          <a href="/login.php" class="btn btn-secondary">Login</a>
         </div>
         <div class="nav-mobile-divider" role="presentation"></div>
         <div class="nav-mobile-section" aria-label="Solutions">
