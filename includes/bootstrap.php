@@ -116,11 +116,15 @@ function audit_resolve_actor_id(PDO $db, ?int $actorId): ?int
         return $cache[$cacheKey];
     }
 
-    $stmt = $db->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
-    $stmt->execute([':id' => $cacheKey]);
-    $resolved = $stmt->fetchColumn();
+    try {
+        $store = user_store();
+        $record = $store->get($cacheKey);
+        $cache[$cacheKey] = $record !== null ? (int) ($record['id'] ?? null) : null;
+    } catch (Throwable $exception) {
+        error_log(sprintf('audit_resolve_actor_id: unable to read user store: %s', $exception->getMessage()));
+        $cache[$cacheKey] = null;
+    }
 
-    $cache[$cacheKey] = $resolved !== false ? (int) $resolved : null;
     return $cache[$cacheKey];
 }
 
@@ -820,143 +824,104 @@ function unify_employee_roles(PDO $db): void
 
 function ensure_default_user(PDO $db, array $account): void
 {
-    $roleStmt = $db->prepare('SELECT id FROM roles WHERE name = :name LIMIT 1');
-    $roleStmt->execute([':name' => $account['role']]);
-    $roleId = $roleStmt->fetchColumn();
-    if ($roleId === false) {
+    $roleName = strtolower((string) ($account['role'] ?? ''));
+    if ($roleName === '') {
         return;
     }
-    $roleId = (int) $roleId;
 
-    $emails = array_map('strtolower', array_filter([
-        $account['email'] ?? null,
-        ...($account['legacy_emails'] ?? []),
-    ], 'is_string'));
-    $usernames = array_map('strtolower', array_filter([
-        $account['username'] ?? null,
-        ...($account['legacy_usernames'] ?? []),
-    ], 'is_string'));
-
-    $conditions = [];
-    $params = [];
-
-    if ($emails) {
-        $emails = array_values(array_unique($emails));
-        $placeholders = [];
-        foreach ($emails as $index => $email) {
-            $placeholder = ':email_lookup_' . $index;
-            $placeholders[] = $placeholder;
-            $params[$placeholder] = $email;
-        }
-        $conditions[] = 'LOWER(email) IN (' . implode(', ', $placeholders) . ')';
+    try {
+        $store = user_store();
+    } catch (Throwable $exception) {
+        error_log(sprintf('ensure_default_user: unable to initialise user store: %s', $exception->getMessage()));
+        return;
     }
 
-    if ($usernames) {
-        $usernames = array_values(array_unique($usernames));
-        $placeholders = [];
-        foreach ($usernames as $index => $username) {
-            $placeholder = ':username_lookup_' . $index;
-            $placeholders[] = $placeholder;
-            $params[$placeholder] = $username;
+    $identifiers = [];
+    foreach (['email', 'username'] as $key) {
+        if (!empty($account[$key]) && is_string($account[$key])) {
+            $identifiers[] = $account[$key];
         }
-        $conditions[] = 'LOWER(username) IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    foreach (($account['legacy_emails'] ?? []) as $email) {
+        if (is_string($email) && $email !== '') {
+            $identifiers[] = $email;
+        }
+    }
+    foreach (($account['legacy_usernames'] ?? []) as $username) {
+        if (is_string($username) && $username !== '') {
+            $identifiers[] = $username;
+        }
     }
 
     $existing = null;
-    if ($conditions) {
-        $sql = 'SELECT id, email, username, password_hash, status, role_id, permissions_note, full_name FROM users WHERE ' . implode(' OR ', $conditions) . ' LIMIT 1';
-        $lookup = $db->prepare($sql);
-        $lookup->execute($params);
-        $existing = $lookup->fetch(PDO::FETCH_ASSOC) ?: null;
-    }
-
-    $defaultPassword = (string) ($account['password'] ?? '');
-    $nowPasswordHash = null;
-
-    if ($existing === null) {
-        $insert = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'), datetime('now'), datetime('now'))");
-        if ($defaultPassword !== '') {
-            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
+    foreach ($identifiers as $identifier) {
+        try {
+            $candidate = $store->findByIdentifier($identifier);
+        } catch (Throwable $lookupError) {
+            error_log(sprintf('ensure_default_user: lookup failed for %s: %s', $identifier, $lookupError->getMessage()));
+            continue;
         }
 
-        $insert->execute([
-            ':full_name' => $account['full_name'],
-            ':email' => $account['email'],
-            ':username' => $account['username'],
-            ':password_hash' => $nowPasswordHash,
-            ':role_id' => $roleId,
-            ':permissions_note' => $account['permissions_note'] ?? '',
-        ]);
+        if (is_array($candidate)) {
+            $existing = $candidate;
+            break;
+        }
+    }
+
+    $now = now_ist();
+    $password = is_string($account['password'] ?? null) ? trim($account['password']) : '';
+    $permissionsNote = trim((string) ($account['permissions_note'] ?? ''));
+    $payload = [
+        'full_name' => (string) ($account['full_name'] ?? ''),
+        'email' => (string) ($account['email'] ?? ''),
+        'username' => (string) ($account['username'] ?? ''),
+        'role' => $roleName,
+        'status' => 'active',
+        'permissions_note' => $permissionsNote,
+    ];
+
+    if ($existing !== null) {
+        $payload['id'] = (int) ($existing['id'] ?? 0);
+        $payload['created_at'] = $existing['created_at'] ?? $now;
+        $payload['password_hash'] = (string) ($existing['password_hash'] ?? '');
+        $payload['password_last_set_at'] = $existing['password_last_set_at'] ?? null;
+    }
+
+    if ($payload['full_name'] === '' && $existing !== null) {
+        $payload['full_name'] = (string) ($existing['full_name'] ?? '');
+    }
+
+    if ($password !== '') {
+        $payload['password_hash'] = password_hash($password, PASSWORD_DEFAULT);
+        $payload['password_last_set_at'] = $now;
+    } elseif (!isset($payload['password_hash']) || $payload['password_hash'] === '') {
+        $payload['password_hash'] = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+        $payload['password_last_set_at'] = $now;
+    }
+
+    if (!isset($payload['created_at'])) {
+        $payload['created_at'] = $now;
+    }
+
+    try {
+        $store->save($payload);
+    } catch (Throwable $exception) {
+        error_log(sprintf('ensure_default_user: unable to persist default account %s: %s', $payload['email'], $exception->getMessage()));
         return;
     }
 
-    $updates = [];
-    $updateParams = [':id' => (int) $existing['id']];
-
-    if ((int) $existing['role_id'] !== $roleId) {
-        $updates[] = 'role_id = :role_id';
-        $updateParams[':role_id'] = $roleId;
-    }
-
-    $legacyEmails = array_map('strtolower', $account['legacy_emails'] ?? []);
-    $existingEmail = strtolower((string) ($existing['email'] ?? ''));
-    $targetEmail = strtolower((string) ($account['email'] ?? ''));
-    if ($targetEmail !== '' && $existingEmail !== $targetEmail) {
-        if (!$legacyEmails || in_array($existingEmail, $legacyEmails, true)) {
-            $updates[] = 'email = :email';
-            $updateParams[':email'] = $account['email'];
-        }
-    }
-
-    $legacyUsernames = array_map('strtolower', $account['legacy_usernames'] ?? []);
-    $existingUsername = strtolower((string) ($existing['username'] ?? ''));
-    $targetUsername = strtolower((string) ($account['username'] ?? ''));
-    if ($targetUsername !== '' && $existingUsername !== $targetUsername) {
-        if (!$legacyUsernames || in_array($existingUsername, $legacyUsernames, true)) {
-            $updates[] = 'username = :username';
-            $updateParams[':username'] = $account['username'];
-        }
-    }
-
-    $existingName = trim((string) ($existing['full_name'] ?? ''));
-    $targetName = (string) ($account['full_name'] ?? '');
-    if ($targetName !== '' && ($existingName === '' || $existingName === $targetName)) {
-        if ($existingName !== $targetName) {
-            $updates[] = 'full_name = :full_name';
-            $updateParams[':full_name'] = $targetName;
-        }
-    }
-
-    $existingNote = trim((string) ($existing['permissions_note'] ?? ''));
-    $targetNote = (string) ($account['permissions_note'] ?? '');
-    if ($targetNote !== '' && ($existingNote === '' || $existingNote === $targetNote)) {
-        if ($existingNote !== $targetNote) {
-            $updates[] = 'permissions_note = :permissions_note';
-            $updateParams[':permissions_note'] = $targetNote;
-        }
-    }
-
-    if (($existing['status'] ?? '') !== 'active') {
-        $updates[] = "status = 'active'";
-    }
-
-    $existingHash = (string) ($existing['password_hash'] ?? '');
-    if ($defaultPassword !== '' && ($existingHash === '' || !password_verify($defaultPassword, $existingHash))) {
-        if ($nowPasswordHash === null) {
-            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
-        }
-        $updates[] = 'password_hash = :password_hash';
-        $updateParams[':password_hash'] = $nowPasswordHash;
-        $updates[] = "password_last_set_at = datetime('now')";
-    }
-
-    if ($updates) {
-        $updates[] = "updated_at = datetime('now')";
-        $sql = 'UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = :id';
-        $stmt = $db->prepare($sql);
-        $stmt->execute($updateParams);
+    try {
+        $store->appendAudit([
+            'event' => 'ensure_default_user',
+            'user_id' => (int) ($payload['id'] ?? 0),
+            'role' => $roleName,
+        ]);
+    } catch (Throwable $auditError) {
+        error_log(sprintf('ensure_default_user: audit append failed: %s', $auditError->getMessage()));
     }
 }
+
 
 function get_setting(string $key, ?PDO $db = null): ?string
 {

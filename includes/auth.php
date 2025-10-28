@@ -298,17 +298,6 @@ function authenticate_user(string $identifier, string $password, string $roleNam
     try {
         $db = get_db();
         try {
-            admin_sync_user_record($db, $user);
-        } catch (Throwable $syncError) {
-            $store->appendAudit([
-                'event' => 'login_sync_failed',
-                'user_id' => (int) ($user['id'] ?? 0),
-                'role' => $user['role'] ?? $roleName,
-                'message' => 'Unable to synchronise login metadata to the database.',
-                'error' => $syncError->getMessage(),
-            ]);
-        }
-        try {
             portal_log_action(
                 $db,
                 (int) $result['id'],
@@ -350,6 +339,7 @@ function find_account_profile(string $identifier): ?array
         return null;
     }
 
+    $storeFailure = null;
     try {
         $store = user_store();
         $record = $store->findByIdentifier($normalized);
@@ -365,46 +355,34 @@ function find_account_profile(string $identifier): ?array
             ];
         }
     } catch (Throwable $storeError) {
-        // Fall back to offline account or legacy database flow below.
+        $storeFailure = $storeError;
     }
 
-    try {
-        $db = get_db();
-    } catch (Throwable $dbError) {
-        $offlineAccount = resolve_offline_account($dbError);
-        if ($offlineAccount === null) {
-            return null;
-        }
-
-        $matchesEmail = strcasecmp($offlineAccount['email'], $normalized) === 0;
-        $username = $offlineAccount['username'] ?? null;
-        $matchesUsername = is_string($username) && strcasecmp($username, $normalized) === 0;
-        if (!$matchesEmail && !$matchesUsername) {
-            return null;
-        }
-
-        return [
-            'id' => (int) ($offlineAccount['id'] ?? 0),
-            'full_name' => $offlineAccount['name'] ?? 'Primary Administrator',
-            'email' => $offlineAccount['email'],
-            'username' => $offlineAccount['username'] ?? $offlineAccount['email'],
-            'status' => 'active',
-            'role_name' => $offlineAccount['role'],
-            'offline_mode' => true,
-        ];
-    }
-
-    $stmt = $db->prepare("SELECT users.id, users.full_name, users.email, users.username, users.status, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE LOWER(users.email) = LOWER(:identifier) OR LOWER(users.username) = LOWER(:identifier) LIMIT 1");
-    $stmt->execute([':identifier' => $normalized]);
-
-    $profile = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$profile) {
+    if ($storeFailure === null) {
         return null;
     }
 
-    $profile['id'] = (int) ($profile['id'] ?? 0);
+    $offlineAccount = resolve_offline_account($storeFailure);
+    if ($offlineAccount === null) {
+        return null;
+    }
 
-    return $profile;
+    $matchesEmail = strcasecmp($offlineAccount['email'], $normalized) === 0;
+    $username = $offlineAccount['username'] ?? null;
+    $matchesUsername = is_string($username) && strcasecmp($username, $normalized) === 0;
+    if (!$matchesEmail && !$matchesUsername) {
+        return null;
+    }
+
+    return [
+        'id' => (int) ($offlineAccount['id'] ?? 0),
+        'full_name' => $offlineAccount['name'] ?? 'Primary Administrator',
+        'email' => $offlineAccount['email'],
+        'username' => $offlineAccount['username'] ?? $offlineAccount['email'],
+        'status' => 'active',
+        'role_name' => $offlineAccount['role'],
+        'offline_mode' => true,
+    ];
 }
 
 function authenticate_user_fallback(string $identifier, string $password, string $roleName, Throwable $reason): ?array
@@ -451,7 +429,7 @@ function authenticate_user_fallback(string $identifier, string $password, string
     ];
 }
 
-function resolve_offline_account(Throwable $reason): ?array
+function resolve_offline_account(?Throwable $reason = null): ?array
 {
     static $account = null;
     if ($account !== null) {
@@ -459,14 +437,22 @@ function resolve_offline_account(Throwable $reason): ?array
     }
 
     if (is_offline_access_disabled()) {
-        error_log('Offline authentication is disabled. Database error: ' . $reason->getMessage());
+        if ($reason !== null) {
+            error_log('Offline authentication is disabled. Database error: ' . $reason->getMessage());
+        } else {
+            error_log('Offline authentication is disabled.');
+        }
         $account = null;
         return $account;
     }
 
     static $hasLogged = false;
     if (!$hasLogged) {
-        error_log('Database unavailable for authentication: ' . $reason->getMessage() . ' — enabling offline administrator access.');
+        if ($reason !== null) {
+            error_log('Database unavailable for authentication: ' . $reason->getMessage() . ' — enabling offline administrator access.');
+        } else {
+            error_log('Database unavailable for authentication — enabling offline administrator access.');
+        }
         $hasLogged = true;
     }
 
