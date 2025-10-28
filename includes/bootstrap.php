@@ -3140,8 +3140,12 @@ function admin_normalise_user_record(array $record): array
     ];
 }
 
-function admin_sync_user_record(PDO $db, array $record): void
+function admin_sync_user_record(?PDO $db, array $record): void
 {
+    if (!$db instanceof PDO) {
+        return;
+    }
+
     $normalized = admin_normalise_user_record($record);
     $userId = $normalized['id'];
     if ($userId <= 0) {
@@ -3194,7 +3198,7 @@ function admin_sync_user_record(PDO $db, array $record): void
     }
 }
 
-function admin_fetch_user(PDO $db, int $userId): array
+function admin_fetch_user(?PDO $db, int $userId): array
 {
     $store = user_store();
     $record = $store->get($userId);
@@ -3205,7 +3209,7 @@ function admin_fetch_user(PDO $db, int $userId): array
     return admin_normalise_user_record($record);
 }
 
-function admin_list_accounts(PDO $db, array $filters = []): array
+function admin_list_accounts(?PDO $db, array $filters = []): array
 {
     $status = strtolower(trim((string) ($filters['status'] ?? '')));
     if ($status !== '' && $status !== 'all' && !in_array($status, ['active', 'inactive', 'pending'], true)) {
@@ -3241,7 +3245,7 @@ function admin_list_accounts(PDO $db, array $filters = []): array
     return $results;
 }
 
-function admin_create_user(PDO $db, array $input, int $actorId): array
+function admin_create_user(?PDO $db, array $input, int $actorId): array
 {
     $fullName = trim((string) ($input['full_name'] ?? ''));
     if ($fullName === '') {
@@ -3249,7 +3253,9 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
     }
 
     $roleName = (string) ($input['role'] ?? 'employee');
-    $roleId = admin_resolve_role_id($db, $roleName);
+    if ($db instanceof PDO) {
+        admin_resolve_role_id($db, $roleName);
+    }
 
     $roleKey = strtolower($roleName);
     $isCustomerRole = $roleKey === 'customer';
@@ -3340,14 +3346,25 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
         'status' => $status,
     ]);
 
-    portal_log_action($db, $actorId, 'create', 'user', (int) $record['id'], sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
+    if ($db instanceof PDO) {
+        portal_log_action($db, $actorId, 'create', 'user', (int) $record['id'], sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
+    } else {
+        $store->appendAudit([
+            'event' => 'admin_create_user_offline_audit',
+            'actor_id' => $actorId,
+            'user_id' => (int) ($record['id'] ?? 0),
+            'role' => $roleKey,
+            'status' => $status,
+            'message' => 'Database unavailable during user creation. Event recorded in file audit log only.',
+        ]);
+    }
 
     admin_sync_user_record($db, $record);
 
     return admin_list_accounts($db, ['status' => 'all']);
 }
 
-function admin_update_user_status(PDO $db, int $userId, string $status, int $actorId): array
+function admin_update_user_status(?PDO $db, int $userId, string $status, int $actorId): array
 {
     $status = strtolower(trim($status));
     if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
@@ -3372,12 +3389,22 @@ function admin_update_user_status(PDO $db, int $userId, string $status, int $act
 
     admin_sync_user_record($db, $updated);
 
-    portal_log_action($db, $actorId, 'status_change', 'user', $userId, 'Account marked as ' . $status);
+    if ($db instanceof PDO) {
+        portal_log_action($db, $actorId, 'status_change', 'user', $userId, 'Account marked as ' . $status);
+    } else {
+        $store->appendAudit([
+            'event' => 'admin_update_user_status_offline_audit',
+            'actor_id' => $actorId,
+            'user_id' => $userId,
+            'status' => $status,
+            'message' => 'Database unavailable during status update. Event recorded in file audit log only.',
+        ]);
+    }
 
     return admin_list_accounts($db, ['status' => 'all']);
 }
 
-function admin_reset_user_password(PDO $db, int $userId, string $password, int $actorId): array
+function admin_reset_user_password(?PDO $db, int $userId, string $password, int $actorId): array
 {
     if (strlen($password) < 8) {
         throw new RuntimeException('Passwords must be at least 8 characters long.');
@@ -3405,12 +3432,21 @@ function admin_reset_user_password(PDO $db, int $userId, string $password, int $
 
     admin_sync_user_record($db, $updated);
 
-    portal_log_action($db, $actorId, 'password_reset', 'user', $userId, 'Password reset by administrator');
+    if ($db instanceof PDO) {
+        portal_log_action($db, $actorId, 'password_reset', 'user', $userId, 'Password reset by administrator');
+    } else {
+        $store->appendAudit([
+            'event' => 'admin_reset_user_password_offline_audit',
+            'actor_id' => $actorId,
+            'user_id' => $userId,
+            'message' => 'Database unavailable during password reset. Event recorded in file audit log only.',
+        ]);
+    }
 
     return admin_list_accounts($db, ['status' => 'all']);
 }
 
-function admin_delete_user(PDO $db, int $userId, int $actorId): void
+function admin_delete_user(?PDO $db, int $userId, int $actorId): void
 {
     $store = user_store();
     $record = $store->get($userId);
@@ -3430,89 +3466,97 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
 
     $email = (string) ($user['email'] ?? ('user #' . $userId));
 
-    $db->beginTransaction();
-    $deletedFromDatabase = false;
-    try {
-        $idParam = [':id' => $userId];
+    if ($db instanceof PDO) {
+        $db->beginTransaction();
+        try {
+            $idParam = [':id' => $userId];
 
-        $db->prepare('DELETE FROM invitations WHERE inviter_id = :id')->execute($idParam);
+            $db->prepare('DELETE FROM invitations WHERE inviter_id = :id')->execute($idParam);
 
-        foreach (crm_lead_cleanup_tables($db) as $table => $columns) {
-            if (!isset($columns['assigned_to']) && !isset($columns['created_by'])) {
-                continue;
-            }
-
-            try {
-                if (isset($columns['assigned_to'])) {
-                    $db->prepare("UPDATE $table SET assigned_to = NULL WHERE assigned_to = :id")->execute($idParam);
-                }
-                if (isset($columns['created_by'])) {
-                    $db->prepare("UPDATE $table SET created_by = NULL WHERE created_by = :id")->execute($idParam);
-                }
-            } catch (PDOException $exception) {
-                $message = strtolower($exception->getMessage());
-                if (
-                    str_contains($message, 'no such table')
-                    && str_contains($message, strtolower($table))
-                ) {
-                    error_log(sprintf(
-                        'admin_delete_user: skipping cleanup for missing table %s: %s',
-                        $table,
-                        $exception->getMessage()
-                    ));
+            foreach (crm_lead_cleanup_tables($db) as $table => $columns) {
+                if (!isset($columns['assigned_to']) && !isset($columns['created_by'])) {
                     continue;
                 }
 
-                throw $exception;
+                try {
+                    if (isset($columns['assigned_to'])) {
+                        $db->prepare("UPDATE $table SET assigned_to = NULL WHERE assigned_to = :id")->execute($idParam);
+                    }
+                    if (isset($columns['created_by'])) {
+                        $db->prepare("UPDATE $table SET created_by = NULL WHERE created_by = :id")->execute($idParam);
+                    }
+                } catch (PDOException $exception) {
+                    $message = strtolower($exception->getMessage());
+                    if (
+                        str_contains($message, 'no such table')
+                        && str_contains($message, strtolower($table))
+                    ) {
+                        error_log(sprintf(
+                            'admin_delete_user: skipping cleanup for missing table %s: %s',
+                            $table,
+                            $exception->getMessage()
+                        ));
+                        continue;
+                    }
+
+                    throw $exception;
+                }
             }
-        }
 
-        $db->prepare('DELETE FROM lead_visits WHERE employee_id = :id')->execute($idParam);
-        $db->prepare('DELETE FROM lead_proposals WHERE employee_id = :id')->execute($idParam);
-        $db->prepare('UPDATE lead_proposals SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
-        $db->prepare('UPDATE lead_stage_logs SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
+            $db->prepare('DELETE FROM lead_visits WHERE employee_id = :id')->execute($idParam);
+            $db->prepare('DELETE FROM lead_proposals WHERE employee_id = :id')->execute($idParam);
+            $db->prepare('UPDATE lead_proposals SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
+            $db->prepare('UPDATE lead_stage_logs SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
 
-        $db->prepare('DELETE FROM employee_leaves WHERE user_id = :id')->execute($idParam);
-        $db->prepare('UPDATE employee_leaves SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
-        $db->prepare('DELETE FROM employee_expenses WHERE user_id = :id')->execute($idParam);
-        $db->prepare('UPDATE employee_expenses SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
+            $db->prepare('DELETE FROM employee_leaves WHERE user_id = :id')->execute($idParam);
+            $db->prepare('UPDATE employee_leaves SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
+            $db->prepare('DELETE FROM employee_expenses WHERE user_id = :id')->execute($idParam);
+            $db->prepare('UPDATE employee_expenses SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
 
-        $db->prepare('UPDATE complaints SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
-        $db->prepare('UPDATE complaint_updates SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
+            $db->prepare('UPDATE complaints SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
+            $db->prepare('UPDATE complaint_updates SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
 
-        $db->prepare('UPDATE portal_tasks SET assignee_id = NULL WHERE assignee_id = :id')->execute($idParam);
-        $db->prepare('DELETE FROM portal_tasks WHERE created_by = :id')->execute($idParam);
-        $db->prepare('DELETE FROM portal_documents WHERE uploaded_by = :id')->execute($idParam);
-        $db->prepare('DELETE FROM portal_notifications WHERE scope_user_id = :id')->execute($idParam);
-        $db->prepare('UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
+            $db->prepare('UPDATE portal_tasks SET assignee_id = NULL WHERE assignee_id = :id')->execute($idParam);
+            $db->prepare('DELETE FROM portal_tasks WHERE created_by = :id')->execute($idParam);
+            $db->prepare('DELETE FROM portal_documents WHERE uploaded_by = :id')->execute($idParam);
+            $db->prepare('DELETE FROM portal_notifications WHERE scope_user_id = :id')->execute($idParam);
+            $db->prepare('UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
 
-        $db->prepare('UPDATE installations SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
-        $db->prepare('UPDATE installations SET requested_by = NULL WHERE requested_by = :id')->execute($idParam);
-        $db->prepare('UPDATE installations SET installer_id = NULL WHERE installer_id = :id')->execute($idParam);
+            $db->prepare('UPDATE installations SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
+            $db->prepare('UPDATE installations SET requested_by = NULL WHERE requested_by = :id')->execute($idParam);
+            $db->prepare('UPDATE installations SET installer_id = NULL WHERE installer_id = :id')->execute($idParam);
 
-        $db->prepare('DELETE FROM approval_requests WHERE requested_by = :id')->execute($idParam);
-        $db->prepare('UPDATE approval_requests SET decided_by = NULL WHERE decided_by = :id')->execute($idParam);
+            $db->prepare('DELETE FROM approval_requests WHERE requested_by = :id')->execute($idParam);
+            $db->prepare('UPDATE approval_requests SET decided_by = NULL WHERE decided_by = :id')->execute($idParam);
 
-        $db->prepare('UPDATE reminders SET approver_id = NULL WHERE approver_id = :id')->execute($idParam);
-        $reminderStmt = $db->prepare('SELECT id FROM reminders WHERE proposer_id = :id');
-        $reminderStmt->execute($idParam);
-        $reminderIds = array_map('intval', $reminderStmt->fetchAll(PDO::FETCH_COLUMN));
-        if (!empty($reminderIds)) {
-            $placeholders = implode(',', array_fill(0, count($reminderIds), '?'));
-            $deleteApprovals = $db->prepare("DELETE FROM approval_requests WHERE target_type = 'reminder' AND target_id IN ($placeholders)");
-            foreach ($reminderIds as $index => $reminderId) {
-                $deleteApprovals->bindValue($index + 1, $reminderId, PDO::PARAM_INT);
+            $db->prepare('UPDATE reminders SET approver_id = NULL WHERE approver_id = :id')->execute($idParam);
+            $reminderStmt = $db->prepare('SELECT id FROM reminders WHERE proposer_id = :id');
+            $reminderStmt->execute($idParam);
+            $reminderIds = array_map('intval', $reminderStmt->fetchAll(PDO::FETCH_COLUMN));
+            if (!empty($reminderIds)) {
+                $placeholders = implode(',', array_fill(0, count($reminderIds), '?'));
+                $deleteApprovals = $db->prepare("DELETE FROM approval_requests WHERE target_type = 'reminder' AND target_id IN ($placeholders)");
+                foreach ($reminderIds as $index => $reminderId) {
+                    $deleteApprovals->bindValue($index + 1, $reminderId, PDO::PARAM_INT);
+                }
+                $deleteApprovals->execute();
             }
-            $deleteApprovals->execute();
+            $db->prepare('DELETE FROM reminders WHERE proposer_id = :id')->execute($idParam);
+
+            portal_log_action($db, $actorId, 'delete', 'user', $userId, sprintf('Inactive account %s permanently removed', $email));
+
+            $db->commit();
+        } catch (Throwable $exception) {
+            $db->rollBack();
+            throw $exception;
         }
-        $db->prepare('DELETE FROM reminders WHERE proposer_id = :id')->execute($idParam);
-
-        portal_log_action($db, $actorId, 'delete', 'user', $userId, sprintf('Inactive account %s permanently removed', $email));
-
-        $db->commit();
-    } catch (Throwable $exception) {
-        $db->rollBack();
-        throw $exception;
+    } else {
+        $store->appendAudit([
+            'event' => 'admin_delete_user_offline_cleanup',
+            'actor_id' => $actorId,
+            'user_id' => $userId,
+            'message' => 'Database unavailable during user deletion. Relational cleanup deferred.',
+        ]);
     }
 
     $store->delete($userId);
