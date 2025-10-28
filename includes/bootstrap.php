@@ -2279,6 +2279,84 @@ function portal_find_user(PDO $db, int $id): ?array
     $stmt = $db->prepare('SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE users.id = :id LIMIT 1');
     $stmt->execute([':id' => $id]);
     $user = $stmt->fetch();
+    $user = $user ?: null;
+
+    $storeRecord = null;
+    try {
+        $store = user_store();
+        $storeRecord = $store->get($id);
+    } catch (Throwable $exception) {
+        error_log(sprintf('portal_find_user: unable to read user store for %d: %s', $id, $exception->getMessage()));
+        $storeRecord = null;
+    }
+
+    if (is_array($storeRecord)) {
+        $normalized = admin_normalise_user_record($storeRecord);
+        $canonicalStatus = strtolower($normalized['status']);
+        if (!in_array($canonicalStatus, ['active', 'inactive', 'pending'], true)) {
+            $canonicalStatus = 'active';
+        }
+
+        $needsSync = $user === null;
+        if ($user !== null) {
+            $databaseStatus = strtolower((string) ($user['status'] ?? ''));
+            $permissionsNote = (string) ($user['permissions_note'] ?? '');
+            if ($databaseStatus !== $canonicalStatus) {
+                $needsSync = true;
+            }
+            if ($permissionsNote !== $normalized['permissions_note']) {
+                $needsSync = true;
+            }
+            $databaseEmail = (string) ($user['email'] ?? '');
+            if ($normalized['email'] !== '' && $databaseEmail !== $normalized['email']) {
+                $needsSync = true;
+            }
+            $databaseUsername = (string) ($user['username'] ?? '');
+            if ($normalized['username'] !== '' && $databaseUsername !== $normalized['username']) {
+                $needsSync = true;
+            }
+        }
+
+        if ($needsSync) {
+            try {
+                admin_sync_user_record($db, $storeRecord);
+                $stmt->execute([':id' => $id]);
+                $user = $stmt->fetch() ?: $user;
+            } catch (Throwable $exception) {
+                error_log(sprintf('portal_find_user: failed to sync user %d: %s', $id, $exception->getMessage()));
+            }
+        }
+
+        if ($user === null) {
+            $user = [
+                'id' => $normalized['id'],
+                'full_name' => $normalized['full_name'],
+                'email' => $normalized['email'],
+                'username' => $normalized['username'],
+                'status' => $canonicalStatus,
+                'permissions_note' => $normalized['permissions_note'],
+                'role_name' => $normalized['role'],
+            ];
+        } else {
+            $user['status'] = $canonicalStatus;
+            if ($normalized['full_name'] !== '') {
+                $user['full_name'] = $normalized['full_name'];
+            }
+            if ($normalized['email'] !== '') {
+                $user['email'] = $normalized['email'];
+            }
+            if ($normalized['username'] !== '') {
+                $user['username'] = $normalized['username'];
+            }
+            if ($normalized['permissions_note'] !== '') {
+                $user['permissions_note'] = $normalized['permissions_note'];
+            }
+            if ($normalized['role'] !== '') {
+                $user['role_name'] = $normalized['role'];
+            }
+        }
+    }
+
     return $user ?: null;
 }
 
@@ -2990,6 +3068,60 @@ function admin_normalise_user_record(array $record): array
     ];
 }
 
+function admin_sync_user_record(PDO $db, array $record): void
+{
+    $normalized = admin_normalise_user_record($record);
+    $userId = $normalized['id'];
+    if ($userId <= 0) {
+        throw new RuntimeException('admin_sync_user_record: invalid user id.');
+    }
+
+    $status = strtolower($normalized['status']);
+    if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
+        $status = 'active';
+    }
+
+    $roleId = admin_resolve_role_id($db, $normalized['role']);
+
+    $stmt = $db->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $userId]);
+    $exists = $stmt->fetchColumn() !== false;
+
+    $now = now_ist();
+    $fullName = $normalized['full_name'] !== '' ? $normalized['full_name'] : ($normalized['email'] !== '' ? $normalized['email'] : ('User #' . $userId));
+    $email = $normalized['email'] !== '' ? $normalized['email'] : sprintf('user+%d@dakshayani.in', $userId);
+    $username = $normalized['username'] !== '' ? $normalized['username'] : $email;
+    $permissionsNote = $normalized['permissions_note'] !== '' ? $normalized['permissions_note'] : null;
+
+    if ($exists) {
+        $update = $db->prepare('UPDATE users SET full_name = :full_name, email = :email, username = :username, role_id = :role_id, status = :status, permissions_note = :permissions_note, updated_at = :updated_at WHERE id = :id');
+        $update->execute([
+            ':full_name' => $fullName,
+            ':email' => $email,
+            ':username' => $username,
+            ':role_id' => $roleId,
+            ':status' => $status,
+            ':permissions_note' => $permissionsNote,
+            ':updated_at' => $now,
+            ':id' => $userId,
+        ]);
+    } else {
+        $createdAt = $normalized['created_at'] !== '' ? $normalized['created_at'] : $now;
+        $insert = $db->prepare('INSERT INTO users(id, full_name, email, username, role_id, status, permissions_note, created_at, updated_at) VALUES(:id, :full_name, :email, :username, :role_id, :status, :permissions_note, :created_at, :updated_at)');
+        $insert->execute([
+            ':id' => $userId,
+            ':full_name' => $fullName,
+            ':email' => $email,
+            ':username' => $username,
+            ':role_id' => $roleId,
+            ':status' => $status,
+            ':permissions_note' => $permissionsNote,
+            ':created_at' => $createdAt,
+            ':updated_at' => $now,
+        ]);
+    }
+}
+
 function admin_fetch_user(PDO $db, int $userId): array
 {
     $store = user_store();
@@ -3137,6 +3269,8 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
     ]);
 
     portal_log_action($db, $actorId, 'create', 'user', (int) $record['id'], sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
+
+    admin_sync_user_record($db, $record);
 
     return admin_list_accounts($db, ['status' => 'all']);
 }
@@ -4066,9 +4200,14 @@ function portal_normalize_complaint_row(PDO $db, array $row): array
 
 function portal_employee_complaints(PDO $db, int $userId): array
 {
-    $stmt = $db->prepare('SELECT complaints.*, users.full_name AS assigned_to_name, roles.name AS assigned_role FROM complaints LEFT JOIN users ON complaints.assigned_to = users.id LEFT JOIN roles ON users.role_id = roles.id WHERE complaints.assigned_to = :user_id ORDER BY complaints.created_at DESC');
-    $stmt->execute([':user_id' => $userId]);
-    return portal_normalize_complaint_rows($db, $stmt->fetchAll());
+    $complaints = portal_all_complaints($db);
+    foreach ($complaints as &$complaint) {
+        $assignee = $complaint['assignedTo'] ?? null;
+        $complaint['assignedToMe'] = $assignee !== null && (int) $assignee === $userId;
+    }
+    unset($complaint);
+
+    return $complaints;
 }
 
 function portal_all_complaints(PDO $db): array
