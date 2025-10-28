@@ -11102,7 +11102,8 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 
 .admin-table-wrapper {
   border-radius: 1.25rem;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid rgba(15, 23, 42, 0.08);
   background: #ffffff;
 }
@@ -11115,7 +11116,7 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 .admin-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 100%;
+  min-width: 56rem;
 }
 
 .admin-table thead {
@@ -11175,6 +11176,96 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 
 .admin-users__roles {
   margin: 2rem 0 1.5rem;
+}
+
+.admin-users__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 2rem 0 1.5rem;
+}
+
+.admin-users__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #1f2937;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.admin-users__tab:hover {
+  background: rgba(37, 99, 235, 0.16);
+  color: #1d4ed8;
+}
+
+.admin-users__tab:focus-visible {
+  background: rgba(37, 99, 235, 0.16);
+  color: #1d4ed8;
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 2px;
+}
+
+.admin-users__tab.is-active {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.15);
+}
+
+.admin-users__tab i {
+  font-size: 0.95rem;
+}
+
+.admin-users__tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.12);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.admin-users__tab.is-active .admin-users__tab-count {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab {
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab:hover {
+  background: rgba(96, 165, 250, 0.25);
+  color: #93c5fd;
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab:focus-visible {
+  background: rgba(96, 165, 250, 0.25);
+  color: #93c5fd;
+  outline: 3px solid rgba(147, 197, 253, 0.45);
+  outline-offset: 2px;
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab.is-active {
+  background: #1d4ed8;
+  color: #f8fafc;
+  box-shadow: 0 12px 24px rgba(30, 64, 175, 0.35);
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab-count {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab.is-active .admin-users__tab-count {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .admin-users__roles h2 {
