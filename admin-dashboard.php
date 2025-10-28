@@ -40,8 +40,20 @@ $todayIst = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
 $todayDate = $todayIst->format('Y-m-d');
 $yesterdayDate = $todayIst->modify('-1 day')->format('Y-m-d');
 
-$dueTodayLink = 'admin-reminders.php?status=active&from=' . urlencode($todayDate) . '&to=' . urlencode($todayDate) . '#reminder-list';
-$overdueLink = 'admin-reminders.php?status=active&to=' . urlencode($yesterdayDate) . '#reminder-list';
+$scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+if ($scriptDir === '/' || $scriptDir === '.') {
+    $scriptDir = '';
+}
+$basePath = rtrim($scriptDir, '/');
+$prefix = $basePath === '' ? '' : $basePath;
+$pathFor = static function (string $path) use ($prefix): string {
+    $clean = ltrim($path, '/');
+    return ($prefix === '' ? '' : $prefix) . '/' . $clean;
+};
+
+$reminderPath = $pathFor('admin-reminders.php');
+$dueTodayLink = $reminderPath . '?status=active&from=' . urlencode($todayDate) . '&to=' . urlencode($todayDate) . '#reminder-list';
+$overdueLink = $reminderPath . '?status=active&to=' . urlencode($yesterdayDate) . '#reminder-list';
 
 $cardConfigs = [
     [
@@ -49,49 +61,49 @@ $cardConfigs = [
         'value' => $counts['employees'],
         'icon' => 'fa-user-check',
         'description' => 'Staff with Dentweb access who are currently enabled.',
-        'link' => 'admin-records.php?module=employees&filter=active',
+        'link' => $pathFor('admin-records.php') . '?module=employees&filter=active',
     ],
     [
         'label' => 'New Leads',
         'value' => $counts['leads'],
         'icon' => 'fa-user-plus',
         'description' => 'Enquiries that still require qualification or hand-off.',
-        'link' => 'admin-leads.php',
+        'link' => $pathFor('admin-leads.php'),
     ],
     [
         'label' => 'Active Referrers',
         'value' => $counts['referrers'],
         'icon' => 'fa-handshake-angle',
         'description' => 'Channel partners enabled to submit and track leads.',
-        'link' => 'admin-referrers.php',
+        'link' => $pathFor('admin-referrers.php'),
     ],
     [
         'label' => 'Ongoing Installations',
         'value' => $counts['installations'],
         'icon' => 'fa-solar-panel',
         'description' => 'Projects that are live on-site and awaiting closure.',
-        'link' => 'admin-records.php?module=installations&filter=ongoing',
+        'link' => $pathFor('admin-records.php') . '?module=installations&filter=ongoing',
     ],
     [
         'label' => 'Open Complaints',
         'value' => $counts['complaints'],
         'icon' => 'fa-headset',
         'description' => 'Active complaints pending field work or admin approval.',
-        'link' => 'admin-complaints.php?filter=open',
+        'link' => $pathFor('admin-complaints.php') . '?filter=open',
     ],
     [
         'label' => 'Subsidy Pending',
         'value' => $counts['subsidy'],
         'icon' => 'fa-indian-rupee-sign',
         'description' => 'Applications awaiting approval or disbursal.',
-        'link' => 'admin-subsidy-tracker.php?stage=pending',
+        'link' => $pathFor('admin-subsidy-tracker.php') . '?stage=pending',
     ],
     [
         'label' => 'Active Reminders',
         'value' => $counts['reminders'],
         'icon' => 'fa-bell',
         'description' => 'Follow-ups awaiting admin attention.',
-        'link' => 'admin-reminders.php',
+        'link' => $pathFor('admin-reminders.php'),
     ],
 ];
 
@@ -131,8 +143,8 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Admin Overview | Dakshayani Enterprises</title>
   <meta name="description" content="At-a-glance admin overview with live counts and recent activity across Dentweb operations." />
-  <link rel="icon" href="images/favicon.ico" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="<?= htmlspecialchars($pathFor('images/favicon.ico'), ENT_QUOTES) ?>" />
+  <link rel="stylesheet" href="<?= htmlspecialchars($pathFor('style.css'), ENT_QUOTES) ?>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -165,15 +177,15 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
         </div>
       </div>
       <div class="admin-overview__actions">
-        <a href="admin-ai.php" class="btn btn-secondary">
+        <a href="<?= htmlspecialchars($pathFor('admin-ai.php'), ENT_QUOTES) ?>" class="btn btn-secondary">
           <i class="fa-solid fa-robot" aria-hidden="true"></i>
           AI Studio
         </a>
-        <a href="admin-users.php" class="btn btn-ghost">
+        <a href="<?= htmlspecialchars($pathFor('admin-users.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
           <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
           Users
         </a>
-        <a href="admin-requests.php" class="btn btn-ghost">
+        <a href="<?= htmlspecialchars($pathFor('admin-requests.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
           <i class="fa-solid fa-inbox" aria-hidden="true"></i>
           Requests
         </a>
@@ -181,7 +193,7 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
           <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
           Theme
         </button>
-        <a href="logout.php" class="btn btn-primary">
+        <a href="<?= htmlspecialchars($pathFor('logout.php'), ENT_QUOTES) ?>" class="btn btn-primary">
           <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
           Log out
         </a>
@@ -240,6 +252,6 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
     </section>
   </main>
 
-  <script src="admin-dashboard.js" defer></script>
+  <script src="<?= htmlspecialchars($pathFor('admin-dashboard.js'), ENT_QUOTES) ?>" defer></script>
 </body>
 </html>

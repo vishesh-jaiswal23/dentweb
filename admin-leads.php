@@ -11,6 +11,17 @@ $db = get_db();
 $flashData = consume_flash();
 $flashMessage = '';
 $flashTone = 'info';
+$scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+if ($scriptDir === '/' || $scriptDir === '.') {
+    $scriptDir = '';
+}
+$basePath = rtrim($scriptDir, '/');
+$prefix = $basePath === '' ? '' : $basePath;
+$pathFor = static function (string $path) use ($prefix): string {
+    $clean = ltrim($path, '/');
+    return ($prefix === '' ? '' : $prefix) . '/' . $clean;
+};
+$leadsPath = $pathFor('admin-leads.php');
 if (is_array($flashData)) {
     if (isset($flashData['message']) && is_string($flashData['message'])) {
         $flashMessage = trim($flashData['message']);
@@ -25,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = $_POST['csrf_token'] ?? null;
     if (!verify_csrf_token(is_string($token) ? $token : null)) {
         set_flash('error', 'Your session expired. Please try again.');
-        header('Location: admin-leads.php');
+        header('Location: ' . $leadsPath);
         exit;
     }
 
@@ -86,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         set_flash('error', $exception->getMessage());
     }
 
-    header('Location: admin-leads.php');
+    header('Location: ' . $leadsPath);
     exit;
 }
 
@@ -126,8 +137,8 @@ $stageOptions = [
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Leads & Site Visits | Admin</title>
   <meta name="description" content="Manage lead assignments, site visits, and proposal approvals." />
-  <link rel="icon" href="images/favicon.ico" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="<?= htmlspecialchars($pathFor('images/favicon.ico'), ENT_QUOTES) ?>" />
+  <link rel="stylesheet" href="<?= htmlspecialchars($pathFor('style.css'), ENT_QUOTES) ?>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
@@ -150,8 +161,8 @@ $stageOptions = [
         <p class="admin-leads__meta">Signed in as <strong><?= htmlspecialchars($admin['full_name'] ?? 'Administrator', ENT_QUOTES) ?></strong></p>
       </div>
       <div class="admin-leads__actions">
-        <a href="admin-dashboard.php" class="btn btn-ghost"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to overview</a>
-        <a href="logout.php" class="btn btn-primary"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Log out</a>
+        <a href="<?= htmlspecialchars($pathFor('admin-dashboard.php'), ENT_QUOTES) ?>" class="btn btn-ghost"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to overview</a>
+        <a href="<?= htmlspecialchars($pathFor('logout.php'), ENT_QUOTES) ?>" class="btn btn-primary"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Log out</a>
       </div>
     </header>
 
@@ -169,7 +180,7 @@ $stageOptions = [
           <p>Add a new enquiry and assign it to an employee for follow-up.</p>
         </div>
       </div>
-      <form method="post" class="admin-form">
+      <form method="post" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>" class="admin-form">
         <input type="hidden" name="action" value="create" />
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
         <div class="admin-form__grid">
@@ -262,7 +273,7 @@ $stageOptions = [
           <?php endif; ?>
 
           <div class="admin-lead-card__actions">
-            <form method="post" class="admin-inline-form">
+            <form method="post" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>" class="admin-inline-form">
               <input type="hidden" name="action" value="assign" />
               <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
               <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
@@ -278,7 +289,7 @@ $stageOptions = [
               <button type="submit" class="btn btn-secondary btn-xs">Save</button>
             </form>
 
-            <form method="post" class="admin-inline-form">
+            <form method="post" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>" class="admin-inline-form">
               <input type="hidden" name="action" value="assign-referrer" />
               <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
               <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
@@ -298,7 +309,7 @@ $stageOptions = [
             </form>
 
             <?php if (!in_array($lead['status'], ['converted', 'lost'], true)): ?>
-            <form method="post" class="admin-inline-form">
+            <form method="post" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>" class="admin-inline-form">
               <input type="hidden" name="action" value="update-stage" />
               <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
               <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
@@ -318,7 +329,7 @@ $stageOptions = [
               <button type="submit" class="btn btn-secondary btn-xs">Update</button>
             </form>
             <?php endif; ?>
-            <form method="post" class="admin-inline-form" onsubmit="return confirm('Delete this lead and all related records?');">
+            <form method="post" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>" class="admin-inline-form" onsubmit="return confirm('Delete this lead and all related records?');">
               <input type="hidden" name="action" value="delete-lead" />
               <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
               <input type="hidden" name="lead_id" value="<?= (int) $lead['id'] ?>" />
@@ -372,13 +383,13 @@ $stageOptions = [
                   </div>
                   <?php if ($proposal['status'] === 'pending'): ?>
                   <div class="admin-proposal__actions">
-                    <form method="post">
+                    <form method="post" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>">
                       <input type="hidden" name="action" value="approve-proposal" />
                       <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
                       <input type="hidden" name="proposal_id" value="<?= (int) $proposal['id'] ?>" />
                       <button type="submit" class="btn btn-success btn-xs">Approve</button>
                     </form>
-                    <form method="post">
+                    <form method="post" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>">
                       <input type="hidden" name="action" value="reject-proposal" />
                       <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
                       <input type="hidden" name="proposal_id" value="<?= (int) $proposal['id'] ?>" />
