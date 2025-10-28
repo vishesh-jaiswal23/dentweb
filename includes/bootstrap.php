@@ -7201,7 +7201,20 @@ function portal_notify_reminder_status(PDO $db, array $reminder, string $status)
 function admin_list_employees(PDO $db, string $status = 'active'): array
 {
     $status = strtolower(trim($status));
-    $stmt = $db->prepare('SELECT users.full_name, users.email, users.status, users.created_at, users.last_login_at FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = \"employee\" AND (:status = \"all\" OR users.status = :status) ORDER BY users.full_name COLLATE NOCASE');
+    $stmt = $db->prepare(<<<'SQL'
+SELECT
+    users.full_name,
+    users.email,
+    users.status,
+    users.created_at,
+    users.last_login_at
+FROM users
+INNER JOIN roles ON users.role_id = roles.id
+WHERE roles.name = 'employee'
+  AND (:status = 'all' OR users.status = :status)
+ORDER BY users.full_name COLLATE NOCASE
+SQL
+    );
     $stmt->execute([
         ':status' => $status === 'all' ? 'all' : $status,
     ]);
