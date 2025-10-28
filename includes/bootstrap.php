@@ -2919,6 +2919,84 @@ function admin_reset_user_password(PDO $db, int $userId, string $password, int $
     return admin_list_accounts($db, ['status' => 'all']);
 }
 
+function admin_delete_user(PDO $db, int $userId, int $actorId): void
+{
+    $user = admin_fetch_user($db, $userId);
+    $status = strtolower((string) ($user['status'] ?? ''));
+    if ($status !== 'inactive') {
+        throw new RuntimeException('Only inactive accounts can be deleted.');
+    }
+
+    if ($actorId === $userId) {
+        throw new RuntimeException('You cannot delete your own account.');
+    }
+
+    $email = (string) ($user['email'] ?? ('user #' . $userId));
+
+    $db->beginTransaction();
+    try {
+        $idParam = [':id' => $userId];
+
+        $db->prepare('DELETE FROM invitations WHERE inviter_id = :id')->execute($idParam);
+
+        $db->prepare('UPDATE crm_leads SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
+        $db->prepare('UPDATE crm_leads SET created_by = NULL WHERE created_by = :id')->execute($idParam);
+
+        $db->prepare('DELETE FROM lead_visits WHERE employee_id = :id')->execute($idParam);
+        $db->prepare('DELETE FROM lead_proposals WHERE employee_id = :id')->execute($idParam);
+        $db->prepare('UPDATE lead_proposals SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
+        $db->prepare('UPDATE lead_stage_logs SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
+
+        $db->prepare('DELETE FROM employee_leaves WHERE user_id = :id')->execute($idParam);
+        $db->prepare('UPDATE employee_leaves SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
+        $db->prepare('DELETE FROM employee_expenses WHERE user_id = :id')->execute($idParam);
+        $db->prepare('UPDATE employee_expenses SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
+
+        $db->prepare('UPDATE complaints SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
+        $db->prepare('UPDATE complaint_updates SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
+
+        $db->prepare('UPDATE portal_tasks SET assignee_id = NULL WHERE assignee_id = :id')->execute($idParam);
+        $db->prepare('DELETE FROM portal_tasks WHERE created_by = :id')->execute($idParam);
+        $db->prepare('DELETE FROM portal_documents WHERE uploaded_by = :id')->execute($idParam);
+        $db->prepare('DELETE FROM portal_notifications WHERE scope_user_id = :id')->execute($idParam);
+        $db->prepare('UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
+
+        $db->prepare('UPDATE installations SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
+        $db->prepare('UPDATE installations SET requested_by = NULL WHERE requested_by = :id')->execute($idParam);
+        $db->prepare('UPDATE installations SET installer_id = NULL WHERE installer_id = :id')->execute($idParam);
+
+        $db->prepare('DELETE FROM approval_requests WHERE requested_by = :id')->execute($idParam);
+        $db->prepare('UPDATE approval_requests SET decided_by = NULL WHERE decided_by = :id')->execute($idParam);
+
+        $db->prepare('UPDATE reminders SET approver_id = NULL WHERE approver_id = :id')->execute($idParam);
+        $reminderStmt = $db->prepare('SELECT id FROM reminders WHERE proposer_id = :id');
+        $reminderStmt->execute($idParam);
+        $reminderIds = array_map('intval', $reminderStmt->fetchAll(PDO::FETCH_COLUMN));
+        if (!empty($reminderIds)) {
+            $placeholders = implode(',', array_fill(0, count($reminderIds), '?'));
+            $deleteApprovals = $db->prepare("DELETE FROM approval_requests WHERE target_type = 'reminder' AND target_id IN ($placeholders)");
+            foreach ($reminderIds as $index => $reminderId) {
+                $deleteApprovals->bindValue($index + 1, $reminderId, PDO::PARAM_INT);
+            }
+            $deleteApprovals->execute();
+        }
+        $db->prepare('DELETE FROM reminders WHERE proposer_id = :id')->execute($idParam);
+
+        $deleteUser = $db->prepare('DELETE FROM users WHERE id = :id');
+        $deleteUser->execute($idParam);
+        if ($deleteUser->rowCount() === 0) {
+            throw new RuntimeException('Account could not be removed.');
+        }
+
+        portal_log_action($db, $actorId, 'delete', 'user', $userId, sprintf('Inactive account %s permanently removed', $email));
+
+        $db->commit();
+    } catch (Throwable $exception) {
+        $db->rollBack();
+        throw $exception;
+    }
+}
+
 function approval_request_normalize(array $row): array
 {
     $payload = [];
@@ -5886,6 +5964,51 @@ function admin_reject_lead_proposal(PDO $db, int $proposalId, int $actorId, stri
 function admin_mark_lead_lost(PDO $db, int $leadId, int $actorId, string $note = ''): array
 {
     return lead_change_stage($db, $leadId, 'lost', $actorId, 'admin', $note);
+}
+
+function admin_delete_lead(PDO $db, int $leadId, int $actorId): void
+{
+    $lead = lead_fetch($db, $leadId);
+    $leadName = (string) ($lead['name'] ?? ('Lead #' . $leadId));
+
+    $db->beginTransaction();
+    try {
+        $idParam = [':id' => $leadId];
+
+        $reminderStmt = $db->prepare("SELECT id FROM reminders WHERE module = 'lead' AND linked_id = :id");
+        $reminderStmt->execute($idParam);
+        $reminderIds = array_map('intval', $reminderStmt->fetchAll(PDO::FETCH_COLUMN));
+        if (!empty($reminderIds)) {
+            $placeholders = implode(',', array_fill(0, count($reminderIds), '?'));
+            $deleteApprovals = $db->prepare("DELETE FROM approval_requests WHERE target_type = 'reminder' AND target_id IN ($placeholders)");
+            foreach ($reminderIds as $index => $reminderId) {
+                $deleteApprovals->bindValue($index + 1, $reminderId, PDO::PARAM_INT);
+            }
+            $deleteApprovals->execute();
+
+            $deleteReminders = $db->prepare("DELETE FROM reminders WHERE id IN ($placeholders)");
+            foreach ($reminderIds as $index => $reminderId) {
+                $deleteReminders->bindValue($index + 1, $reminderId, PDO::PARAM_INT);
+            }
+            $deleteReminders->execute();
+        }
+
+        $db->prepare("DELETE FROM approval_requests WHERE target_type = 'lead' AND target_id = :id")->execute($idParam);
+        $db->prepare('UPDATE subsidy_tracker SET lead_id = NULL WHERE lead_id = :id')->execute($idParam);
+
+        $deleteLead = $db->prepare('DELETE FROM crm_leads WHERE id = :id');
+        $deleteLead->execute($idParam);
+        if ($deleteLead->rowCount() === 0) {
+            throw new RuntimeException('Lead could not be deleted.');
+        }
+
+        portal_log_action($db, $actorId, 'delete', 'lead', $leadId, sprintf('Lead %s removed from CRM', $leadName));
+
+        $db->commit();
+    } catch (Throwable $exception) {
+        $db->rollBack();
+        throw $exception;
+    }
 }
 
 

@@ -199,6 +199,18 @@ function verify_csrf_token(?string $token): bool
     return is_string($token) && hash_equals($_SESSION['csrf_token'] ?? '', $token);
 }
 
+function normalize_customer_mobile(string $value): string
+{
+    $digits = preg_replace('/\D+/', '', $value);
+    if (!is_string($digits)) {
+        return '';
+    }
+
+    $digits = trim($digits);
+
+    return $digits;
+}
+
 function ensure_api_access(string $requiredRole = 'admin'): void
 {
     start_session();
@@ -231,12 +243,29 @@ function authenticate_user(string $identifier, string $password, string $roleNam
     }
 
     $loginIdentifier = trim($identifier);
+    $mobileIdentifier = '';
+    if ($roleName === 'customer' && $loginIdentifier !== '') {
+        $mobileIdentifier = normalize_customer_mobile($loginIdentifier);
+    }
+
+    $conditions = '(LOWER(users.email) = LOWER(:identifier) OR LOWER(users.username) = LOWER(:identifier))';
+    $params = [
+        ':identifier' => $loginIdentifier,
+        ':role' => $roleName,
+    ];
+
+    if ($mobileIdentifier !== '') {
+        $conditions .= ' OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(users.username, " ", ""), "-", ""), "+", ""), "(", ""), ")", "") = :mobile_identifier';
+        $conditions .= ' OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(users.email, " ", ""), "-", ""), "+", ""), "(", ""), ")", "") = :mobile_identifier';
+        $params[':mobile_identifier'] = $mobileIdentifier;
+    }
+
     try {
-        $stmt = $db->prepare("SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = :role AND (LOWER(users.email) = LOWER(:identifier) OR LOWER(users.username) = LOWER(:identifier)) LIMIT 1");
-        $stmt->execute([
-            ':identifier' => $loginIdentifier,
-            ':role' => $roleName,
-        ]);
+        $sql = 'SELECT users.*, roles.name AS role_name FROM users '
+            . 'INNER JOIN roles ON users.role_id = roles.id '
+            . 'WHERE roles.name = :role AND (' . $conditions . ') LIMIT 1';
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
 
         $user = $stmt->fetch();
         if (!$user) {
@@ -326,8 +355,16 @@ function authenticate_user_fallback(string $identifier, string $password, string
     $emailMatches = strcasecmp($account['email'], $normalized) === 0;
     $username = $account['username'] ?? null;
     $usernameMatches = is_string($username) && strcasecmp($username, $normalized) === 0;
+    $mobileMatches = false;
+    if ($roleName === 'customer') {
+        $inputMobile = normalize_customer_mobile($normalized);
+        $storedMobile = is_string($username) ? normalize_customer_mobile($username) : '';
+        if ($inputMobile !== '' && $storedMobile !== '' && hash_equals($storedMobile, $inputMobile)) {
+            $mobileMatches = true;
+        }
+    }
 
-    if (!$emailMatches && !$usernameMatches) {
+    if (!$emailMatches && !$usernameMatches && !$mobileMatches) {
         return null;
     }
 
