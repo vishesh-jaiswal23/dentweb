@@ -104,7 +104,7 @@ $modules = [
         ],
         'columns' => ['Project', 'Stage', 'AMC', 'Scheduled', 'Handover', 'Updated'],
         'fetch' => static function (PDO $db, string $filter): array {
-            return admin_list_installations($db, $filter);
+            return file_admin_list_installations($filter);
         },
         'transform' => static function (array $row): array {
             $name = $row['project'] ?: ($row['customer'] ?? '');
@@ -182,17 +182,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $targetStage = (string) ($_POST['target_stage'] ?? '');
                 $remarks = trim((string) ($_POST['remarks'] ?? ''));
                 $photo = trim((string) ($_POST['photo_label'] ?? ''));
-                installation_update_stage($db, $installationId, $targetStage, $actorId, 'admin', $remarks, $photo);
+                file_installation_update_stage($installationId, $targetStage, $actorId, 'admin', $remarks, $photo);
                 set_flash('success', 'Installation stage updated.');
                 break;
             case 'approve_commissioning':
                 $remarks = trim((string) ($_POST['remarks'] ?? ''));
-                installation_approve_commissioning($db, $installationId, $actorId, $remarks);
+                file_installation_approve_commissioning($installationId, $actorId, $remarks);
                 set_flash('success', 'Commissioning approved.');
                 break;
             case 'toggle_amc':
                 $targetAmc = isset($_POST['target_amc']) && $_POST['target_amc'] === '1';
-                installation_toggle_amc($db, $installationId, $targetAmc, $actorId);
+                file_installation_toggle_amc($installationId, $targetAmc, $actorId);
                 set_flash('success', $targetAmc ? 'AMC commitment captured.' : 'AMC commitment removed.');
                 break;
             default:
