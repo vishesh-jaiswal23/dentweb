@@ -5,7 +5,6 @@ require_once __DIR__ . '/blog.php';
 require_once __DIR__ . '/ai.php';
 require_once __DIR__ . '/user_storage.php';
 require_once __DIR__ . '/customer_records.php';
-require_once __DIR__ . '/portal_file_storage.php';
 
 function safe_get_constant(string $name, $default = null)
 {
