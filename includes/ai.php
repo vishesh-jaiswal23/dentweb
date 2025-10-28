@@ -241,18 +241,105 @@ function ai_extract_text_from_gemini(array $response): string
     return '';
 }
 
-function ai_decode_model_json(string $text): array
+function ai_json_candidates_from_text(string $text): array
 {
-    $candidates = [$text];
-    if (preg_match('/```json\s*(.*?)\s*```/is', $text, $matches)) {
-        $candidates[] = $matches[1];
+    $candidates = [];
+    $trimmed = trim($text);
+    if ($trimmed !== '') {
+        $candidates[] = $trimmed;
     }
 
-    foreach ($candidates as $candidate) {
-        $candidate = trim($candidate);
-        if ($candidate === '') {
+    if (preg_match_all('/```(?:json5?|JSON)?\s*(.*?)\s*```/is', $text, $matches)) {
+        foreach ($matches[1] as $block) {
+            $block = trim((string) $block);
+            if ($block !== '') {
+                $candidates[] = $block;
+            }
+        }
+    }
+
+    if (preg_match_all('/\{/', $text)) {
+        $possible = ai_extract_balanced_json($text, '{', '}');
+        foreach ($possible as $snippet) {
+            $snippet = trim($snippet);
+            if ($snippet !== '') {
+                $candidates[] = $snippet;
+            }
+        }
+    }
+
+    if (preg_match_all('/\[/', $text)) {
+        $possible = ai_extract_balanced_json($text, '[', ']');
+        foreach ($possible as $snippet) {
+            $snippet = trim($snippet);
+            if ($snippet !== '') {
+                $candidates[] = $snippet;
+            }
+        }
+    }
+
+    return array_values(array_unique($candidates));
+}
+
+function ai_extract_balanced_json(string $text, string $open, string $close): array
+{
+    $snippets = [];
+    $length = strlen($text);
+    for ($start = 0; $start < $length; $start++) {
+        if ($text[$start] !== $open) {
             continue;
         }
+
+        $depth = 0;
+        $inString = false;
+        $escape = false;
+
+        for ($i = $start; $i < $length; $i++) {
+            $char = $text[$i];
+
+            if ($inString) {
+                if ($escape) {
+                    $escape = false;
+                } elseif ($char === '\\') {
+                    $escape = true;
+                } elseif ($char === '"') {
+                    $inString = false;
+                }
+                continue;
+            }
+
+            if ($char === '"') {
+                $inString = true;
+                continue;
+            }
+
+            if ($char === $open) {
+                $depth++;
+                continue;
+            }
+
+            if ($char === $close) {
+                $depth--;
+                if ($depth === 0) {
+                    $snippet = substr($text, $start, $i - $start + 1);
+                    if ($snippet !== false) {
+                        $snippets[] = $snippet;
+                    }
+                    break;
+                }
+                if ($depth < 0) {
+                    break;
+                }
+            }
+        }
+    }
+
+    return $snippets;
+}
+
+function ai_decode_model_json(string $text): array
+{
+    foreach (ai_json_candidates_from_text($text) as $candidate) {
         $decoded = json_decode($candidate, true);
         if (is_array($decoded)) {
             return $decoded;
