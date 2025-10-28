@@ -566,7 +566,7 @@ SQL
 
         $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
         $log->execute([
-            ':actor_id' => $actorId > 0 ? $actorId : null,
+            ':actor_id' => audit_resolve_actor_id($db, $actorId),
             ':action' => 'blog.save',
             ':entity_type' => 'blog_post',
             ':entity_id' => $postId,
@@ -633,7 +633,7 @@ SQL
 
     $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
     $log->execute([
-        ':actor_id' => $actorId > 0 ? $actorId : null,
+        ':actor_id' => audit_resolve_actor_id($db, $actorId),
         ':action' => 'blog.publish',
         ':entity_type' => 'blog_post',
         ':entity_id' => $postId,
@@ -658,7 +658,7 @@ SQL
 
     $log = $db->prepare('INSERT INTO audit_logs(actor_id, action, entity_type, entity_id, description) VALUES(:actor_id, :action, :entity_type, :entity_id, :description)');
     $log->execute([
-        ':actor_id' => $actorId > 0 ? $actorId : null,
+        ':actor_id' => audit_resolve_actor_id($db, $actorId),
         ':action' => 'blog.archive',
         ':entity_type' => 'blog_post',
         ':entity_id' => $postId,
