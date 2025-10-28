@@ -121,6 +121,11 @@ function customer_format_datetime(?string $value): string
     }
 }
 
+$kolkataNow = portal_current_time();
+$kolkataIsoTime = (string) ($kolkataNow['iso'] ?? '');
+$kolkataDisplayTime = (string) ($kolkataNow['display'] ?? '');
+$kolkataTimeAbbr = (string) ($kolkataNow['label'] ?? 'IST');
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -153,6 +158,15 @@ function customer_format_datetime(?string $value): string
           <div>
             <small>Signed in as</small>
             <strong><?= htmlspecialchars($customerName, ENT_QUOTES) ?> · Customer</strong>
+          </div>
+        </div>
+        <div class="dashboard-auth-time" role="status" aria-live="polite">
+          <i class="fa-regular fa-clock" aria-hidden="true"></i>
+          <div>
+            <small>Current time (Kolkata)</small>
+            <time datetime="<?= htmlspecialchars($kolkataIsoTime, ENT_QUOTES) ?>">
+              <?= htmlspecialchars($kolkataDisplayTime, ENT_QUOTES) ?> <?= htmlspecialchars($kolkataTimeAbbr, ENT_QUOTES) ?>
+            </time>
           </div>
         </div>
         <div class="dashboard-auth-actions">

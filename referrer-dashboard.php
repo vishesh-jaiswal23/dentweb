@@ -99,6 +99,11 @@ $pathFor = static function (string $path) use ($prefix): string {
 
 $logoutUrl = $pathFor('logout.php');
 
+$portalClock = portal_current_time();
+$portalTimeIso = (string) ($portalClock['iso'] ?? '');
+$portalTimeDisplay = (string) ($portalClock['display'] ?? '');
+$portalTimeLabel = (string) ($portalClock['label'] ?? 'IST');
+
 function referrer_format_datetime(?string $value): string
 {
     if (!$value) {
@@ -159,6 +164,15 @@ function referrer_format_contact(array $lead): string
           <div>
             <small>Signed in as</small>
             <strong><?= htmlspecialchars($referrerName, ENT_QUOTES) ?> · Referrer</strong>
+          </div>
+        </div>
+        <div class="dashboard-auth-time" role="status" aria-live="polite">
+          <i class="fa-regular fa-clock" aria-hidden="true"></i>
+          <div>
+            <small>Current time (Kolkata)</small>
+            <time datetime="<?= htmlspecialchars($portalTimeIso, ENT_QUOTES) ?>">
+              <?= htmlspecialchars($portalTimeDisplay, ENT_QUOTES) ?> <?= htmlspecialchars($portalTimeLabel, ENT_QUOTES) ?>
+            </time>
           </div>
         </div>
         <div class="dashboard-auth-actions">

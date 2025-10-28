@@ -7412,6 +7412,7 @@ body[data-festival-theme] .hero-highlight {
   padding: 1.5rem 2rem;
   box-shadow: var(--shadow-soft);
   border: 1px solid rgba(148, 163, 184, 0.25);
+  flex-wrap: wrap;
 }
 
 .dashboard-auth-user {
@@ -7446,6 +7447,35 @@ body[data-festival-theme] .hero-highlight {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.dashboard-auth-time {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--base-600);
+}
+
+.dashboard-auth-time i {
+  font-size: 1.5rem;
+  color: var(--accent-blue-main);
+}
+
+.dashboard-auth-time small {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--base-400);
+  font-weight: 700;
+}
+
+.dashboard-auth-time time {
+  display: block;
+  font-weight: 600;
+  color: var(--base-800);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .dashboard-auth-actions .btn {
@@ -10059,6 +10089,24 @@ button[data-task-undo]:focus-visible {
   align-items: center;
   gap: 1rem;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.installer-header__clock {
+  background: rgba(148, 163, 184, 0.15);
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.installer-header__clock time {
+  color: var(--base-800);
+}
+
+.installer-dashboard[data-theme='dark'] .installer-header__clock {
+  background: rgba(30, 41, 59, 0.75);
+  box-shadow: none;
+  border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
 .installer-identity {
@@ -10700,6 +10748,21 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.admin-overview__clock {
+  background: rgba(148, 163, 184, 0.15);
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-overview[data-theme='dark'] .admin-overview__clock {
+  background: rgba(30, 41, 59, 0.75);
+  box-shadow: none;
+  border: 1px solid rgba(148, 163, 184, 0.35);
 }
 
 .admin-overview__cards {

@@ -7,6 +7,53 @@ require_once __DIR__ . '/user_storage.php';
 require_once __DIR__ . '/customer_records.php';
 require_once __DIR__ . '/portal_file_storage.php';
 
+if (date_default_timezone_get() !== 'Asia/Kolkata') {
+    date_default_timezone_set('Asia/Kolkata');
+}
+
+function portal_current_time(string $timezone = 'Asia/Kolkata'): array
+{
+    $result = [
+        'timezone' => $timezone,
+        'iso' => '',
+        'display' => '',
+        'abbr' => '',
+        'label' => '',
+    ];
+
+    try {
+        $zone = new DateTimeZone($timezone);
+        $result['timezone'] = $zone->getName();
+    } catch (Throwable $exception) {
+        $zone = null;
+    }
+
+    try {
+        $now = $zone instanceof DateTimeZone
+            ? new DateTimeImmutable('now', $zone)
+            : new DateTimeImmutable('now');
+    } catch (Throwable $exception) {
+        $now = new DateTimeImmutable('now');
+    }
+
+    if ($zone instanceof DateTimeZone) {
+        $now = $now->setTimezone($zone);
+    }
+
+    $result['iso'] = $now->format(DateTimeInterface::ATOM);
+    $result['display'] = $now->format('d M Y · h:i A');
+    $result['abbr'] = trim($now->format('T'));
+
+    if ($result['abbr'] !== '') {
+        $result['label'] = $result['abbr'];
+    } else {
+        $timezoneName = strtoupper((string) preg_replace('/[^A-Za-z]/', '', $result['timezone']));
+        $result['label'] = $timezoneName !== '' ? $timezoneName : 'IST';
+    }
+
+    return $result;
+}
+
 function safe_get_constant(string $name, $default = null)
 {
     if (!defined($name)) {
