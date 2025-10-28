@@ -6,13 +6,7 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 require_admin();
 
-$dbErrorMessage = '';
-try {
-    $db = get_db();
-} catch (Throwable $dbException) {
-    $db = null;
-    $dbErrorMessage = $dbException->getMessage();
-}
+$db = get_db();
 $admin = current_user();
 $csrfToken = $_SESSION['csrf_token'] ?? '';
 
@@ -259,18 +253,6 @@ function admin_users_format_datetime(?string $value): string
         <a class="admin-link" href="admin-dashboard.php"><i class="fa-solid fa-gauge-high"></i> Back to overview</a>
       </div>
     </header>
-
-    <?php if (!$db instanceof PDO): ?>
-    <div class="admin-alert admin-alert--warning" role="status" aria-live="polite">
-      <i class="fa-solid fa-plug-circle-xmark" aria-hidden="true"></i>
-      <span>
-        Working in offline mode. Changes are stored in the secure file system and will sync once the database is available.
-        <?php if ($dbErrorMessage !== ''): ?>
-        <small class="admin-muted">Details: <?= htmlspecialchars($dbErrorMessage, ENT_QUOTES) ?></small>
-        <?php endif; ?>
-      </span>
-    </div>
-    <?php endif; ?>
 
     <nav class="admin-users__tabs" aria-label="User account groups">
       <a class="admin-users__tab<?= $isCustomerView ? '' : ' is-active' ?>" href="admin-users.php?<?= htmlspecialchars(http_build_query(['view' => 'team', 'status' => $statusFilter], '', '&', PHP_QUERY_RFC3986), ENT_QUOTES) ?>">
