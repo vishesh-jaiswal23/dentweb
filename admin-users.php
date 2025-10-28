@@ -35,13 +35,13 @@ if (is_array($flashData)) {
 }
 
 $requestMethod = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
-$validStatuses = ['all', 'active', 'inactive', 'pending'];
+$validStatuses = ['active', 'pending', 'inactive', 'all'];
 $statusCandidate = $requestMethod === 'POST'
-    ? ($_POST['status_filter'] ?? ($_GET['status'] ?? 'all'))
-    : ($_GET['status'] ?? 'all');
-$statusCandidate = is_string($statusCandidate) ? strtolower(trim($statusCandidate)) : 'all';
+    ? ($_POST['status_filter'] ?? ($_GET['status'] ?? 'active'))
+    : ($_GET['status'] ?? 'active');
+$statusCandidate = is_string($statusCandidate) ? strtolower(trim($statusCandidate)) : 'active';
 if (!in_array($statusCandidate, $validStatuses, true)) {
-    $statusCandidate = 'all';
+    $statusCandidate = 'active';
 }
 $statusFilter = $statusCandidate;
 
@@ -176,6 +176,29 @@ $summaryLabels = $isCustomerView
         'inactive' => 'Inactive',
     ];
 
+$statusTabConfig = [
+    'active' => [
+        'label' => $isCustomerView ? 'Active customers' : 'Active accounts',
+        'icon' => 'fa-circle-check',
+        'count' => $statusCounts['active'],
+    ],
+    'pending' => [
+        'label' => $isCustomerView ? 'Pending approvals' : 'Pending invites',
+        'icon' => 'fa-hourglass-half',
+        'count' => $statusCounts['pending'],
+    ],
+    'inactive' => [
+        'label' => $isCustomerView ? 'Inactive customers' : 'Inactive accounts',
+        'icon' => 'fa-box-archive',
+        'count' => $statusCounts['inactive'],
+    ],
+    'all' => [
+        'label' => $isCustomerView ? 'All customers' : 'All accounts',
+        'icon' => 'fa-layer-group',
+        'count' => $statusCounts['total'],
+    ],
+];
+
 function admin_users_format_datetime(?string $value): string
 {
     if ($value === null || $value === '') {
@@ -241,6 +264,24 @@ function admin_users_format_datetime(?string $value): string
         <span>Customers</span>
         <span class="admin-users__tab-count"><?= $customerCount ?></span>
       </a>
+    </nav>
+
+    <nav class="admin-users__tabs admin-users__tabs--status" aria-label="Account status filter">
+      <?php foreach ($statusTabConfig as $statusKey => $tabMeta): ?>
+      <?php
+      $statusLabel = (string) ($tabMeta['label'] ?? ucfirst($statusKey));
+      $statusIcon = (string) ($tabMeta['icon'] ?? 'fa-circle');
+      $statusCount = (int) ($tabMeta['count'] ?? 0);
+      ?>
+      <a
+        class="admin-users__tab admin-users__tab--status<?= $statusFilter === $statusKey ? ' is-active' : '' ?>"
+        href="admin-users.php?<?= htmlspecialchars(http_build_query(['view' => $view, 'status' => $statusKey], '', '&', PHP_QUERY_RFC3986), ENT_QUOTES) ?>"
+      >
+        <i class="fa-solid <?= htmlspecialchars($statusIcon, ENT_QUOTES) ?>" aria-hidden="true"></i>
+        <span><?= htmlspecialchars($statusLabel, ENT_QUOTES) ?></span>
+        <span class="admin-users__tab-count"><?= $statusCount ?></span>
+      </a>
+      <?php endforeach; ?>
     </nav>
 
     <section class="admin-overview__cards admin-overview__cards--compact">
@@ -327,20 +368,6 @@ function admin_users_format_datetime(?string $value): string
           <textarea name="permissions_note" rows="2" placeholder="Scope, region, or restrictions"></textarea>
         </label>
         <button type="submit" class="btn btn-primary">Create user</button>
-      </form>
-    </section>
-
-    <section class="admin-records__filter">
-      <form method="get" class="admin-filter-form">
-        <input type="hidden" name="view" value="<?= htmlspecialchars($view, ENT_QUOTES) ?>" />
-        <label>
-          Status
-          <select name="status" onchange="this.form.submit()">
-            <?php foreach ($validStatuses as $statusOption): ?>
-            <option value="<?= htmlspecialchars($statusOption, ENT_QUOTES) ?>" <?= $statusFilter === $statusOption ? 'selected' : '' ?>><?= htmlspecialchars(ucfirst($statusOption), ENT_QUOTES) ?></option>
-            <?php endforeach; ?>
-          </select>
-        </label>
       </form>
     </section>
 

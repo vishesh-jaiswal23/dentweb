@@ -11186,6 +11186,11 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   margin: 2rem 0 1.5rem;
 }
 
+.admin-users__tabs--status {
+  margin-top: 0.25rem;
+  margin-bottom: 2rem;
+}
+
 .admin-users__tab {
   display: inline-flex;
   align-items: center;
@@ -11217,6 +11222,33 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   box-shadow: 0 12px 24px rgba(37, 99, 235, 0.15);
 }
 
+.admin-users__tab--status {
+  background: rgba(15, 23, 42, 0.08);
+  color: #111827;
+}
+
+.admin-users__tab--status:hover {
+  background: rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+}
+
+.admin-users__tab--status:focus-visible {
+  background: rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+  outline: 3px solid rgba(30, 41, 59, 0.3);
+  outline-offset: 2px;
+}
+
+.admin-users__tab--status.is-active {
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.25);
+}
+
+.admin-users__tab--status.is-active .admin-users__tab-count {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .admin-users__tab i {
   font-size: 0.95rem;
 }
@@ -11243,9 +11275,20 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   color: #e2e8f0;
 }
 
+.admin-records[data-theme='dark'] .admin-users__tab--status {
+  background: rgba(148, 163, 184, 0.22);
+  color: #f1f5f9;
+}
+
 .admin-records[data-theme='dark'] .admin-users__tab:hover {
   background: rgba(96, 165, 250, 0.25);
   color: #93c5fd;
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab--status:hover,
+.admin-records[data-theme='dark'] .admin-users__tab--status:focus-visible {
+  background: rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
 }
 
 .admin-records[data-theme='dark'] .admin-users__tab:focus-visible {
@@ -11253,6 +11296,16 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   color: #93c5fd;
   outline: 3px solid rgba(147, 197, 253, 0.45);
   outline-offset: 2px;
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab--status.is-active {
+  background: rgba(15, 23, 42, 0.75);
+  color: #f8fafc;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.35);
+}
+
+.admin-records[data-theme='dark'] .admin-users__tab--status.is-active .admin-users__tab-count {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .admin-records[data-theme='dark'] .admin-users__tab.is-active {

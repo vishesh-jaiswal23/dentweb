@@ -1823,18 +1823,6 @@ function crm_lead_cleanup_tables(PDO $db): array
 {
     $tables = ['crm_leads'];
 
-    try {
-        $backupExists = (bool) $db
-            ->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads_backup'")
-            ->fetchColumn();
-    } catch (Throwable $exception) {
-        $backupExists = false;
-    }
-
-    if ($backupExists) {
-        $tables[] = 'crm_leads_backup';
-    }
-
     $metadata = [];
     foreach ($tables as $table) {
         try {
