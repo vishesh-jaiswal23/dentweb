@@ -716,21 +716,6 @@ function seed_defaults(PDO $db): void
         ]);
     }
 
-    $defaultGeminiSettings = [
-        'gemini_api_key' => 'SET_IN_ADMIN_PORTAL',
-        'gemini_text_model' => 'gemini-2.5-flash',
-        'gemini_image_model' => 'gemini-2.5-flash-image',
-        'gemini_tts_model' => 'gemini-2.5-flash-preview-tts',
-        'gemini_enabled' => '0',
-    ];
-
-    $insertSetting = $db->prepare('INSERT OR IGNORE INTO settings(key, value) VALUES(:key, :value)');
-    foreach ($defaultGeminiSettings as $key => $value) {
-        $insertSetting->execute([
-            ':key' => $key,
-            ':value' => $value,
-        ]);
-    }
     $db->exec("INSERT OR IGNORE INTO login_policies(id, retry_limit, lockout_minutes, twofactor_mode, session_timeout) VALUES (1, 5, 30, 'admin', 45)");
 
     blog_seed_default($db);

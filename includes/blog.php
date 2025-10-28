@@ -108,10 +108,10 @@ function blog_extract_plain_text(string $html): string
     return trim($text);
 }
 
-function blog_generate_gemini_cover(string $title, string $prompt = ''): array
+function blog_generate_placeholder_cover(string $title, string $prompt = ''): array
 {
-    $baseTitle = trim($title) !== '' ? trim($title) : 'Dentweb Blog';
-    $promptText = trim($prompt) !== '' ? trim($prompt) : $baseTitle;
+    $baseTitle = trim($title) !== '' ? trim($title) : 'Dakshayani Blog';
+    $promptText = trim($prompt) !== '' ? trim($prompt) : 'Clean energy insights';
     $primary = function_exists('mb_substr') ? mb_substr($baseTitle, 0, 64) : substr($baseTitle, 0, 64);
     $secondary = function_exists('mb_substr') ? mb_substr($promptText, 0, 64) : substr($promptText, 0, 64);
     $primaryEscaped = htmlspecialchars($primary, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
@@ -128,13 +128,13 @@ function blog_generate_gemini_cover(string $title, string $prompt = ''): array
   <rect fill='url(#g)' width='1200' height='630'/>
   <g fill='#ffffff'>
     <text x='50%' y='45%' font-size='64' font-family='Inter, Arial, sans-serif' text-anchor='middle' font-weight='600'>{$primaryEscaped}</text>
-    <text x='50%' y='70%' font-size='32' font-family='Inter, Arial, sans-serif' text-anchor='middle' opacity='0.85'>Gemini · {$secondaryEscaped}</text>
+    <text x='50%' y='70%' font-size='32' font-family='Inter, Arial, sans-serif' text-anchor='middle' opacity='0.85'>Dakshayani Insights · {$secondaryEscaped}</text>
   </g>
 </svg>
 SVG;
 
     $dataUri = 'data:image/svg+xml;base64,' . base64_encode($svg);
-    $alt = sprintf('Gemini generated illustration for %s', $baseTitle);
+    $alt = sprintf('Illustrative cover for %s', $baseTitle);
 
     return [$dataUri, $alt];
 }
@@ -488,13 +488,13 @@ function blog_save_post(PDO $db, array $input, int $actorId): array
     }
 
     if ($coverImage === '') {
-        [$generatedCover, $generatedAlt] = blog_generate_gemini_cover($title, $coverPrompt !== '' ? $coverPrompt : $excerpt);
+        [$generatedCover, $generatedAlt] = blog_generate_placeholder_cover($title, $coverPrompt !== '' ? $coverPrompt : $excerpt);
         $coverImage = $generatedCover;
         if ($coverAlt === '') {
             $coverAlt = $generatedAlt;
         }
     } elseif ($coverAlt === '') {
-        $coverAlt = sprintf('Gemini generated illustration for %s', $title !== '' ? $title : 'blog post');
+        $coverAlt = sprintf('Illustrative cover for %s', $title !== '' ? $title : 'blog post');
     }
 
     $db->beginTransaction();
@@ -585,7 +585,7 @@ function blog_publish_post(PDO $db, int $postId, bool $publish, int $actorId): a
     if ($publish) {
         $existingCover = trim((string) ($current['cover_image'] ?? ''));
         if ($existingCover === '') {
-            [$generatedCover, $generatedAlt] = blog_generate_gemini_cover((string) ($current['title'] ?? ''), '');
+            [$generatedCover, $generatedAlt] = blog_generate_placeholder_cover((string) ($current['title'] ?? ''), '');
             $coverUpdate = $db->prepare(<<<'SQL'
 UPDATE blog_posts
 SET cover_image = :cover_image,
@@ -722,7 +722,7 @@ function blog_seed_default(PDO $db): void
     ];
 
     foreach ($samplePosts as $post) {
-        [$coverImage, $coverAlt] = blog_generate_gemini_cover($post['title'], $post['excerpt'] ?? '');
+        [$coverImage, $coverAlt] = blog_generate_placeholder_cover($post['title'], $post['excerpt'] ?? '');
         $insert = $db->prepare(<<<'SQL'
 INSERT INTO blog_posts (title, slug, excerpt, body_html, body_text, cover_image, cover_image_alt, author_name, status, published_at)
 VALUES (:title, :slug, :excerpt, :body_html, :body_text, :cover_image, :cover_image_alt, :author_name, :status, datetime('now'))
@@ -765,7 +765,7 @@ SQL
     );
 
     foreach ($rows as $row) {
-        [$coverImage, $coverAlt] = blog_generate_gemini_cover((string) ($row['title'] ?? ''), (string) ($row['excerpt'] ?? ''));
+        [$coverImage, $coverAlt] = blog_generate_placeholder_cover((string) ($row['title'] ?? ''), (string) ($row['excerpt'] ?? ''));
         $update->execute([
             ':cover_image' => $coverImage,
             ':cover_alt' => $coverAlt,

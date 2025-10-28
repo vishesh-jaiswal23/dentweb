@@ -393,50 +393,7 @@
             return response.json();
         }
 
-        let calculatorAiConfigPromise = null;
-        let calculatorAiModelName = '';
 
-        function normaliseCalculatorAiConfig(config) {
-            if (!config || typeof config !== 'object') {
-                throw new Error('Gemini configuration missing.');
-            }
-
-            const apiKey = typeof config.apiKey === 'string' ? config.apiKey.trim() : '';
-            const models = config.models && typeof config.models === 'object' ? config.models : {};
-            const textModel = typeof models.text === 'string' ? models.text.trim() : '';
-            const calculatorModel = typeof models.calculator_advisory === 'string' ? models.calculator_advisory.trim() : '';
-
-            return { apiKey, textModel, calculatorModel };
-        }
-
-        function applyCalculatorAiConfig(config) {
-            const normalized = normaliseCalculatorAiConfig(config);
-            if (normalized.calculatorModel) {
-                calculatorAiModelName = normalized.calculatorModel;
-            } else if (normalized.textModel) {
-                calculatorAiModelName = normalized.textModel;
-            }
-            return normalized;
-        }
-
-        function loadCalculatorAiConfig() {
-            if (!calculatorAiConfigPromise) {
-                const loadFromServer = () => Promise.reject(new Error('Gemini configuration service unavailable.'));
-
-                calculatorAiConfigPromise = (window.dakshayaniAIConfig && typeof window.dakshayaniAIConfig.getConfig === 'function')
-                    ? window.dakshayaniAIConfig.getConfig().then(applyCalculatorAiConfig).catch(() => loadFromServer())
-                    : loadFromServer();
-
-                calculatorAiConfigPromise = calculatorAiConfigPromise.catch((error) => {
-                    console.error('Calculator Gemini configuration failed:', error);
-                    throw error;
-                });
-            }
-
-            return calculatorAiConfigPromise;
-        }
-
-        loadCalculatorAiConfig().catch(() => {});
 
         // --- Rate Data (From original calculator.html) ---
         let pmSuryaGharRates = {
@@ -646,25 +603,19 @@
 
                     if (aiFootnote) {
                         const status = typeof data?.ai?.status === 'string' ? data.ai.status.toLowerCase() : '';
-                        const responseModel = typeof data?.ai?.model === 'string' ? data.ai.model.trim() : '';
                         const errorMessage = typeof data?.ai?.message === 'string' ? data.ai.message.trim() : '';
-                        const effectiveModel = responseModel || calculatorAiModelName;
 
                         aiFootnote.classList.remove('error');
 
                         if (status === 'success') {
-                            aiFootnote.textContent = effectiveModel
-                                ? `Insights generated with Google Gemini (${effectiveModel}).`
-                                : 'Insights generated with Google Gemini.';
+                            aiFootnote.textContent = 'Insights prepared by Dakshayani advisory specialists.';
                             aiFootnote.style.display = 'block';
                         } else if (status === 'error') {
                             const baseMessage = errorMessage !== ''
-                                ? `Sharing Dakshayani\'s standard advisory playbook while Gemini reconnects (${errorMessage}).`
-                                : "Sharing Dakshayani's standard advisory playbook while Gemini reconnects.";
-                            aiFootnote.textContent = calculatorAiModelName
-                                ? `${baseMessage} Planned model: ${calculatorAiModelName}.`
-                                : baseMessage;
-                            aiFootnote.classList.remove('error');
+                                ? `Sharing Dakshayani\'s standard advisory playbook (${errorMessage}).`
+                                : "Sharing Dakshayani's standard advisory playbook.";
+                            aiFootnote.textContent = baseMessage;
+                            aiFootnote.classList.add('error');
                             aiFootnote.style.display = 'block';
                         } else {
                             aiFootnote.style.display = 'none';
@@ -679,11 +630,8 @@
                         aiFollowUp.innerHTML = '';
                     }
                     if (aiFootnote) {
-                        const fallbackNote = calculatorAiModelName
-                            ? `Sharing Dakshayani\'s standard advisory playbook while we reconnect to ${calculatorAiModelName}.`
-                            : 'Sharing Dakshayani\'s standard advisory playbook while we reconnect to our live AI.';
-                        aiFootnote.textContent = fallbackNote;
-                        aiFootnote.classList.remove('error');
+                        aiFootnote.textContent = "Sharing Dakshayani's standard advisory playbook.";
+                        aiFootnote.classList.add('error');
                         aiFootnote.style.display = 'block';
                     }
                 })
