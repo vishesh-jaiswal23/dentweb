@@ -76,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $payload = [
                     'full_name' => $_POST['full_name'] ?? '',
                     'email' => $_POST['email'] ?? '',
+                    'mobile' => $_POST['mobile'] ?? '',
                     'username' => $_POST['username'] ?? '',
                     'password' => $_POST['password'] ?? '',
                     'role' => $_POST['role'] ?? 'employee',
@@ -330,14 +331,22 @@ function admin_users_format_datetime(?string $value): string
           </label>
           <label>
             <span>Email</span>
-            <input type="email" name="email" required placeholder="name@example.com" />
+            <small class="admin-muted">Required for team accounts. Optional for customers.</small>
+            <input type="email" name="email" required placeholder="name@example.com" data-admin-users-email />
           </label>
         </div>
         <div class="admin-form__grid">
           <label>
-            <span>Username</span>
-            <input type="text" name="username" required placeholder="username" />
+            <span>Mobile number</span>
+            <small class="admin-muted">Enter the 10-digit login number for customer accounts.</small>
+            <input type="text" name="mobile" inputmode="numeric" pattern="\d{10}" maxlength="10" placeholder="10-digit mobile" data-admin-users-mobile />
           </label>
+          <label>
+            <span>Username</span>
+            <input type="text" name="username" required placeholder="username" data-admin-users-username />
+          </label>
+        </div>
+        <div class="admin-form__grid">
           <label>
             <span>Initial password</span>
             <input type="password" name="password" required minlength="8" />
@@ -445,5 +454,54 @@ function admin_users_format_datetime(?string $value): string
       </table>
     </div>
   </main>
+  <script>
+  (function () {
+    const roleSelect = document.querySelector('select[name="role"]');
+    const emailInput = document.querySelector('[data-admin-users-email]');
+    const mobileInput = document.querySelector('[data-admin-users-mobile]');
+    const usernameInput = document.querySelector('[data-admin-users-username]');
+    if (!roleSelect || !emailInput || !mobileInput || !usernameInput) {
+      return;
+    }
+
+    const originalUsernamePlaceholder = usernameInput.getAttribute('placeholder') || '';
+
+    function normaliseMobile(value) {
+      return value.replace(/\D+/g, '').slice(-10);
+    }
+
+    function updateRequirements() {
+      const isCustomer = roleSelect.value === 'customer';
+
+      if (isCustomer) {
+        emailInput.removeAttribute('required');
+        mobileInput.disabled = false;
+        mobileInput.required = true;
+        mobileInput.setAttribute('required', 'required');
+        usernameInput.value = normaliseMobile(mobileInput.value);
+        usernameInput.readOnly = true;
+        usernameInput.setAttribute('placeholder', 'Auto-filled from mobile');
+      } else {
+        emailInput.setAttribute('required', 'required');
+        mobileInput.required = false;
+        mobileInput.removeAttribute('required');
+        mobileInput.disabled = true;
+        mobileInput.value = '';
+        usernameInput.readOnly = false;
+        usernameInput.setAttribute('placeholder', originalUsernamePlaceholder);
+      }
+    }
+
+    mobileInput.addEventListener('input', function () {
+      if (roleSelect.value === 'customer') {
+        usernameInput.value = normaliseMobile(mobileInput.value);
+      }
+    });
+
+    roleSelect.addEventListener('change', updateRequirements);
+
+    updateRequirements();
+  })();
+  </script>
 </body>
 </html>
