@@ -180,7 +180,18 @@ $referrerLookup = [];
 foreach ($referrers as $referrerOption) {
     $referrerLookup[(int) $referrerOption['id']] = $referrerOption['name'];
 }
-$leads = admin_fetch_lead_overview($db);
+
+$leads = [];
+try {
+    $leads = admin_fetch_lead_overview($db);
+} catch (Throwable $leadLoadError) {
+    error_log('Unable to load admin lead overview: ' . $leadLoadError->getMessage());
+    if ($flashMessage === '') {
+        $flashTone = 'error';
+        $flashIcon = $flashIcons[$flashTone];
+        $flashMessage = 'Lead data is temporarily unavailable. Please try again later.';
+    }
+}
 $recordLeads = [];
 $recordCustomers = [];
 try {
