@@ -11104,7 +11104,8 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   border-radius: 1.25rem;
   border: 1px solid rgba(15, 23, 42, 0.08);
   background: #ffffff;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .admin-records[data-theme='dark'] .admin-table-wrapper {
@@ -11115,7 +11116,7 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 .admin-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 0;
+  min-width: 980px;
 }
 
 .admin-table thead {
