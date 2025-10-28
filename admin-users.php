@@ -371,14 +371,14 @@ function admin_users_format_datetime(?string $value): string
           $nextStatus = $status === 'active' ? 'inactive' : 'active';
           ?>
           <tr>
-            <td><?= htmlspecialchars($account['full_name'] ?? '—', ENT_QUOTES) ?></td>
-            <td><?= htmlspecialchars(ucfirst((string) ($account['role'] ?? 'Unknown')), ENT_QUOTES) ?></td>
-            <td><?= htmlspecialchars($account['email'] ?? '—', ENT_QUOTES) ?></td>
-            <td><?= htmlspecialchars($account['username'] ?? '—', ENT_QUOTES) ?></td>
-            <td><span class="dashboard-status dashboard-status--<?= htmlspecialchars($status, ENT_QUOTES) ?>"><?= htmlspecialchars(ucfirst($status), ENT_QUOTES) ?></span></td>
-            <td><?= htmlspecialchars(admin_users_format_datetime($account['created_at'] ?? null), ENT_QUOTES) ?></td>
-            <td><?= htmlspecialchars(admin_users_format_datetime($account['last_login_at'] ?? null), ENT_QUOTES) ?></td>
-            <td class="admin-table__actions">
+            <td data-label="Name"><?= htmlspecialchars($account['full_name'] ?? '—', ENT_QUOTES) ?></td>
+            <td data-label="Role"><?= htmlspecialchars(ucfirst((string) ($account['role'] ?? 'Unknown')), ENT_QUOTES) ?></td>
+            <td data-label="Email"><?= htmlspecialchars($account['email'] ?? '—', ENT_QUOTES) ?></td>
+            <td data-label="Username"><?= htmlspecialchars($account['username'] ?? '—', ENT_QUOTES) ?></td>
+            <td data-label="Status"><span class="dashboard-status dashboard-status--<?= htmlspecialchars($status, ENT_QUOTES) ?>"><?= htmlspecialchars(ucfirst($status), ENT_QUOTES) ?></span></td>
+            <td data-label="Created"><?= htmlspecialchars(admin_users_format_datetime($account['created_at'] ?? null), ENT_QUOTES) ?></td>
+            <td data-label="Last login"><?= htmlspecialchars(admin_users_format_datetime($account['last_login_at'] ?? null), ENT_QUOTES) ?></td>
+            <td data-label="Actions" class="admin-table__actions">
               <form method="post" class="admin-inline-form">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
                 <input type="hidden" name="action" value="update_status" />
