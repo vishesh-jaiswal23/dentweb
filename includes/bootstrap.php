@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/blog.php';
 require_once __DIR__ . '/ai.php';
+require_once __DIR__ . '/user_storage.php';
 
 function safe_get_constant(string $name, $default = null)
 {
@@ -115,11 +116,15 @@ function audit_resolve_actor_id(PDO $db, ?int $actorId): ?int
         return $cache[$cacheKey];
     }
 
-    $stmt = $db->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
-    $stmt->execute([':id' => $cacheKey]);
-    $resolved = $stmt->fetchColumn();
+    try {
+        $store = user_store();
+        $record = $store->get($cacheKey);
+        $cache[$cacheKey] = $record !== null ? (int) ($record['id'] ?? null) : null;
+    } catch (Throwable $exception) {
+        error_log(sprintf('audit_resolve_actor_id: unable to read user store: %s', $exception->getMessage()));
+        $cache[$cacheKey] = null;
+    }
 
-    $cache[$cacheKey] = $resolved !== false ? (int) $resolved : null;
     return $cache[$cacheKey];
 }
 
@@ -819,143 +824,104 @@ function unify_employee_roles(PDO $db): void
 
 function ensure_default_user(PDO $db, array $account): void
 {
-    $roleStmt = $db->prepare('SELECT id FROM roles WHERE name = :name LIMIT 1');
-    $roleStmt->execute([':name' => $account['role']]);
-    $roleId = $roleStmt->fetchColumn();
-    if ($roleId === false) {
+    $roleName = strtolower((string) ($account['role'] ?? ''));
+    if ($roleName === '') {
         return;
     }
-    $roleId = (int) $roleId;
 
-    $emails = array_map('strtolower', array_filter([
-        $account['email'] ?? null,
-        ...($account['legacy_emails'] ?? []),
-    ], 'is_string'));
-    $usernames = array_map('strtolower', array_filter([
-        $account['username'] ?? null,
-        ...($account['legacy_usernames'] ?? []),
-    ], 'is_string'));
-
-    $conditions = [];
-    $params = [];
-
-    if ($emails) {
-        $emails = array_values(array_unique($emails));
-        $placeholders = [];
-        foreach ($emails as $index => $email) {
-            $placeholder = ':email_lookup_' . $index;
-            $placeholders[] = $placeholder;
-            $params[$placeholder] = $email;
-        }
-        $conditions[] = 'LOWER(email) IN (' . implode(', ', $placeholders) . ')';
+    try {
+        $store = user_store();
+    } catch (Throwable $exception) {
+        error_log(sprintf('ensure_default_user: unable to initialise user store: %s', $exception->getMessage()));
+        return;
     }
 
-    if ($usernames) {
-        $usernames = array_values(array_unique($usernames));
-        $placeholders = [];
-        foreach ($usernames as $index => $username) {
-            $placeholder = ':username_lookup_' . $index;
-            $placeholders[] = $placeholder;
-            $params[$placeholder] = $username;
+    $identifiers = [];
+    foreach (['email', 'username'] as $key) {
+        if (!empty($account[$key]) && is_string($account[$key])) {
+            $identifiers[] = $account[$key];
         }
-        $conditions[] = 'LOWER(username) IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    foreach (($account['legacy_emails'] ?? []) as $email) {
+        if (is_string($email) && $email !== '') {
+            $identifiers[] = $email;
+        }
+    }
+    foreach (($account['legacy_usernames'] ?? []) as $username) {
+        if (is_string($username) && $username !== '') {
+            $identifiers[] = $username;
+        }
     }
 
     $existing = null;
-    if ($conditions) {
-        $sql = 'SELECT id, email, username, password_hash, status, role_id, permissions_note, full_name FROM users WHERE ' . implode(' OR ', $conditions) . ' LIMIT 1';
-        $lookup = $db->prepare($sql);
-        $lookup->execute($params);
-        $existing = $lookup->fetch(PDO::FETCH_ASSOC) ?: null;
-    }
-
-    $defaultPassword = (string) ($account['password'] ?? '');
-    $nowPasswordHash = null;
-
-    if ($existing === null) {
-        $insert = $db->prepare("INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, 'active', :permissions_note, datetime('now'), datetime('now'), datetime('now'))");
-        if ($defaultPassword !== '') {
-            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
+    foreach ($identifiers as $identifier) {
+        try {
+            $candidate = $store->findByIdentifier($identifier);
+        } catch (Throwable $lookupError) {
+            error_log(sprintf('ensure_default_user: lookup failed for %s: %s', $identifier, $lookupError->getMessage()));
+            continue;
         }
 
-        $insert->execute([
-            ':full_name' => $account['full_name'],
-            ':email' => $account['email'],
-            ':username' => $account['username'],
-            ':password_hash' => $nowPasswordHash,
-            ':role_id' => $roleId,
-            ':permissions_note' => $account['permissions_note'] ?? '',
-        ]);
+        if (is_array($candidate)) {
+            $existing = $candidate;
+            break;
+        }
+    }
+
+    $now = now_ist();
+    $password = is_string($account['password'] ?? null) ? trim($account['password']) : '';
+    $permissionsNote = trim((string) ($account['permissions_note'] ?? ''));
+    $payload = [
+        'full_name' => (string) ($account['full_name'] ?? ''),
+        'email' => (string) ($account['email'] ?? ''),
+        'username' => (string) ($account['username'] ?? ''),
+        'role' => $roleName,
+        'status' => 'active',
+        'permissions_note' => $permissionsNote,
+    ];
+
+    if ($existing !== null) {
+        $payload['id'] = (int) ($existing['id'] ?? 0);
+        $payload['created_at'] = $existing['created_at'] ?? $now;
+        $payload['password_hash'] = (string) ($existing['password_hash'] ?? '');
+        $payload['password_last_set_at'] = $existing['password_last_set_at'] ?? null;
+    }
+
+    if ($payload['full_name'] === '' && $existing !== null) {
+        $payload['full_name'] = (string) ($existing['full_name'] ?? '');
+    }
+
+    if ($password !== '') {
+        $payload['password_hash'] = password_hash($password, PASSWORD_DEFAULT);
+        $payload['password_last_set_at'] = $now;
+    } elseif (!isset($payload['password_hash']) || $payload['password_hash'] === '') {
+        $payload['password_hash'] = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+        $payload['password_last_set_at'] = $now;
+    }
+
+    if (!isset($payload['created_at'])) {
+        $payload['created_at'] = $now;
+    }
+
+    try {
+        $store->save($payload);
+    } catch (Throwable $exception) {
+        error_log(sprintf('ensure_default_user: unable to persist default account %s: %s', $payload['email'], $exception->getMessage()));
         return;
     }
 
-    $updates = [];
-    $updateParams = [':id' => (int) $existing['id']];
-
-    if ((int) $existing['role_id'] !== $roleId) {
-        $updates[] = 'role_id = :role_id';
-        $updateParams[':role_id'] = $roleId;
-    }
-
-    $legacyEmails = array_map('strtolower', $account['legacy_emails'] ?? []);
-    $existingEmail = strtolower((string) ($existing['email'] ?? ''));
-    $targetEmail = strtolower((string) ($account['email'] ?? ''));
-    if ($targetEmail !== '' && $existingEmail !== $targetEmail) {
-        if (!$legacyEmails || in_array($existingEmail, $legacyEmails, true)) {
-            $updates[] = 'email = :email';
-            $updateParams[':email'] = $account['email'];
-        }
-    }
-
-    $legacyUsernames = array_map('strtolower', $account['legacy_usernames'] ?? []);
-    $existingUsername = strtolower((string) ($existing['username'] ?? ''));
-    $targetUsername = strtolower((string) ($account['username'] ?? ''));
-    if ($targetUsername !== '' && $existingUsername !== $targetUsername) {
-        if (!$legacyUsernames || in_array($existingUsername, $legacyUsernames, true)) {
-            $updates[] = 'username = :username';
-            $updateParams[':username'] = $account['username'];
-        }
-    }
-
-    $existingName = trim((string) ($existing['full_name'] ?? ''));
-    $targetName = (string) ($account['full_name'] ?? '');
-    if ($targetName !== '' && ($existingName === '' || $existingName === $targetName)) {
-        if ($existingName !== $targetName) {
-            $updates[] = 'full_name = :full_name';
-            $updateParams[':full_name'] = $targetName;
-        }
-    }
-
-    $existingNote = trim((string) ($existing['permissions_note'] ?? ''));
-    $targetNote = (string) ($account['permissions_note'] ?? '');
-    if ($targetNote !== '' && ($existingNote === '' || $existingNote === $targetNote)) {
-        if ($existingNote !== $targetNote) {
-            $updates[] = 'permissions_note = :permissions_note';
-            $updateParams[':permissions_note'] = $targetNote;
-        }
-    }
-
-    if (($existing['status'] ?? '') !== 'active') {
-        $updates[] = "status = 'active'";
-    }
-
-    $existingHash = (string) ($existing['password_hash'] ?? '');
-    if ($defaultPassword !== '' && ($existingHash === '' || !password_verify($defaultPassword, $existingHash))) {
-        if ($nowPasswordHash === null) {
-            $nowPasswordHash = password_hash($defaultPassword, PASSWORD_DEFAULT);
-        }
-        $updates[] = 'password_hash = :password_hash';
-        $updateParams[':password_hash'] = $nowPasswordHash;
-        $updates[] = "password_last_set_at = datetime('now')";
-    }
-
-    if ($updates) {
-        $updates[] = "updated_at = datetime('now')";
-        $sql = 'UPDATE users SET ' . implode(', ', $updates) . ' WHERE id = :id';
-        $stmt = $db->prepare($sql);
-        $stmt->execute($updateParams);
+    try {
+        $store->appendAudit([
+            'event' => 'ensure_default_user',
+            'user_id' => (int) ($payload['id'] ?? 0),
+            'role' => $roleName,
+        ]);
+    } catch (Throwable $auditError) {
+        error_log(sprintf('ensure_default_user: audit append failed: %s', $auditError->getMessage()));
     }
 }
+
 
 function get_setting(string $key, ?PDO $db = null): ?string
 {
@@ -2994,57 +2960,136 @@ function admin_resolve_role_id(PDO $db, string $roleName): int
     return (int) $roleId;
 }
 
+function admin_normalise_user_record(array $record): array
+{
+    $flags = $record['flags'] ?? [];
+    if (!is_array($flags)) {
+        $flags = [];
+    }
+
+    return [
+        'id' => (int) ($record['id'] ?? 0),
+        'full_name' => (string) ($record['full_name'] ?? ''),
+        'email' => (string) ($record['email'] ?? ''),
+        'username' => (string) ($record['username'] ?? ''),
+        'phone' => $record['phone'] ?? null,
+        'role' => (string) ($record['role'] ?? ''),
+        'role_name' => (string) ($record['role'] ?? ''),
+        'status' => (string) ($record['status'] ?? ''),
+        'permissions_note' => (string) ($record['permissions_note'] ?? ''),
+        'created_at' => (string) ($record['created_at'] ?? ''),
+        'updated_at' => (string) ($record['updated_at'] ?? ''),
+        'last_login_at' => $record['last_login_at'] ?? null,
+        'password_last_set_at' => $record['password_last_set_at'] ?? null,
+        'password_hash' => (string) ($record['password_hash'] ?? ''),
+        'flags' => $flags,
+    ];
+}
+
+function admin_sync_user_record(PDO $db, array $record, ?int $roleId = null): void
+{
+    $normalized = admin_normalise_user_record($record);
+    if ($normalized['id'] <= 0) {
+        throw new RuntimeException('User record is missing an identifier.');
+    }
+
+    $email = strtolower($normalized['email']);
+    $username = strtolower($normalized['username']);
+    $status = strtolower($normalized['status']);
+    $permissionsNote = $normalized['permissions_note'] !== '' ? $normalized['permissions_note'] : null;
+    $lastLoginAt = $normalized['last_login_at'] ?? null;
+    $passwordLastSetAt = $normalized['password_last_set_at'] ?? null;
+    $createdAt = $normalized['created_at'] !== '' ? $normalized['created_at'] : now_ist();
+    $updatedAt = $normalized['updated_at'] !== '' ? $normalized['updated_at'] : now_ist();
+
+    $resolvedRoleId = $roleId;
+    if ($resolvedRoleId === null) {
+        $resolvedRoleId = admin_resolve_role_id($db, $normalized['role']);
+    }
+
+    $existsStmt = $db->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
+    $existsStmt->execute([':id' => $normalized['id']]);
+    $existingId = $existsStmt->fetchColumn();
+
+    if ($existingId === false) {
+        $insert = $db->prepare('INSERT INTO users(id, full_name, email, username, password_hash, role_id, status, permissions_note, last_login_at, password_last_set_at, created_at, updated_at) VALUES(:id, :full_name, :email, :username, :password_hash, :role_id, :status, :permissions_note, :last_login_at, :password_last_set_at, :created_at, :updated_at)');
+        $insert->execute([
+            ':id' => $normalized['id'],
+            ':full_name' => $normalized['full_name'],
+            ':email' => $email,
+            ':username' => $username,
+            ':password_hash' => $normalized['password_hash'],
+            ':role_id' => $resolvedRoleId,
+            ':status' => $status,
+            ':permissions_note' => $permissionsNote,
+            ':last_login_at' => $lastLoginAt,
+            ':password_last_set_at' => $passwordLastSetAt,
+            ':created_at' => $createdAt,
+            ':updated_at' => $updatedAt,
+        ]);
+        return;
+    }
+
+    $update = $db->prepare('UPDATE users SET full_name = :full_name, email = :email, username = :username, password_hash = :password_hash, role_id = :role_id, status = :status, permissions_note = :permissions_note, last_login_at = :last_login_at, password_last_set_at = :password_last_set_at, updated_at = :updated_at WHERE id = :id');
+    $update->execute([
+        ':id' => $normalized['id'],
+        ':full_name' => $normalized['full_name'],
+        ':email' => $email,
+        ':username' => $username,
+        ':password_hash' => $normalized['password_hash'],
+        ':role_id' => $resolvedRoleId,
+        ':status' => $status,
+        ':permissions_note' => $permissionsNote,
+        ':last_login_at' => $lastLoginAt,
+        ':password_last_set_at' => $passwordLastSetAt,
+        ':updated_at' => $updatedAt,
+    ]);
+}
+
 function admin_fetch_user(PDO $db, int $userId): array
 {
-    $stmt = $db->prepare('SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id WHERE users.id = :id LIMIT 1');
-    $stmt->execute([':id' => $userId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$row) {
+    $store = user_store();
+    $record = $store->get($userId);
+    if (!$record) {
         throw new RuntimeException('User not found.');
     }
 
-    return $row;
+    return admin_normalise_user_record($record);
 }
 
 function admin_list_accounts(PDO $db, array $filters = []): array
 {
     $status = strtolower(trim((string) ($filters['status'] ?? '')));
-    $conditions = [];
-    $params = [];
+    if ($status !== '' && $status !== 'all' && !in_array($status, ['active', 'inactive', 'pending'], true)) {
+        throw new RuntimeException('Unsupported status filter.');
+    }
 
-    if ($status !== '' && $status !== 'all') {
-        if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
-            throw new RuntimeException('Unsupported status filter.');
+    $store = user_store();
+    $records = $store->listAll();
+
+    $results = [];
+    foreach ($records as $record) {
+        $normalized = admin_normalise_user_record($record);
+        if ($status !== '' && $status !== 'all' && strtolower($normalized['status']) !== $status) {
+            continue;
         }
-        $conditions[] = 'users.status = :status';
-        $params[':status'] = $status;
-    }
 
-    $sql = 'SELECT users.*, roles.name AS role_name FROM users INNER JOIN roles ON users.role_id = roles.id';
-    if ($conditions) {
-        $sql .= ' WHERE ' . implode(' AND ', $conditions);
-    }
-    $sql .= ' ORDER BY users.created_at DESC';
-
-    $stmt = $db->prepare($sql);
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    return array_map(static function (array $row): array {
-        return [
-            'id' => (int) ($row['id'] ?? 0),
-            'full_name' => (string) ($row['full_name'] ?? ''),
-            'email' => (string) ($row['email'] ?? ''),
-            'username' => (string) ($row['username'] ?? ''),
-            'role' => (string) ($row['role_name'] ?? ''),
-            'status' => (string) ($row['status'] ?? ''),
-            'permissions_note' => (string) ($row['permissions_note'] ?? ''),
-            'created_at' => (string) ($row['created_at'] ?? ''),
-            'updated_at' => (string) ($row['updated_at'] ?? ''),
-            'last_login_at' => (string) ($row['last_login_at'] ?? ''),
-            'password_last_set_at' => (string) ($row['password_last_set_at'] ?? ''),
+        $results[] = [
+            'id' => $normalized['id'],
+            'full_name' => $normalized['full_name'],
+            'email' => $normalized['email'],
+            'username' => $normalized['username'],
+            'role' => $normalized['role'],
+            'status' => $normalized['status'],
+            'permissions_note' => $normalized['permissions_note'],
+            'created_at' => $normalized['created_at'],
+            'updated_at' => $normalized['updated_at'],
+            'last_login_at' => $normalized['last_login_at'],
+            'password_last_set_at' => $normalized['password_last_set_at'],
         ];
-    }, $rows);
+    }
+
+    return $results;
 }
 
 function admin_create_user(PDO $db, array $input, int $actorId): array
@@ -3111,32 +3156,44 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
 
     $permissionsNote = trim((string) ($input['permissions_note'] ?? ''));
 
+    $phone = null;
+    if ($isCustomerRole) {
+        $phone = $mobileDigits;
+    } elseif ($mobileDigits !== '') {
+        if (strlen($mobileDigits) < 10) {
+            throw new RuntimeException('Phone numbers must contain at least 10 digits.');
+        }
+        $phone = $mobileDigits;
+    }
+
     $hash = password_hash($password, PASSWORD_DEFAULT);
     $now = now_ist();
 
-    try {
-        $stmt = $db->prepare('INSERT INTO users(full_name, email, username, password_hash, role_id, status, permissions_note, password_last_set_at, created_at, updated_at) VALUES(:full_name, :email, :username, :password_hash, :role_id, :status, :permissions_note, :password_last_set_at, :created_at, :updated_at)');
-        $stmt->execute([
-            ':full_name' => $fullName,
-            ':email' => $email,
-            ':username' => $username,
-            ':password_hash' => $hash,
-            ':role_id' => $roleId,
-            ':status' => $status,
-            ':permissions_note' => $permissionsNote !== '' ? $permissionsNote : null,
-            ':password_last_set_at' => $now,
-            ':created_at' => $now,
-            ':updated_at' => $now,
-        ]);
-    } catch (PDOException $exception) {
-        if ($exception->getCode() === '23000') {
-            throw new RuntimeException('Email, username, or mobile already exists.');
-        }
-        throw $exception;
-    }
+    $store = user_store();
+    $record = $store->save([
+        'full_name' => $fullName,
+        'email' => $email,
+        'username' => $username,
+        'phone' => $phone,
+        'role' => $roleKey,
+        'status' => $status,
+        'permissions_note' => $permissionsNote,
+        'password_hash' => $hash,
+        'password_last_set_at' => $now,
+        'created_at' => $now,
+    ]);
 
-    $userId = (int) $db->lastInsertId();
-    portal_log_action($db, $actorId, 'create', 'user', $userId, sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
+    $store->appendAudit([
+        'event' => 'admin_create_user',
+        'actor_id' => $actorId,
+        'user_id' => (int) ($record['id'] ?? 0),
+        'role' => $roleKey,
+        'status' => $status,
+    ]);
+
+    admin_sync_user_record($db, $record, $roleId);
+
+    portal_log_action($db, $actorId, 'create', 'user', (int) $record['id'], sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
 
     return admin_list_accounts($db, ['status' => 'all']);
 }
@@ -3148,13 +3205,23 @@ function admin_update_user_status(PDO $db, int $userId, string $status, int $act
         throw new RuntimeException('Unsupported status.');
     }
 
-    $now = now_ist();
-    $stmt = $db->prepare('UPDATE users SET status = :status, updated_at = :updated_at WHERE id = :id');
-    $stmt->execute([
-        ':status' => $status,
-        ':updated_at' => $now,
-        ':id' => $userId,
+    $store = user_store();
+    $record = $store->get($userId);
+    if (!$record) {
+        throw new RuntimeException('User not found.');
+    }
+
+    $record['status'] = $status;
+    $updated = $store->save($record);
+
+    $store->appendAudit([
+        'event' => 'admin_update_user_status',
+        'actor_id' => $actorId,
+        'user_id' => $userId,
+        'status' => $status,
     ]);
+
+    admin_sync_user_record($db, $updated);
 
     portal_log_action($db, $actorId, 'status_change', 'user', $userId, 'Account marked as ' . $status);
 
@@ -3167,16 +3234,27 @@ function admin_reset_user_password(PDO $db, int $userId, string $password, int $
         throw new RuntimeException('Passwords must be at least 8 characters long.');
     }
 
+    $store = user_store();
+    $record = $store->get($userId);
+    if (!$record) {
+        throw new RuntimeException('User not found.');
+    }
+
     $hash = password_hash($password, PASSWORD_DEFAULT);
     $now = now_ist();
 
-    $stmt = $db->prepare('UPDATE users SET password_hash = :hash, password_last_set_at = :password_last_set_at, updated_at = :updated_at WHERE id = :id');
-    $stmt->execute([
-        ':hash' => $hash,
-        ':password_last_set_at' => $now,
-        ':updated_at' => $now,
-        ':id' => $userId,
+    $record['password_hash'] = $hash;
+    $record['password_last_set_at'] = $now;
+
+    $updated = $store->save($record);
+
+    $store->appendAudit([
+        'event' => 'admin_reset_user_password',
+        'actor_id' => $actorId,
+        'user_id' => $userId,
     ]);
+
+    admin_sync_user_record($db, $updated);
 
     portal_log_action($db, $actorId, 'password_reset', 'user', $userId, 'Password reset by administrator');
 
@@ -3185,7 +3263,13 @@ function admin_reset_user_password(PDO $db, int $userId, string $password, int $
 
 function admin_delete_user(PDO $db, int $userId, int $actorId): void
 {
-    $user = admin_fetch_user($db, $userId);
+    $store = user_store();
+    $record = $store->get($userId);
+    if (!$record) {
+        throw new RuntimeException('User not found.');
+    }
+
+    $user = admin_normalise_user_record($record);
     $status = strtolower((string) ($user['status'] ?? ''));
     if ($status !== 'inactive') {
         throw new RuntimeException('Only inactive accounts can be deleted.');
@@ -3198,6 +3282,7 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
     $email = (string) ($user['email'] ?? ('user #' . $userId));
 
     $db->beginTransaction();
+    $deletedFromDatabase = false;
     try {
         $idParam = [':id' => $userId];
 
@@ -3275,8 +3360,9 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
 
         $deleteUser = $db->prepare('DELETE FROM users WHERE id = :id');
         $deleteUser->execute($idParam);
-        if ($deleteUser->rowCount() === 0) {
-            throw new RuntimeException('Account could not be removed.');
+        $deletedFromDatabase = $deleteUser->rowCount() > 0;
+        if (!$deletedFromDatabase) {
+            error_log(sprintf('admin_delete_user: database row already missing for user %d', $userId));
         }
 
         portal_log_action($db, $actorId, 'delete', 'user', $userId, sprintf('Inactive account %s permanently removed', $email));
@@ -3286,6 +3372,14 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
         $db->rollBack();
         throw $exception;
     }
+
+    $store->delete($userId);
+    $store->appendAudit([
+        'event' => 'admin_delete_user',
+        'actor_id' => $actorId,
+        'user_id' => $userId,
+        'database_removed' => $deletedFromDatabase,
+    ]);
 }
 
 function approval_request_normalize(array $row): array
@@ -3580,51 +3674,51 @@ function admin_apply_profile_updates(PDO $db, array $updates, int $userId, int $
     }
 
     $allowed = ['full_name', 'email', 'username'];
-    $set = [];
-    $params = [
-        ':id' => $userId,
-        ':updated_at' => now_ist(),
-    ];
+    $store = user_store();
+    $record = $store->get($userId);
+    if (!$record) {
+        throw new RuntimeException('User not found.');
+    }
 
+    $changed = false;
     foreach ($updates as $key => $value) {
         if (!in_array($key, $allowed, true)) {
             continue;
         }
+
         if ($key === 'email') {
             if (!filter_var($value, FILTER_VALIDATE_EMAIL)) {
                 throw new RuntimeException('Approval failed: invalid email address.');
             }
-            $check = $db->prepare('SELECT id FROM users WHERE email = :email AND id != :id LIMIT 1');
-            $check->execute([':email' => strtolower($value), ':id' => $userId]);
-            if ($check->fetchColumn()) {
-                throw new RuntimeException('Approval failed: email already in use.');
-            }
-            $params[':email'] = strtolower($value);
-            $set[] = 'email = :email';
+            $record['email'] = strtolower(trim((string) $value));
+            $changed = true;
         } elseif ($key === 'username') {
-            if (!preg_match('/^[a-z0-9._-]{3,}$/', $value)) {
+            $candidate = strtolower(trim((string) $value));
+            if (!preg_match('/^[a-z0-9._-]{3,}$/', $candidate)) {
                 throw new RuntimeException('Approval failed: invalid username.');
             }
-            $check = $db->prepare('SELECT id FROM users WHERE username = :username AND id != :id LIMIT 1');
-            $check->execute([':username' => strtolower($value), ':id' => $userId]);
-            if ($check->fetchColumn()) {
-                throw new RuntimeException('Approval failed: username already in use.');
-            }
-            $params[':username'] = strtolower($value);
-            $set[] = 'username = :username';
+            $record['username'] = $candidate;
+            $changed = true;
         } else {
-            $params[':full_name'] = $value;
-            $set[] = 'full_name = :full_name';
+            $record['full_name'] = trim((string) $value);
+            $changed = true;
         }
     }
 
-    if (empty($set)) {
+    if (!$changed) {
         return;
     }
 
-    $sql = 'UPDATE users SET ' . implode(', ', $set) . ', updated_at = :updated_at WHERE id = :id';
-    $stmt = $db->prepare($sql);
-    $stmt->execute($params);
+    $updated = $store->save($record);
+
+    $store->appendAudit([
+        'event' => 'admin_apply_profile_updates',
+        'actor_id' => $actorId,
+        'user_id' => $userId,
+        'fields' => array_values(array_intersect($allowed, array_keys($updates))),
+    ]);
+
+    admin_sync_user_record($db, $updated);
 
     portal_log_action($db, $actorId, 'update', 'user', $userId, 'Profile updates applied via approval');
 }
