@@ -8469,6 +8469,64 @@ body[data-dashboard-theme='dark'] .dashboard-inline-status[data-tone='progress']
   border: 1px dashed rgba(148, 163, 184, 0.4);
 }
 
+.customer-projects {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.customer-project__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.customer-project__header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--base-800);
+}
+
+.customer-project__meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--base-500);
+}
+
+.customer-project__details {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+  color: var(--base-600);
+}
+
+.customer-project__details li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.customer-project__details i {
+  color: var(--accent-blue-dark);
+}
+
+.customer-project__subsidy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--base-600);
+}
+
+.customer-project__subsidy-date {
+  color: var(--base-500);
+  font-size: 0.85rem;
+}
+
 .dashboard-notifications,
 .dashboard-reminders {
   list-style: none;

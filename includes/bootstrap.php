@@ -4560,6 +4560,186 @@ function installation_list_for_role(PDO $db, string $role, ?int $userId = null):
     return $rows;
 }
 
+function customer_portal_identifiers(array $user): array
+{
+    $references = [];
+    $names = [];
+
+    $note = trim((string) ($user['permissions_note'] ?? ''));
+    if ($note !== '') {
+        $tokens = preg_split('/[\n,;]+/', $note) ?: [];
+        foreach ($tokens as $token) {
+            $candidate = trim((string) $token);
+            if ($candidate === '') {
+                continue;
+            }
+            if (str_contains($candidate, ':')) {
+                [$prefix, $value] = array_map('trim', explode(':', $candidate, 2));
+                if (strcasecmp($prefix, 'project') === 0 && $value !== '') {
+                    $candidate = $value;
+                }
+            }
+            if ($candidate !== '') {
+                $references[] = strtoupper($candidate);
+            }
+        }
+    }
+
+    $username = trim((string) ($user['username'] ?? ''));
+    if ($username !== '' && preg_match('/^[A-Za-z0-9._-]{4,}$/', $username) === 1) {
+        $references[] = strtoupper($username);
+    }
+
+    $fullName = trim((string) ($user['full_name'] ?? ''));
+    if ($fullName !== '') {
+        $names[] = strtolower($fullName);
+    }
+
+    return [
+        'references' => array_values(array_unique(array_filter($references, static fn ($value) => $value !== ''))),
+        'names' => array_values(array_unique(array_filter($names, static fn ($value) => $value !== ''))),
+    ];
+}
+
+function customer_portal_installations(PDO $db, array $user): array
+{
+    $identifiers = customer_portal_identifiers($user);
+    $references = $identifiers['references'];
+    $names = $identifiers['names'];
+
+    if (empty($references) && empty($names)) {
+        return [];
+    }
+
+    $conditions = [];
+    $params = [];
+
+    if ($references) {
+        $placeholders = [];
+        foreach ($references as $index => $reference) {
+            $key = ':ref_' . $index;
+            $placeholders[] = $key;
+            $params[$key] = $reference;
+        }
+        $conditions[] = 'UPPER(installations.project_reference) IN (' . implode(',', $placeholders) . ')';
+    }
+
+    if ($names) {
+        $nameConditions = [];
+        foreach ($names as $index => $name) {
+            $key = ':name_' . $index;
+            $nameConditions[] = 'LOWER(installations.customer_name) = ' . $key;
+            $params[$key] = $name;
+        }
+        if ($nameConditions) {
+            $conditions[] = '(' . implode(' OR ', $nameConditions) . ')';
+        }
+    }
+
+    if (empty($conditions)) {
+        return [];
+    }
+
+    $sql = 'SELECT installations.*, emp.full_name AS employee_name, inst.full_name AS installer_name, req.full_name AS requested_by_name FROM installations'
+        . ' LEFT JOIN users emp ON installations.assigned_to = emp.id'
+        . ' LEFT JOIN users inst ON installations.installer_id = inst.id'
+        . ' LEFT JOIN users req ON installations.requested_by = req.id'
+        . ' WHERE ' . implode(' OR ', $conditions)
+        . ' ORDER BY COALESCE(installations.updated_at, installations.created_at) DESC';
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $record) {
+        $rows[] = installation_normalize_row($db, $record, 'customer');
+    }
+
+    return $rows;
+}
+
+function customer_portal_subsidy(PDO $db, array $installations): array
+{
+    if (empty($installations)) {
+        return [];
+    }
+
+    $ids = [];
+    foreach ($installations as $installation) {
+        $id = (int) ($installation['id'] ?? 0);
+        if ($id > 0) {
+            $ids[] = $id;
+        }
+    }
+
+    $ids = array_values(array_unique($ids));
+    if (empty($ids)) {
+        return [];
+    }
+
+    $placeholders = [];
+    $params = [];
+    foreach ($ids as $index => $id) {
+        $key = ':inst_' . $index;
+        $placeholders[] = $key;
+        $params[$key] = $id;
+    }
+
+    $sql = 'SELECT installation_id, application_reference, stage, stage_date, notes, id FROM subsidy_tracker'
+        . ' WHERE installation_id IN (' . implode(',', $placeholders) . ')'
+        . ' ORDER BY stage_date DESC, id DESC';
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
+    $summary = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $installationId = (int) ($row['installation_id'] ?? 0);
+        if ($installationId <= 0) {
+            continue;
+        }
+
+        $stage = strtolower((string) ($row['stage'] ?? 'applied'));
+        $stageDate = (string) ($row['stage_date'] ?? '');
+        $application = trim((string) ($row['application_reference'] ?? ''));
+
+        if (!isset($summary[$installationId])) {
+            $summary[$installationId] = [
+                'stage' => $stage,
+                'stageLabel' => subsidy_stage_label($stage),
+                'stageDate' => $stageDate,
+                'application' => $application,
+                'notes' => (string) ($row['notes'] ?? ''),
+            ];
+            continue;
+        }
+
+        $existing = $summary[$installationId];
+        $existingDate = (string) ($existing['stageDate'] ?? '');
+
+        $replace = false;
+        if ($stageDate !== '' && ($existingDate === '' || strcmp($stageDate, $existingDate) > 0)) {
+            $replace = true;
+        } elseif ($stageDate !== '' && $existingDate !== '' && strcmp($stageDate, $existingDate) === 0) {
+            $replace = subsidy_stage_order($stage) >= subsidy_stage_order((string) ($existing['stage'] ?? ''));
+        } elseif ($stageDate === '' && $existingDate === '') {
+            $replace = subsidy_stage_order($stage) >= subsidy_stage_order((string) ($existing['stage'] ?? ''));
+        }
+
+        if ($replace) {
+            $summary[$installationId] = [
+                'stage' => $stage,
+                'stageLabel' => subsidy_stage_label($stage),
+                'stageDate' => $stageDate,
+                'application' => $application,
+                'notes' => (string) ($row['notes'] ?? ''),
+            ];
+        }
+    }
+
+    return $summary;
+}
+
 function installation_admin_filter(PDO $db, string $filter): array
 {
     $filter = strtolower(trim($filter));
@@ -5202,6 +5382,140 @@ function admin_referrer_leads(PDO $db, int $referrerId): array
     $stmt->execute([':referrer_id' => $referrerId]);
 
     return lead_hydrate_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function referrer_ensure_profile(PDO $db, array $user): array
+{
+    $email = trim((string) ($user['email'] ?? ''));
+    $name = trim((string) ($user['full_name'] ?? ''));
+    $note = trim((string) ($user['permissions_note'] ?? ''));
+
+    $stmt = null;
+    if ($email !== '') {
+        $stmt = $db->prepare('SELECT * FROM referrers WHERE LOWER(email) = LOWER(:email) LIMIT 1');
+        $stmt->execute([':email' => $email]);
+        $record = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($record) {
+            return referrer_with_metrics($db, (int) $record['id']);
+        }
+    }
+
+    if ($name !== '') {
+        $stmt = $db->prepare('SELECT * FROM referrers WHERE LOWER(name) = LOWER(:name) LIMIT 1');
+        $stmt->execute([':name' => $name]);
+        $record = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($record) {
+            return referrer_with_metrics($db, (int) $record['id']);
+        }
+    }
+
+    if ($email === '' && $name === '') {
+        throw new RuntimeException('Referrer profile could not be resolved. Please contact the administrator.');
+    }
+
+    $now = now_ist();
+    $fallbackName = $name !== '' ? $name : 'Referrer #' . ((int) ($user['id'] ?? 0) ?: random_int(1000, 9999));
+    $company = '';
+    if ($note !== '') {
+        $company = $note;
+    }
+
+    $insert = $db->prepare('INSERT INTO referrers(name, company, email, phone, status, notes, last_lead_at, created_at, updated_at) VALUES(:name, :company, :email, :phone, :status, :notes, NULL, :created_at, :updated_at)');
+    $insert->execute([
+        ':name' => $fallbackName,
+        ':company' => $company !== '' ? $company : null,
+        ':email' => $email !== '' ? $email : null,
+        ':phone' => null,
+        ':status' => 'active',
+        ':notes' => 'Auto-created from referrer portal access on ' . $now,
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+
+    $referrerId = (int) $db->lastInsertId();
+
+    return referrer_with_metrics($db, $referrerId);
+}
+
+function referrer_submit_lead(PDO $db, array $input, int $referrerId, int $actorId): array
+{
+    referrer_with_metrics($db, $referrerId);
+
+    $name = trim((string) ($input['name'] ?? ''));
+    if ($name === '') {
+        throw new RuntimeException('Customer name is required.');
+    }
+
+    $phoneRaw = trim((string) ($input['phone'] ?? ''));
+    $digits = preg_replace('/\D+/', '', $phoneRaw);
+    if ($digits !== null && $digits !== '' && strlen($digits) < 6) {
+        throw new RuntimeException('Enter a valid contact number (at least 6 digits).');
+    }
+    $phone = $digits !== null && $digits !== '' ? $digits : ($phoneRaw !== '' ? $phoneRaw : null);
+
+    $email = trim((string) ($input['email'] ?? ''));
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('Enter a valid email address.');
+    }
+
+    $location = trim((string) ($input['site_location'] ?? ''));
+    $notes = trim((string) ($input['notes'] ?? ''));
+
+    $now = now_ist();
+    $stmt = $db->prepare('INSERT INTO crm_leads(name, phone, email, source, status, assigned_to, created_by, referrer_id, site_location, site_details, notes, created_at, updated_at) VALUES(:name, :phone, :email, :source, :status, NULL, NULL, :referrer_id, :site_location, NULL, :notes, :created_at, :updated_at)');
+    $stmt->execute([
+        ':name' => $name,
+        ':phone' => $phone !== null && $phone !== '' ? $phone : null,
+        ':email' => $email !== '' ? $email : null,
+        ':source' => 'Referrer Portal',
+        ':status' => 'new',
+        ':referrer_id' => $referrerId,
+        ':site_location' => $location !== '' ? $location : null,
+        ':notes' => $notes !== '' ? $notes : null,
+        ':created_at' => $now,
+        ':updated_at' => $now,
+    ]);
+
+    $leadId = (int) $db->lastInsertId();
+
+    referrer_touch_lead($db, $referrerId);
+    portal_log_action($db, $actorId, 'create', 'lead', $leadId, 'Lead submitted via referrer portal');
+
+    return lead_fetch($db, $leadId);
+}
+
+function referrer_portal_leads(PDO $db, int $referrerId): array
+{
+    $stmt = $db->prepare('SELECT id, name, phone, email, status, created_at, updated_at FROM crm_leads WHERE referrer_id = :referrer_id ORDER BY COALESCE(updated_at, created_at) DESC');
+    $stmt->execute([':referrer_id' => $referrerId]);
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $status = strtolower((string) ($row['status'] ?? 'new'));
+        $category = match ($status) {
+            'converted' => 'converted',
+            'lost' => 'rejected',
+            default => 'approved',
+        };
+        $rows[] = [
+            'id' => (int) ($row['id'] ?? 0),
+            'name' => (string) ($row['name'] ?? ''),
+            'phone' => trim((string) ($row['phone'] ?? '')),
+            'email' => trim((string) ($row['email'] ?? '')),
+            'status' => $status,
+            'statusLabel' => lead_status_label($status),
+            'category' => $category,
+            'categoryLabel' => match ($category) {
+                'converted' => 'Converted',
+                'rejected' => 'Rejected',
+                default => 'Approved',
+            },
+            'createdAt' => (string) ($row['created_at'] ?? ''),
+            'updatedAt' => (string) ($row['updated_at'] ?? ''),
+        ];
+    }
+
+    return $rows;
 }
 
 function admin_unassigned_leads(PDO $db): array
