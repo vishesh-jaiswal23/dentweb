@@ -1682,7 +1682,9 @@ CREATE TABLE crm_leads (
 )
 SQL
             );
-            $db->exec(<<<'SQL'
+            $hasBackup = (bool) $db->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads_backup'")->fetchColumn();
+            if ($hasBackup) {
+                $db->exec(<<<'SQL'
 INSERT INTO crm_leads (id, name, phone, email, source, status, assigned_to, created_by, referrer_id, site_location, site_details, notes, created_at, updated_at)
 SELECT id, name, phone, email, source,
        CASE
@@ -1701,8 +1703,11 @@ SELECT id, name, phone, email, source,
         updated_at
 FROM crm_leads_backup
 SQL
-            );
-            $db->exec('DROP TABLE crm_leads_backup');
+                );
+                $db->exec('DROP TABLE crm_leads_backup');
+            } else {
+                error_log('ensure_lead_tables: crm_leads_backup missing during migration; continuing with empty crm_leads table');
+            }
         } catch (Throwable $exception) {
             $db->rollBack();
             throw $exception;
