@@ -1682,7 +1682,17 @@ CREATE TABLE crm_leads (
 )
 SQL
             );
-            $hasBackup = (bool) $db->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads_backup'")->fetchColumn();
+            $backupExists = (bool) $db->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_leads_backup'")->fetchColumn();
+            $hasBackup = false;
+            if ($backupExists) {
+                try {
+                    $db->query('SELECT 1 FROM crm_leads_backup LIMIT 1');
+                    $hasBackup = true;
+                } catch (Throwable $probeException) {
+                    error_log(sprintf('ensure_lead_tables: crm_leads_backup probe failed, dropping stale table: %s', $probeException->getMessage()));
+                    $db->exec('DROP TABLE IF EXISTS crm_leads_backup');
+                }
+            }
             if ($hasBackup) {
                 try {
                     $db->exec(<<<'SQL'
