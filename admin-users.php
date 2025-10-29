@@ -6,7 +6,7 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 require_admin();
 
-$db = get_db();
+$db = null;
 $admin = current_user();
 $csrfToken = $_SESSION['csrf_token'] ?? '';
 
