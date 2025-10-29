@@ -180,6 +180,18 @@ final class FileUserStore
         if (!is_string($phoneKey)) {
             $phoneKey = '';
         }
+        $phoneKey = trim($phoneKey);
+        if ($role === 'customer' && $phoneKey !== '') {
+            if (function_exists('normalize_customer_mobile')) {
+                $normalized = normalize_customer_mobile($phoneKey);
+                if (is_string($normalized) && $normalized !== '') {
+                    $phoneKey = $normalized;
+                }
+            }
+            if ($phoneKey !== '' && strlen($phoneKey) > 10) {
+                $phoneKey = substr($phoneKey, -10);
+            }
+        }
 
         $index = $this->readIndex();
         $candidates = [];
