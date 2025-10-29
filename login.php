@@ -273,16 +273,18 @@ if ($requestMethod === 'POST') {
             $user = null;
             $customerAccessDenied = false;
 
-              $rateLimitKey = $identifier;
-              if ($selectedRole === 'customer') {
-                  $sanitized = preg_replace('/\D+/', '', $identifier);
-                  if (is_string($sanitized) && $sanitized !== '') {
-                      $rateLimitKey = $sanitized;
-                  }
-              }
+            $rateLimitKey = $identifier;
+            if ($selectedRole === 'customer') {
+                $sanitized = preg_replace('/\D+/', '', $identifier);
+                if (is_string($sanitized) && $sanitized !== '') {
+                    $rateLimitKey = $sanitized;
+                } elseif ($identifier !== '') {
+                    $rateLimitKey = strtolower($identifier);
+                }
+            }
 
-              if ($db instanceof PDO && $rateLimitKey !== '') {
-                  $rateStatus = login_rate_limit_status($db, $rateLimitKey, $ipAddress, $loginPolicy);
+            if ($db instanceof PDO && $rateLimitKey !== '') {
+                $rateStatus = login_rate_limit_status($db, $rateLimitKey, $ipAddress, $loginPolicy);
                 if ($rateStatus['locked']) {
                     $minutes = max(1, (int) ceil($rateStatus['seconds_until_unlock'] / 60));
                     $error = sprintf('Too many failed login attempts. Please wait %d minute%s before trying again.', $minutes, $minutes === 1 ? '' : 's');
@@ -293,9 +295,7 @@ if ($requestMethod === 'POST') {
 
             if ($error === '' && $selectedRole === 'customer') {
                 $normalizedMobile = normalize_customer_mobile($identifier);
-                if ($normalizedMobile === '') {
-                    $customerAccessDenied = true;
-                } else {
+                if ($normalizedMobile !== '' && strlen($normalizedMobile) === 10) {
                     try {
                         if (!customer_records_can_login($normalizedMobile)) {
                             $customerAccessDenied = true;
@@ -338,7 +338,7 @@ if ($requestMethod === 'POST') {
                         $error = $customerAccessDenied
                             ? 'You are not a registered customer yet.'
                             : ($selectedRole === 'customer'
-                                ? 'The mobile number or password is incorrect, or the account is inactive.'
+                                ? 'The mobile number, login ID, or password is incorrect, or the account is inactive.'
                                 : 'The provided credentials were incorrect or the account is inactive.');
                     }
                 } else {
