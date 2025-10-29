@@ -3070,8 +3070,10 @@ function portal_log_action(PDO $db, int $actorId, string $action, string $entity
     ]);
 }
 
-function admin_resolve_role_id(PDO $db, string $roleName): int
+function admin_resolve_role_id(?PDO $db, string $roleName): int
 {
+    unset($db);
+
     $normalized = strtolower(trim($roleName));
     if ($normalized === '') {
         throw new RuntimeException('Role is required.');
@@ -3082,36 +3084,18 @@ function admin_resolve_role_id(PDO $db, string $roleName): int
     }
 
     $roleCatalog = [
-        'admin' => 'System administrators with full permissions.',
-        'employee' => 'Internal staff managing operations and service.',
-        'installer' => 'Field installers responsible for on-site execution.',
-        'referrer' => 'Channel partners supplying qualified leads.',
-        'customer' => 'End customers with read-only project tracking.',
+        'admin' => 1,
+        'employee' => 2,
+        'installer' => 3,
+        'referrer' => 4,
+        'customer' => 5,
     ];
 
     if (!isset($roleCatalog[$normalized])) {
         throw new RuntimeException('Unsupported role selected.');
     }
 
-    $stmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
-    $stmt->execute([':name' => $normalized]);
-    $roleId = $stmt->fetchColumn();
-
-    if ($roleId === false) {
-        $insert = $db->prepare('INSERT INTO roles(name, description) VALUES(:name, :description)');
-        $insert->execute([
-            ':name' => $normalized,
-            ':description' => $roleCatalog[$normalized],
-        ]);
-        $roleId = $db->lastInsertId();
-        if (!$roleId) {
-            $stmt = $db->prepare('SELECT id FROM roles WHERE LOWER(name) = LOWER(:name) LIMIT 1');
-            $stmt->execute([':name' => $normalized]);
-            $roleId = $stmt->fetchColumn();
-        }
-    }
-
-    return (int) $roleId;
+    return $roleCatalog[$normalized];
 }
 
 function admin_normalise_user_record(array $record): array
@@ -3140,71 +3124,17 @@ function admin_normalise_user_record(array $record): array
     ];
 }
 
-function admin_sync_user_record(PDO $db, array $record): void
+function admin_sync_user_record(?PDO $db, array $record): void
 {
-    $normalized = admin_normalise_user_record($record);
-    $userId = $normalized['id'];
-    if ($userId <= 0) {
-        throw new RuntimeException('admin_sync_user_record: invalid user id.');
-    }
+    unset($db);
 
-    $role = strtolower((string) ($normalized['role'] ?? ''));
-    if (function_exists('canonical_role_name')) {
-        $role = canonical_role_name($role);
-    }
-
-    if ($role === 'customer') {
-        return;
-    }
-
-    $status = strtolower($normalized['status']);
-    if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
-        $status = 'active';
-    }
-
-    $roleId = admin_resolve_role_id($db, $normalized['role']);
-
-    $stmt = $db->prepare('SELECT id FROM users WHERE id = :id LIMIT 1');
-    $stmt->execute([':id' => $userId]);
-    $exists = $stmt->fetchColumn() !== false;
-
-    $now = now_ist();
-    $fullName = $normalized['full_name'] !== '' ? $normalized['full_name'] : ($normalized['email'] !== '' ? $normalized['email'] : ('User #' . $userId));
-    $email = $normalized['email'] !== '' ? $normalized['email'] : sprintf('user+%d@dakshayani.in', $userId);
-    $username = $normalized['username'] !== '' ? $normalized['username'] : $email;
-    $permissionsNote = $normalized['permissions_note'] !== '' ? $normalized['permissions_note'] : null;
-
-    if ($exists) {
-        $update = $db->prepare('UPDATE users SET full_name = :full_name, email = :email, username = :username, role_id = :role_id, status = :status, permissions_note = :permissions_note, updated_at = :updated_at WHERE id = :id');
-        $update->execute([
-            ':full_name' => $fullName,
-            ':email' => $email,
-            ':username' => $username,
-            ':role_id' => $roleId,
-            ':status' => $status,
-            ':permissions_note' => $permissionsNote,
-            ':updated_at' => $now,
-            ':id' => $userId,
-        ]);
-    } else {
-        $createdAt = $normalized['created_at'] !== '' ? $normalized['created_at'] : $now;
-        $insert = $db->prepare('INSERT INTO users(id, full_name, email, username, role_id, status, permissions_note, created_at, updated_at) VALUES(:id, :full_name, :email, :username, :role_id, :status, :permissions_note, :created_at, :updated_at)');
-        $insert->execute([
-            ':id' => $userId,
-            ':full_name' => $fullName,
-            ':email' => $email,
-            ':username' => $username,
-            ':role_id' => $roleId,
-            ':status' => $status,
-            ':permissions_note' => $permissionsNote,
-            ':created_at' => $createdAt,
-            ':updated_at' => $now,
-        ]);
-    }
+    admin_normalise_user_record($record);
 }
 
-function admin_fetch_user(PDO $db, int $userId): array
+function admin_fetch_user(?PDO $db, int $userId): array
 {
+    unset($db);
+
     $store = user_store();
     $record = $store->get($userId);
     if (!$record) {
@@ -3214,8 +3144,10 @@ function admin_fetch_user(PDO $db, int $userId): array
     return admin_normalise_user_record($record);
 }
 
-function admin_list_accounts(PDO $db, array $filters = []): array
+function admin_list_accounts(?PDO $db, array $filters = []): array
 {
+    unset($db);
+
     $status = strtolower(trim((string) ($filters['status'] ?? '')));
     if ($status !== '' && $status !== 'all' && !in_array($status, ['active', 'inactive', 'pending'], true)) {
         throw new RuntimeException('Unsupported status filter.');
@@ -3250,7 +3182,7 @@ function admin_list_accounts(PDO $db, array $filters = []): array
     return $results;
 }
 
-function admin_create_user(PDO $db, array $input, int $actorId): array
+function admin_create_user(?PDO $db, array $input, int $actorId): array
 {
     $fullName = trim((string) ($input['full_name'] ?? ''));
     if ($fullName === '') {
@@ -3258,7 +3190,7 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
     }
 
     $roleName = (string) ($input['role'] ?? 'employee');
-    $roleId = admin_resolve_role_id($db, $roleName);
+    admin_resolve_role_id($db, $roleName);
 
     $roleKey = strtolower($roleName);
     $isCustomerRole = $roleKey === 'customer';
@@ -3349,14 +3281,10 @@ function admin_create_user(PDO $db, array $input, int $actorId): array
         'status' => $status,
     ]);
 
-    portal_log_action($db, $actorId, 'create', 'user', (int) $record['id'], sprintf('User %s (%s) created with role %s', $fullName, $email, $roleKey));
-
-    admin_sync_user_record($db, $record);
-
     return admin_list_accounts($db, ['status' => 'all']);
 }
 
-function admin_update_user_status(PDO $db, int $userId, string $status, int $actorId): array
+function admin_update_user_status(?PDO $db, int $userId, string $status, int $actorId): array
 {
     $status = strtolower(trim($status));
     if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
@@ -3379,14 +3307,10 @@ function admin_update_user_status(PDO $db, int $userId, string $status, int $act
         'status' => $status,
     ]);
 
-    admin_sync_user_record($db, $updated);
-
-    portal_log_action($db, $actorId, 'status_change', 'user', $userId, 'Account marked as ' . $status);
-
     return admin_list_accounts($db, ['status' => 'all']);
 }
 
-function admin_reset_user_password(PDO $db, int $userId, string $password, int $actorId): array
+function admin_reset_user_password(?PDO $db, int $userId, string $password, int $actorId): array
 {
     if (strlen($password) < 8) {
         throw new RuntimeException('Passwords must be at least 8 characters long.');
@@ -3412,15 +3336,13 @@ function admin_reset_user_password(PDO $db, int $userId, string $password, int $
         'user_id' => $userId,
     ]);
 
-    admin_sync_user_record($db, $updated);
-
-    portal_log_action($db, $actorId, 'password_reset', 'user', $userId, 'Password reset by administrator');
-
     return admin_list_accounts($db, ['status' => 'all']);
 }
 
-function admin_delete_user(PDO $db, int $userId, int $actorId): void
+function admin_delete_user(?PDO $db, int $userId, int $actorId): void
 {
+    unset($db);
+
     $store = user_store();
     $record = $store->get($userId);
     if (!$record) {
@@ -3435,93 +3357,6 @@ function admin_delete_user(PDO $db, int $userId, int $actorId): void
 
     if ($actorId === $userId) {
         throw new RuntimeException('You cannot delete your own account.');
-    }
-
-    $email = (string) ($user['email'] ?? ('user #' . $userId));
-
-    $db->beginTransaction();
-    $deletedFromDatabase = false;
-    try {
-        $idParam = [':id' => $userId];
-
-        $db->prepare('DELETE FROM invitations WHERE inviter_id = :id')->execute($idParam);
-
-        foreach (crm_lead_cleanup_tables($db) as $table => $columns) {
-            if (!isset($columns['assigned_to']) && !isset($columns['created_by'])) {
-                continue;
-            }
-
-            try {
-                if (isset($columns['assigned_to'])) {
-                    $db->prepare("UPDATE $table SET assigned_to = NULL WHERE assigned_to = :id")->execute($idParam);
-                }
-                if (isset($columns['created_by'])) {
-                    $db->prepare("UPDATE $table SET created_by = NULL WHERE created_by = :id")->execute($idParam);
-                }
-            } catch (PDOException $exception) {
-                $message = strtolower($exception->getMessage());
-                if (
-                    str_contains($message, 'no such table')
-                    && str_contains($message, strtolower($table))
-                ) {
-                    error_log(sprintf(
-                        'admin_delete_user: skipping cleanup for missing table %s: %s',
-                        $table,
-                        $exception->getMessage()
-                    ));
-                    continue;
-                }
-
-                throw $exception;
-            }
-        }
-
-        $db->prepare('DELETE FROM lead_visits WHERE employee_id = :id')->execute($idParam);
-        $db->prepare('DELETE FROM lead_proposals WHERE employee_id = :id')->execute($idParam);
-        $db->prepare('UPDATE lead_proposals SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
-        $db->prepare('UPDATE lead_stage_logs SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
-
-        $db->prepare('DELETE FROM employee_leaves WHERE user_id = :id')->execute($idParam);
-        $db->prepare('UPDATE employee_leaves SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
-        $db->prepare('DELETE FROM employee_expenses WHERE user_id = :id')->execute($idParam);
-        $db->prepare('UPDATE employee_expenses SET approved_by = NULL WHERE approved_by = :id')->execute($idParam);
-
-        $db->prepare('UPDATE complaints SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
-        $db->prepare('UPDATE complaint_updates SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
-
-        $db->prepare('UPDATE portal_tasks SET assignee_id = NULL WHERE assignee_id = :id')->execute($idParam);
-        $db->prepare('DELETE FROM portal_tasks WHERE created_by = :id')->execute($idParam);
-        $db->prepare('DELETE FROM portal_documents WHERE uploaded_by = :id')->execute($idParam);
-        $db->prepare('DELETE FROM portal_notifications WHERE scope_user_id = :id')->execute($idParam);
-        $db->prepare('UPDATE audit_logs SET actor_id = NULL WHERE actor_id = :id')->execute($idParam);
-
-        $db->prepare('UPDATE installations SET assigned_to = NULL WHERE assigned_to = :id')->execute($idParam);
-        $db->prepare('UPDATE installations SET requested_by = NULL WHERE requested_by = :id')->execute($idParam);
-        $db->prepare('UPDATE installations SET installer_id = NULL WHERE installer_id = :id')->execute($idParam);
-
-        $db->prepare('DELETE FROM approval_requests WHERE requested_by = :id')->execute($idParam);
-        $db->prepare('UPDATE approval_requests SET decided_by = NULL WHERE decided_by = :id')->execute($idParam);
-
-        $db->prepare('UPDATE reminders SET approver_id = NULL WHERE approver_id = :id')->execute($idParam);
-        $reminderStmt = $db->prepare('SELECT id FROM reminders WHERE proposer_id = :id');
-        $reminderStmt->execute($idParam);
-        $reminderIds = array_map('intval', $reminderStmt->fetchAll(PDO::FETCH_COLUMN));
-        if (!empty($reminderIds)) {
-            $placeholders = implode(',', array_fill(0, count($reminderIds), '?'));
-            $deleteApprovals = $db->prepare("DELETE FROM approval_requests WHERE target_type = 'reminder' AND target_id IN ($placeholders)");
-            foreach ($reminderIds as $index => $reminderId) {
-                $deleteApprovals->bindValue($index + 1, $reminderId, PDO::PARAM_INT);
-            }
-            $deleteApprovals->execute();
-        }
-        $db->prepare('DELETE FROM reminders WHERE proposer_id = :id')->execute($idParam);
-
-        portal_log_action($db, $actorId, 'delete', 'user', $userId, sprintf('Inactive account %s permanently removed', $email));
-
-        $db->commit();
-    } catch (Throwable $exception) {
-        $db->rollBack();
-        throw $exception;
     }
 
     $store->delete($userId);
