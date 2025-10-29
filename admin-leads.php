@@ -6,7 +6,6 @@ require_once __DIR__ . '/includes/bootstrap.php';
 
 require_admin();
 $admin = current_user();
-$db = get_db();
 $recordStore = null;
 try {
     $recordStore = customer_record_store();
@@ -51,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         switch ($action) {
             case 'create':
-                admin_create_lead($db, $_POST, $adminId);
+                file_admin_create_lead($_POST, $adminId);
                 set_flash('success', 'Lead created successfully.');
                 break;
             case 'records-import':
@@ -111,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'assign':
                 $leadId = (int) ($_POST['lead_id'] ?? 0);
                 $employeeId = isset($_POST['assigned_to']) && $_POST['assigned_to'] !== '' ? (int) $_POST['assigned_to'] : null;
-                admin_assign_lead($db, $leadId, $employeeId, $adminId);
+                file_admin_assign_lead($leadId, $employeeId, $adminId);
                 set_flash('success', 'Lead assignment updated.');
                 break;
             case 'update-stage':
@@ -119,27 +118,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stage = (string) ($_POST['stage'] ?? '');
                 $note = trim((string) ($_POST['note'] ?? ''));
                 if ($stage === 'lost') {
-                    admin_mark_lead_lost($db, $leadId, $adminId, $note);
+                    file_admin_mark_lead_lost($leadId, $adminId, $note);
                 } else {
-                    admin_update_lead_stage($db, $leadId, $stage, $adminId, $note);
+                    file_admin_update_lead_stage($leadId, $stage, $adminId, $note);
                 }
                 set_flash('success', 'Lead stage updated.');
-                break;
-            case 'approve-proposal':
-                $proposalId = (int) ($_POST['proposal_id'] ?? 0);
-                admin_approve_lead_proposal($db, $proposalId, $adminId);
-                set_flash('success', 'Proposal approved and lead converted.');
-                break;
-            case 'reject-proposal':
-                $proposalId = (int) ($_POST['proposal_id'] ?? 0);
-                $note = trim((string) ($_POST['review_note'] ?? ''));
-                admin_reject_lead_proposal($db, $proposalId, $adminId, $note);
-                set_flash('info', 'Proposal rejected.');
                 break;
             case 'assign-referrer':
                 $leadId = (int) ($_POST['lead_id'] ?? 0);
                 $referrerId = isset($_POST['referrer_id']) && $_POST['referrer_id'] !== '' ? (int) $_POST['referrer_id'] : null;
-                admin_assign_referrer($db, $leadId, $referrerId, $adminId);
+                file_admin_assign_referrer($leadId, $referrerId, $adminId);
                 set_flash('success', $referrerId ? 'Referrer updated for the lead.' : 'Referrer removed from the lead.');
                 break;
             case 'delete-lead':
@@ -147,7 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($leadId <= 0) {
                     throw new RuntimeException('Select a valid lead to delete.');
                 }
-                admin_delete_lead($db, $leadId, $adminId);
+                file_admin_delete_lead($leadId, $adminId);
                 set_flash('success', 'Lead deleted permanently.');
                 break;
             default:
@@ -174,8 +162,8 @@ function admin_format_datetime(?string $value): string
     }
 }
 
-$employees = admin_active_employees($db);
-$referrers = admin_active_referrers($db);
+$employees = file_admin_active_employees();
+$referrers = file_admin_active_referrers();
 $referrerLookup = [];
 foreach ($referrers as $referrerOption) {
     $referrerLookup[(int) $referrerOption['id']] = $referrerOption['name'];
@@ -183,12 +171,11 @@ foreach ($referrers as $referrerOption) {
 
 $leads = [];
 try {
-    $leads = admin_fetch_lead_overview($db);
+    $leads = file_admin_lead_overview();
 } catch (Throwable $leadLoadError) {
     error_log('Unable to load admin lead overview: ' . $leadLoadError->getMessage());
     if ($flashMessage === '') {
         $flashTone = 'error';
-        $flashIcon = $flashIcons[$flashTone];
         $flashMessage = 'Lead data is temporarily unavailable. Please try again later.';
     }
 }

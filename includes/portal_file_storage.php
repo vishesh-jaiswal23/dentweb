@@ -282,6 +282,15 @@ function file_lead_store_all(): array
             continue;
         }
         $record['id'] = isset($record['id']) ? (int) $record['id'] : (int) $key;
+        if (!isset($record['stage_history']) || !is_array($record['stage_history'])) {
+            $record['stage_history'] = [];
+        }
+        if (!isset($record['status'])) {
+            $record['status'] = 'new';
+        }
+        if (!isset($record['created_at'])) {
+            $record['created_at'] = portal_file_now();
+        }
         $records[(string) $record['id']] = $record;
     }
 
@@ -326,6 +335,411 @@ function file_lead_find(int $id): ?array
 {
     $records = file_lead_store_all();
     return $records[(string) $id] ?? null;
+}
+
+function file_lead_delete(int $id): void
+{
+    portal_file_update('leads', static function (array &$data) use ($id): void {
+        $key = (string) $id;
+        if (isset($data['records'][$key])) {
+            unset($data['records'][$key]);
+        }
+    });
+}
+
+function file_lead_stage_order(): array
+{
+    if (function_exists('lead_stage_order')) {
+        return lead_stage_order();
+    }
+
+    return [
+        'new' => 0,
+        'visited' => 1,
+        'quotation' => 2,
+        'converted' => 3,
+        'lost' => 4,
+    ];
+}
+
+function file_lead_stage_index(string $status): int
+{
+    if (function_exists('lead_stage_index')) {
+        return lead_stage_index($status);
+    }
+
+    $order = file_lead_stage_order();
+    $normalized = strtolower(trim($status));
+
+    return $order[$normalized] ?? 99;
+}
+
+function file_lead_status_label(string $status): string
+{
+    if (function_exists('lead_status_label')) {
+        return lead_status_label($status);
+    }
+
+    $labels = [
+        'new' => 'New',
+        'visited' => 'Visited',
+        'quotation' => 'Quotation',
+        'converted' => 'Converted',
+        'lost' => 'Lost',
+    ];
+
+    $normalized = strtolower(trim($status));
+
+    return $labels[$normalized] ?? ucfirst($normalized ?: 'New');
+}
+
+function file_admin_active_employees(): array
+{
+    if (!function_exists('user_store')) {
+        return [];
+    }
+
+    try {
+        $users = user_store()->listAll();
+    } catch (Throwable $exception) {
+        error_log('file_admin_active_employees: unable to list users: ' . $exception->getMessage());
+        return [];
+    }
+
+    $results = [];
+    foreach ($users as $user) {
+        $id = (int) ($user['id'] ?? 0);
+        if ($id <= 0) {
+            continue;
+        }
+
+        $role = strtolower((string) ($user['role'] ?? ''));
+        if (function_exists('canonical_role_name')) {
+            $role = canonical_role_name($role);
+        }
+        if ($role !== 'employee') {
+            continue;
+        }
+
+        $status = strtolower((string) ($user['status'] ?? 'active'));
+        if ($status !== 'active') {
+            continue;
+        }
+
+        $name = trim((string) ($user['full_name'] ?? ''));
+        if ($name === '') {
+            $name = 'User #' . $id;
+        }
+
+        $results[] = [
+            'id' => $id,
+            'name' => $name,
+        ];
+    }
+
+    usort($results, static fn (array $left, array $right): int => strcmp($left['name'], $right['name']));
+
+    return $results;
+}
+
+function file_admin_validate_employee(?int $employeeId): ?array
+{
+    if ($employeeId === null || $employeeId <= 0) {
+        return null;
+    }
+
+    $record = file_portal_find_user($employeeId);
+    if (!$record) {
+        throw new RuntimeException('Selected employee is not available.');
+    }
+
+    $role = strtolower((string) ($record['role'] ?? ($record['role_name'] ?? '')));
+    if (function_exists('canonical_role_name')) {
+        $role = canonical_role_name($role);
+    }
+    if ($role !== 'employee') {
+        throw new RuntimeException('Selected employee is not available.');
+    }
+
+    $status = strtolower((string) ($record['status'] ?? 'active'));
+    if ($status !== 'active') {
+        throw new RuntimeException('Selected employee is not available.');
+    }
+
+    return $record;
+}
+
+function file_admin_format_lead(array $record): array
+{
+    $id = (int) ($record['id'] ?? 0);
+    $status = strtolower((string) ($record['status'] ?? 'new'));
+    $createdAt = (string) ($record['created_at'] ?? '');
+    $updatedAt = (string) ($record['updated_at'] ?? ($createdAt !== '' ? $createdAt : portal_file_now()));
+    $assignedId = isset($record['assigned_to']) && $record['assigned_to'] !== null
+        ? (int) $record['assigned_to']
+        : null;
+    $assignedName = '';
+    if ($assignedId) {
+        $employee = file_portal_find_user($assignedId);
+        if ($employee) {
+            $assignedName = trim((string) ($employee['full_name'] ?? ''));
+            if ($assignedName === '') {
+                $assignedName = 'User #' . $assignedId;
+            }
+        }
+    }
+
+    $referrerId = isset($record['referrer_id']) && $record['referrer_id'] !== null
+        ? (int) $record['referrer_id']
+        : null;
+    $referrerName = '';
+    if ($referrerId) {
+        $referrer = file_referrer_find($referrerId);
+        if ($referrer) {
+            $referrerName = (string) ($referrer['name'] ?? '');
+        }
+    }
+
+    $history = [];
+    if (isset($record['stage_history']) && is_array($record['stage_history'])) {
+        foreach ($record['stage_history'] as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $history[] = [
+                'from' => strtolower((string) ($entry['from'] ?? '')),
+                'to' => strtolower((string) ($entry['to'] ?? '')),
+                'note' => $entry['note'] ?? null,
+                'changedAt' => (string) ($entry['changed_at'] ?? ''),
+                'actorId' => isset($entry['actor_id']) ? (int) $entry['actor_id'] : null,
+            ];
+        }
+    }
+
+    return [
+        'id' => $id,
+        'name' => (string) ($record['name'] ?? ''),
+        'phone' => trim((string) ($record['phone'] ?? '')),
+        'email' => trim((string) ($record['email'] ?? '')),
+        'source' => trim((string) ($record['source'] ?? '')),
+        'status' => $status,
+        'statusLabel' => file_lead_status_label($status),
+        'stageIndex' => file_lead_stage_index($status),
+        'assignedId' => $assignedId,
+        'assignedName' => $assignedName,
+        'createdById' => isset($record['created_by']) && $record['created_by'] !== null
+            ? (int) $record['created_by']
+            : null,
+        'referrerId' => $referrerId,
+        'referrerName' => $referrerName,
+        'siteLocation' => trim((string) ($record['site_location'] ?? '')),
+        'siteDetails' => trim((string) ($record['site_details'] ?? '')),
+        'notes' => (string) ($record['notes'] ?? ''),
+        'createdAt' => $createdAt,
+        'updatedAt' => $updatedAt,
+        'visits' => [],
+        'proposals' => [],
+        'hasPendingProposal' => false,
+        'pendingProposal' => null,
+        'hasApprovedProposal' => false,
+        'latestVisit' => null,
+        'history' => $history,
+    ];
+}
+
+function file_admin_lead_overview(): array
+{
+    $leads = [];
+    foreach (file_lead_store_all() as $record) {
+        $leads[] = file_admin_format_lead($record);
+    }
+
+    usort($leads, static function (array $left, array $right): int {
+        $leftStage = $left['stageIndex'] ?? 99;
+        $rightStage = $right['stageIndex'] ?? 99;
+        if ($leftStage !== $rightStage) {
+            return $leftStage <=> $rightStage;
+        }
+
+        $leftTime = $left['updatedAt'] !== '' ? $left['updatedAt'] : $left['createdAt'];
+        $rightTime = $right['updatedAt'] !== '' ? $right['updatedAt'] : $right['createdAt'];
+
+        return strcmp($rightTime, $leftTime);
+    });
+
+    return $leads;
+}
+
+function file_admin_create_lead(array $input, int $actorId): array
+{
+    $name = trim((string) ($input['name'] ?? ''));
+    if ($name === '') {
+        throw new RuntimeException('Lead name is required.');
+    }
+
+    $phone = trim((string) ($input['phone'] ?? ''));
+    if ($phone !== '') {
+        $digits = preg_replace('/\D+/', '', $phone);
+        if (!is_string($digits)) {
+            $digits = '';
+        }
+        if ($digits !== '') {
+            $phone = $digits;
+        }
+    } else {
+        $phone = null;
+    }
+
+    $email = trim((string) ($input['email'] ?? ''));
+    if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('Enter a valid email address.');
+    }
+
+    $source = trim((string) ($input['source'] ?? 'Admin Portal'));
+    $siteLocation = trim((string) ($input['site_location'] ?? ''));
+    $siteDetails = trim((string) ($input['site_details'] ?? ''));
+    $notes = trim((string) ($input['notes'] ?? ''));
+
+    $assignedTo = null;
+    if (isset($input['assigned_to']) && $input['assigned_to'] !== '') {
+        $assignedTo = (int) $input['assigned_to'];
+    }
+    $employee = null;
+    if ($assignedTo !== null) {
+        $employee = file_admin_validate_employee($assignedTo);
+    }
+
+    $referrerId = isset($input['referrer_id']) && $input['referrer_id'] !== ''
+        ? (int) $input['referrer_id']
+        : null;
+    if ($referrerId !== null && $referrerId > 0) {
+        file_referrer_with_metrics($referrerId);
+    } else {
+        $referrerId = null;
+    }
+
+    $timestamp = portal_file_now();
+    $record = file_lead_create([
+        'name' => $name,
+        'phone' => $phone,
+        'email' => $email !== '' ? $email : null,
+        'source' => $source !== '' ? $source : 'Admin Portal',
+        'status' => 'new',
+        'assigned_to' => $assignedTo,
+        'referrer_id' => $referrerId,
+        'site_location' => $siteLocation !== '' ? $siteLocation : null,
+        'site_details' => $siteDetails !== '' ? $siteDetails : null,
+        'notes' => $notes !== '' ? $notes : null,
+        'created_at' => $timestamp,
+        'updated_at' => $timestamp,
+        'created_by' => $actorId > 0 ? $actorId : null,
+        'updated_by' => $actorId > 0 ? $actorId : null,
+        'stage_history' => [],
+    ]);
+
+    if ($referrerId) {
+        file_referrer_touch_lead($referrerId);
+    }
+
+    if ($employee) {
+        $record['assigned_to'] = (int) ($employee['id'] ?? $assignedTo);
+    }
+
+    return file_admin_format_lead($record);
+}
+
+function file_admin_assign_lead(int $leadId, ?int $employeeId, int $actorId): array
+{
+    $employee = file_admin_validate_employee($employeeId);
+
+    $record = portal_file_update('leads', static function (array &$data) use ($leadId, $employeeId, $actorId): array {
+        $key = (string) $leadId;
+        if (!isset($data['records'][$key]) || !is_array($data['records'][$key])) {
+            throw new RuntimeException('Lead not found.');
+        }
+
+        $record = $data['records'][$key];
+        $record['assigned_to'] = $employeeId ?: null;
+        $record['updated_at'] = portal_file_now();
+        $record['updated_by'] = $actorId > 0 ? $actorId : null;
+        $data['records'][$key] = $record;
+
+        return $record;
+    });
+
+    return file_admin_format_lead($record);
+}
+
+function file_admin_update_lead_stage(int $leadId, string $targetStage, int $actorId, string $note = ''): array
+{
+    $allowed = array_keys(file_lead_stage_order());
+    $target = strtolower(trim($targetStage));
+    if (!in_array($target, $allowed, true)) {
+        throw new RuntimeException('Unsupported lead stage.');
+    }
+
+    $record = portal_file_update('leads', static function (array &$data) use ($leadId, $target, $actorId, $note): array {
+        $key = (string) $leadId;
+        if (!isset($data['records'][$key]) || !is_array($data['records'][$key])) {
+            throw new RuntimeException('Lead not found.');
+        }
+
+        $record = $data['records'][$key];
+        $current = strtolower((string) ($record['status'] ?? 'new'));
+        if ($current === $target) {
+            return $record;
+        }
+
+        if (in_array($current, ['converted', 'lost'], true)) {
+            throw new RuntimeException('Finalized leads cannot change stages.');
+        }
+
+        $history = isset($record['stage_history']) && is_array($record['stage_history'])
+            ? $record['stage_history']
+            : [];
+        $history[] = [
+            'from' => $current,
+            'to' => $target,
+            'note' => $note !== '' ? $note : null,
+            'actor_id' => $actorId > 0 ? $actorId : null,
+            'changed_at' => portal_file_now(),
+        ];
+        $record['stage_history'] = array_slice($history, -20);
+        $record['status'] = $target;
+        if ($target === 'converted') {
+            $record['lead_status'] = 'converted';
+        }
+        $record['updated_at'] = portal_file_now();
+        $record['updated_by'] = $actorId > 0 ? $actorId : null;
+        $data['records'][$key] = $record;
+
+        return $record;
+    });
+
+    return file_admin_format_lead($record);
+}
+
+function file_admin_mark_lead_lost(int $leadId, int $actorId, string $note = ''): array
+{
+    return file_admin_update_lead_stage($leadId, 'lost', $actorId, $note);
+}
+
+function file_admin_delete_lead(int $leadId, int $actorId): void
+{
+    $lead = file_lead_find($leadId);
+    if (!$lead) {
+        throw new RuntimeException('Lead not found.');
+    }
+
+    file_lead_delete($leadId);
+
+    if (!empty($lead['referrer_id'])) {
+        try {
+            file_referrer_with_metrics((int) $lead['referrer_id']);
+        } catch (Throwable $exception) {
+            error_log('file_admin_delete_lead: unable to refresh referrer metrics: ' . $exception->getMessage());
+        }
+    }
 }
 
 function file_lead_metrics_for_referrer(int $referrerId): array
