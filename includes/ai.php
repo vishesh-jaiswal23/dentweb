@@ -945,11 +945,19 @@ function ai_generate_blog_draft_from_prompt(string $prompt, int $actorId): array
     ];
 
     $saved = ai_save_blog_draft($payload, 0);
-    ai_generate_image_for_draft($saved['id'], 0);
+
+    $artworkGenerated = true;
+    try {
+        ai_generate_image_for_draft($saved['id'], 0);
+    } catch (Throwable $exception) {
+        $artworkGenerated = false;
+        error_log('AI Studio draft image skipped: ' . $exception->getMessage());
+    }
 
     return [
         'draft_id' => $saved['id'],
         'title' => $content['title'],
+        'artwork_generated' => $artworkGenerated,
     ];
 }
 
