@@ -19,7 +19,7 @@
         hintEl.textContent = 'Employees can sign in only after Admin approves their account.';
         break;
       case 'customer':
-        hintEl.textContent = 'Customers must enter their registered mobile number and password to access updates.';
+        hintEl.textContent = 'Customers can sign in with their registered mobile number or login ID and password.';
         break;
       default:
         hintEl.textContent = 'Use your assigned credentials to access the selected portal.';
@@ -29,20 +29,20 @@
   function configureIdentifier(role) {
     if (!identifierInput || !identifierLabel) return;
 
+    identifierInput.removeAttribute('pattern');
+
     if (role === 'customer') {
-      identifierLabel.textContent = 'Mobile number';
-      identifierInput.type = 'tel';
-      identifierInput.placeholder = 'Enter registered mobile number';
-      identifierInput.setAttribute('inputmode', 'tel');
-      identifierInput.setAttribute('autocomplete', 'tel');
-      identifierInput.setAttribute('pattern', '[0-9+()\-\s]{6,}');
+      identifierLabel.textContent = 'Mobile number or Login ID';
+      identifierInput.type = 'text';
+      identifierInput.placeholder = 'Enter registered mobile number or login ID';
+      identifierInput.setAttribute('inputmode', 'text');
+      identifierInput.setAttribute('autocomplete', 'username');
     } else {
       identifierLabel.textContent = 'Email ID';
       identifierInput.type = 'email';
       identifierInput.placeholder = 'you@example.com';
       identifierInput.setAttribute('inputmode', 'email');
       identifierInput.setAttribute('autocomplete', 'email');
-      identifierInput.removeAttribute('pattern');
     }
   }
 
