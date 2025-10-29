@@ -755,7 +755,7 @@ final class FileUserStore
                         ? $this->normaliseUsername($metadata['username'])
                         : null,
                     'phone' => isset($metadata['phone']) && $metadata['phone'] !== ''
-                        ? preg_replace('/\D+/', '', (string) $metadata['phone'])
+                        ? $this->normalisePhone($metadata['phone'])
                         : null,
                     'role' => isset($metadata['role']) ? $this->normaliseRole((string) $metadata['role']) : 'employee',
                     'status' => isset($metadata['status']) ? $this->normaliseStatus((string) $metadata['status']) : 'active',
@@ -769,7 +769,10 @@ final class FileUserStore
         foreach ([
             'email_to_id' => static fn ($value): string => strtolower(trim((string) $value)),
             'username_to_id' => static fn ($value): string => strtolower(trim((string) $value)),
-            'phone_to_id' => static fn ($value): string => preg_replace('/\D+/', '', (string) $value) ?? '',
+            'phone_to_id' => function ($value): string {
+                $normalised = $this->normalisePhone($value);
+                return $normalised ?? '';
+            },
         ] as $mapName => $normaliser) {
             if (!isset($index[$mapName]) || !is_array($index[$mapName])) {
                 continue;
@@ -829,7 +832,17 @@ final class FileUserStore
         if (!is_string($digits)) {
             return null;
         }
-        return $digits === '' ? null : $digits;
+
+        $digits = trim($digits);
+        if ($digits === '') {
+            return null;
+        }
+
+        if (strlen($digits) > 10) {
+            $digits = substr($digits, -10);
+        }
+
+        return $digits;
     }
 
     private function normaliseUsername($username): ?string
