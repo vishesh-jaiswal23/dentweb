@@ -59,7 +59,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'generate-draft':
                 $prompt = trim((string) ($_POST['prompt'] ?? ''));
                 $result = ai_generate_blog_draft_from_prompt($prompt, $adminId);
-                set_flash('success', sprintf('Draft "%s" generated with artwork and saved for review.', $result['title']));
+                $message = sprintf('Draft "%s" generated and saved for review.', $result['title']);
+                if (!empty($result['artwork_generated'])) {
+                    $message .= ' Artwork attached automatically.';
+                } else {
+                    $message .= ' Add cover art later once image settings are ready.';
+                }
+                set_flash('success', $message);
                 $activeTab = 'generator';
                 $draftId = $result['draft_id'] ?? '';
                 break;
