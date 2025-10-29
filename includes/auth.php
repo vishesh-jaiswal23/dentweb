@@ -207,6 +207,13 @@ function normalize_customer_mobile(string $value): string
     }
 
     $digits = trim($digits);
+    if ($digits === '') {
+        return '';
+    }
+
+    if (strlen($digits) > 10) {
+        $digits = substr($digits, -10);
+    }
 
     return $digits;
 }
