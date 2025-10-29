@@ -59,6 +59,7 @@ final class CustomerRecordStore
     private string $basePath;
     private string $dataPath;
     private string $lockPath;
+    private string $credentialsPath;
 
     /** @var resource|null */
     private $lockHandle = null;
@@ -68,6 +69,7 @@ final class CustomerRecordStore
         $this->basePath = $basePath ?? (__DIR__ . '/../storage/customer-records');
         $this->dataPath = $this->basePath . '/records.json';
         $this->lockPath = $this->basePath . '/records.lock';
+        $this->credentialsPath = $this->basePath . '/portal-credentials.log';
 
         $this->initialiseFilesystem();
     }
@@ -150,6 +152,8 @@ final class CustomerRecordStore
                     $existingId = $data['mobile_index'][$record['mobile_normalized']] ?? null;
                 }
 
+                $existing = null;
+                $wasCustomer = false;
                 if ($existingId !== null) {
                     $record['id'] = (int) $existingId;
                     $existing = $data['records'][(string) $existingId] ?? [];
@@ -161,6 +165,7 @@ final class CustomerRecordStore
                         unset($data['mobile_index'][$previousMobile]);
                     }
                     $summary['updated']++;
+                    $wasCustomer = strtolower((string) ($existing['record_type'] ?? '')) === self::TYPE_CUSTOMER;
                 } else {
                     $data['last_id']++;
                     $record['id'] = $data['last_id'];
@@ -173,6 +178,8 @@ final class CustomerRecordStore
                 } else {
                     $summary['leads']++;
                 }
+
+                $record = $this->ensureCustomerPortalAccount($record, $wasCustomer);
 
                 $data['records'][(string) $record['id']] = $record;
                 if ($record['mobile_normalized'] !== '') {
@@ -519,6 +526,125 @@ final class CustomerRecordStore
             }
             fclose($handle);
         }
+
+        if (!is_file($this->credentialsPath)) {
+            touch($this->credentialsPath);
+        }
+    }
+
+    private function ensureCustomerPortalAccount(array $record, bool $alreadyCustomer): array
+    {
+        if (strtolower((string) ($record['record_type'] ?? '')) !== self::TYPE_CUSTOMER) {
+            return $record;
+        }
+
+        if ($alreadyCustomer) {
+            return $record;
+        }
+
+        if (!function_exists('user_store')) {
+            return $record;
+        }
+
+        $mobile = (string) ($record['mobile_normalized'] ?? '');
+        if ($mobile === '') {
+            return $record;
+        }
+
+        try {
+            $store = user_store();
+        } catch (Throwable $exception) {
+            error_log('CustomerRecordStore: unable to open user store: ' . $exception->getMessage());
+            return $record;
+        }
+
+        try {
+            if (method_exists($store, 'findByLoginIdentifier')) {
+                $existing = $store->findByLoginIdentifier($mobile, 'customer');
+                if (is_array($existing)) {
+                    return $record;
+                }
+            }
+        } catch (Throwable $exception) {
+            error_log('CustomerRecordStore: unable to check existing customer login: ' . $exception->getMessage());
+        }
+
+        $fullName = trim((string) ($record['full_name'] ?? ''));
+        if ($fullName === '') {
+            $fullName = 'Customer ' . substr($mobile, -4);
+        }
+
+        $nameSlug = strtolower(preg_replace('/[^a-z]/', '', $fullName));
+        if ($nameSlug === '') {
+            $nameSlug = 'customer';
+        }
+        $base = substr($nameSlug, 0, 6);
+        if ($base === '') {
+            $base = 'cust';
+        }
+        $mobileSuffix = substr($mobile, -4);
+        if ($mobileSuffix === '') {
+            $mobileSuffix = substr(str_pad('', 4, '7'), 0, 4);
+        }
+
+        $candidate = $base . $mobileSuffix;
+        $suffix = 1;
+        try {
+            while ($store->findByIdentifier($candidate) !== null) {
+                $candidate = $base . $mobileSuffix . $suffix;
+                $suffix++;
+            }
+        } catch (Throwable $exception) {
+            error_log('CustomerRecordStore: unable to ensure unique username: ' . $exception->getMessage());
+        }
+        $username = $candidate;
+
+        $passwordSeed = substr($nameSlug, 0, 3);
+        if (strlen($passwordSeed) < 3) {
+            $passwordSeed = str_pad($passwordSeed, 3, 'x');
+        }
+        $password = ucfirst($passwordSeed) . '@' . $mobileSuffix;
+        if (strlen($password) < 8) {
+            $password .= substr(strrev($mobile), 0, 8 - strlen($password));
+        }
+
+        try {
+            $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+            $store->save([
+                'full_name' => $fullName,
+                'username' => $username,
+                'phone' => $mobile,
+                'role' => 'customer',
+                'status' => 'active',
+                'password_hash' => $passwordHash,
+                'permissions_note' => 'Auto-created from customer records import',
+            ]);
+        } catch (Throwable $exception) {
+            error_log('CustomerRecordStore: failed to provision customer login: ' . $exception->getMessage());
+            return $record;
+        }
+
+        $record['portal_username'] = $username;
+        $record['portal_account_created_at'] = $this->now();
+        $this->logCustomerCredential($record, $username, $password);
+
+        return $record;
+    }
+
+    private function logCustomerCredential(array $record, string $username, string $password): void
+    {
+        $timestamp = $this->now();
+        $id = isset($record['id']) ? (int) $record['id'] : 0;
+        $line = sprintf(
+            "%s\tID:%s\t%s\t%s\t%s\n",
+            $timestamp,
+            $id > 0 ? (string) $id : '-',
+            (string) ($record['full_name'] ?? ''),
+            $username,
+            $password
+        );
+
+        file_put_contents($this->credentialsPath, $line, FILE_APPEND | LOCK_EX);
     }
 
     private function defaultData(): array
