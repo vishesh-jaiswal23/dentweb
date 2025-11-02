@@ -479,7 +479,6 @@ function appendAdminActivity(activity) {
     const stopSaveButton = document.getElementById('ai-stop-save');
     const discardButton = document.getElementById('ai-discard');
     const generateButton = generateDraftForm.querySelector('button[value="generate-draft"]');
-    let draftId = '';
 
     livePreviewContainer.style.display = 'block';
     livePreviewContent.innerHTML = '';
@@ -505,11 +504,6 @@ function appendAdminActivity(activity) {
 
     discardButton.onclick = () => {
       controller.abort();
-      fetch('api/admin.php?action=discard-streamed-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draftId }),
-      });
       livePreviewContainer.style.display = 'none';
     };
 
@@ -561,7 +555,6 @@ function appendAdminActivity(activity) {
           const data = JSON.parse(eventData);
 
           if (eventName === 'start') {
-            draftId = data.draftId;
             liveStatus.textContent = 'Live';
             liveStatus.insertAdjacentHTML('afterend', '<span class="ai-status-badge" id="ai-unverified-badge">Preview (Unverified)</span>');
           } else if (eventName === 'chunk' && !isPaused) {
