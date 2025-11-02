@@ -107,6 +107,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     : 'Record status updated.';
                 set_flash('success', $statusMessage);
                 break;
+            case 'records-bulk-update-status':
+                if (!$recordStore instanceof CustomerRecordStore) {
+                    throw new RuntimeException('Customer record storage is not available.');
+                }
+
+                $statusInput = isset($_POST['installation_status']) && is_string($_POST['installation_status'])
+                    ? $_POST['installation_status']
+                    : '';
+
+                $scope = isset($_POST['apply_scope']) && is_string($_POST['apply_scope'])
+                    ? strtolower(trim($_POST['apply_scope']))
+                    : 'selected';
+
+                if ($scope === 'all') {
+                    $records = $recordStore->leads();
+                    $recordIds = array_map(
+                        static fn (array $record): int => (int) ($record['id'] ?? 0),
+                        $records
+                    );
+                } else {
+                    $recordIds = isset($_POST['record_ids']) && is_array($_POST['record_ids'])
+                        ? $_POST['record_ids']
+                        : [];
+                }
+
+                $summary = $recordStore->updateInstallationStatuses($recordIds, $statusInput);
+                if ((int) ($summary['updated'] ?? 0) <= 0) {
+                    throw new RuntimeException('No matching records were updated.');
+                }
+
+                $messageParts = [];
+                $updatedCount = (int) $summary['updated'];
+                $messageParts[] = sprintf('%d record%s updated', $updatedCount, $updatedCount === 1 ? '' : 's');
+
+                $movedCustomers = (int) ($summary['moved_to_customers'] ?? 0);
+                if ($movedCustomers > 0) {
+                    $messageParts[] = sprintf('%d moved to customers', $movedCustomers);
+                }
+
+                $movedLeads = (int) ($summary['moved_to_leads'] ?? 0);
+                if ($movedLeads > 0) {
+                    $messageParts[] = sprintf('%d moved back to leads', $movedLeads);
+                }
+
+                $missingCount = is_array($summary['missing'] ?? null) ? count($summary['missing']) : 0;
+                if ($missingCount > 0) {
+                    $messageParts[] = sprintf('%d skipped', $missingCount);
+                }
+
+                set_flash('success', implode(', ', $messageParts) . '.');
+                break;
             case 'assign':
                 $leadId = (int) ($_POST['lead_id'] ?? 0);
                 $employeeId = isset($_POST['assigned_to']) && $_POST['assigned_to'] !== '' ? (int) $_POST['assigned_to'] : null;
@@ -282,58 +333,101 @@ $stageOptions = [
         </p>
       </form>
 
-      <div class="admin-table-wrapper" aria-live="polite">
-        <table class="admin-table">
-          <caption class="sr-only">Leads &amp; Non-Customer records uploaded via CSV</caption>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Mobile</th>
-              <th scope="col">District</th>
-              <th scope="col">Lead status</th>
-              <th scope="col">Installation</th>
-              <th scope="col">Updated</th>
-              <th scope="col" class="admin-table__actions">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <?php if (empty($recordLeads)): ?>
-            <tr>
-              <td colspan="7">
-                <p class="admin-empty">No CSV-based leads recorded yet. Import a leads CSV to populate this list.</p>
-              </td>
-            </tr>
-            <?php else: ?>
-            <?php foreach ($recordLeads as $record): ?>
-            <tr>
-              <td data-label="Name"><?= htmlspecialchars($record['full_name'] ?? '', ENT_QUOTES) ?></td>
-              <td data-label="Mobile"><?= htmlspecialchars($record['mobile_number'] ?? '', ENT_QUOTES) ?></td>
-              <td data-label="District"><?= htmlspecialchars($record['district'] ?? '', ENT_QUOTES) ?></td>
-              <td data-label="Lead status"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($record['lead_status'] ?? ''))), ENT_QUOTES) ?></td>
-              <td data-label="Installation"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($record['installation_status'] ?? 'pending'))), ENT_QUOTES) ?></td>
-              <td data-label="Updated"><?= htmlspecialchars(admin_format_datetime($record['updated_at'] ?? ''), ENT_QUOTES) ?></td>
-              <td class="admin-table__actions" data-label="Actions">
-                <form method="post" class="admin-inline-form" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>">
-                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
-                  <input type="hidden" name="action" value="records-update-status" />
-                  <input type="hidden" name="record_id" value="<?= (int) ($record['id'] ?? 0) ?>" />
-                  <label class="sr-only" for="record-status-<?= (int) ($record['id'] ?? 0) ?>">Installation status</label>
-                  <select name="installation_status" id="record-status-<?= (int) ($record['id'] ?? 0) ?>">
-                    <?php foreach ($installationStatusOptions as $statusValue => $statusLabel): ?>
-                    <option value="<?= htmlspecialchars($statusValue, ENT_QUOTES) ?>"<?= strtolower((string) ($record['installation_status'] ?? '')) === $statusValue ? ' selected' : '' ?>>
-                      <?= htmlspecialchars($statusLabel, ENT_QUOTES) ?>
-                    </option>
-                    <?php endforeach; ?>
-                  </select>
-                  <button type="submit" class="btn btn-ghost btn-xs">Update</button>
-                </form>
-              </td>
-            </tr>
-            <?php endforeach; ?>
-            <?php endif; ?>
-          </tbody>
-        </table>
-      </div>
+      <form
+        method="post"
+        action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>"
+        class="admin-records-bulk-form js-records-bulk-form"
+      >
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+        <input type="hidden" name="action" value="records-bulk-update-status" />
+        <div class="admin-records-bulk-controls">
+          <label>
+            Installation status
+            <select name="installation_status" required>
+              <?php foreach ($installationStatusOptions as $statusValue => $statusLabel): ?>
+              <option value="<?= htmlspecialchars($statusValue, ENT_QUOTES) ?>"><?= htmlspecialchars($statusLabel, ENT_QUOTES) ?></option>
+              <?php endforeach; ?>
+            </select>
+          </label>
+          <div class="admin-records-bulk-buttons" role="group" aria-label="Bulk update scope">
+            <button
+              type="submit"
+              class="btn btn-secondary btn-xs"
+              name="apply_scope"
+              value="selected"
+              data-bulk-target="selected"
+              disabled
+            >
+              Update selected
+            </button>
+            <button type="submit" class="btn btn-secondary btn-xs" name="apply_scope" value="all">Update all</button>
+          </div>
+        </div>
+        <div class="admin-table-wrapper" aria-live="polite">
+          <table class="admin-table">
+            <caption class="sr-only">Leads &amp; Non-Customer records uploaded via CSV</caption>
+            <thead>
+              <tr>
+                <th scope="col" class="admin-table__select">
+                  <span class="sr-only">Select all</span>
+                  <input type="checkbox" data-action="toggle-all-records" aria-label="Select all records" />
+                </th>
+                <th scope="col">Name</th>
+                <th scope="col">Mobile</th>
+                <th scope="col">District</th>
+                <th scope="col">Lead status</th>
+                <th scope="col">Installation</th>
+                <th scope="col">Updated</th>
+                <th scope="col" class="admin-table__actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($recordLeads)): ?>
+              <tr>
+                <td colspan="8">
+                  <p class="admin-empty">No CSV-based leads recorded yet. Import a leads CSV to populate this list.</p>
+                </td>
+              </tr>
+              <?php else: ?>
+              <?php foreach ($recordLeads as $record): ?>
+              <tr>
+                <td class="admin-table__select" data-label="Select">
+                  <input
+                    type="checkbox"
+                    name="record_ids[]"
+                    value="<?= (int) ($record['id'] ?? 0) ?>"
+                    aria-label="Select <?= htmlspecialchars($record['full_name'] ?? 'record', ENT_QUOTES) ?>"
+                  />
+                </td>
+                <td data-label="Name"><?= htmlspecialchars($record['full_name'] ?? '', ENT_QUOTES) ?></td>
+                <td data-label="Mobile"><?= htmlspecialchars($record['mobile_number'] ?? '', ENT_QUOTES) ?></td>
+                <td data-label="District"><?= htmlspecialchars($record['district'] ?? '', ENT_QUOTES) ?></td>
+                <td data-label="Lead status"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($record['lead_status'] ?? ''))), ENT_QUOTES) ?></td>
+                <td data-label="Installation"><?= htmlspecialchars(ucwords(str_replace('_', ' ', (string) ($record['installation_status'] ?? 'pending'))), ENT_QUOTES) ?></td>
+                <td data-label="Updated"><?= htmlspecialchars(admin_format_datetime($record['updated_at'] ?? ''), ENT_QUOTES) ?></td>
+                <td class="admin-table__actions" data-label="Actions">
+                  <form method="post" class="admin-inline-form" action="<?= htmlspecialchars($leadsPath, ENT_QUOTES) ?>">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
+                    <input type="hidden" name="action" value="records-update-status" />
+                    <input type="hidden" name="record_id" value="<?= (int) ($record['id'] ?? 0) ?>" />
+                    <label class="sr-only" for="record-status-<?= (int) ($record['id'] ?? 0) ?>">Installation status</label>
+                    <select name="installation_status" id="record-status-<?= (int) ($record['id'] ?? 0) ?>">
+                      <?php foreach ($installationStatusOptions as $statusValue => $statusLabel): ?>
+                      <option value="<?= htmlspecialchars($statusValue, ENT_QUOTES) ?>"<?= strtolower((string) ($record['installation_status'] ?? '')) === $statusValue ? ' selected' : '' ?>>
+                        <?= htmlspecialchars($statusLabel, ENT_QUOTES) ?>
+                      </option>
+                      <?php endforeach; ?>
+                    </select>
+                    <button type="submit" class="btn btn-ghost btn-xs">Update</button>
+                  </form>
+                </td>
+              </tr>
+              <?php endforeach; ?>
+              <?php endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </form>
 
       <div class="admin-table-wrapper" aria-live="polite">
         <table class="admin-table">
@@ -616,5 +710,73 @@ $stageOptions = [
       <?php endif; ?>
     </section>
   </main>
+  <script>
+    (function () {
+      const form = document.querySelector('.js-records-bulk-form');
+      if (!form) {
+        return;
+      }
+
+      const selectAll = form.querySelector('[data-action="toggle-all-records"]');
+      const updateSelectedButton = form.querySelector('[data-bulk-target="selected"]');
+
+      const getCheckboxes = function () {
+        return Array.from(form.querySelectorAll('input[name="record_ids[]"]'));
+      };
+
+      const syncState = function () {
+        const checkboxes = getCheckboxes();
+        const checked = checkboxes.filter(function (checkbox) {
+          return checkbox.checked;
+        });
+
+        if (updateSelectedButton) {
+          updateSelectedButton.disabled = checked.length === 0;
+        }
+
+        if (selectAll) {
+          if (checkboxes.length === 0) {
+            selectAll.checked = false;
+            selectAll.indeterminate = false;
+          } else if (checked.length === checkboxes.length) {
+            selectAll.checked = true;
+            selectAll.indeterminate = false;
+          } else if (checked.length === 0) {
+            selectAll.checked = false;
+            selectAll.indeterminate = false;
+          } else {
+            selectAll.checked = false;
+            selectAll.indeterminate = true;
+          }
+        }
+
+        checkboxes.forEach(function (checkbox) {
+          const row = checkbox.closest('tr');
+          if (!row) {
+            return;
+          }
+          row.classList.toggle('is-selected', checkbox.checked);
+        });
+      };
+
+      if (selectAll) {
+        selectAll.addEventListener('change', function () {
+          const checkboxes = getCheckboxes();
+          checkboxes.forEach(function (checkbox) {
+            checkbox.checked = selectAll.checked;
+          });
+          syncState();
+        });
+      }
+
+      form.addEventListener('change', function (event) {
+        if (event.target && event.target.matches('input[name="record_ids[]"]')) {
+          syncState();
+        }
+      });
+
+      syncState();
+    })();
+  </script>
 </body>
 </html>

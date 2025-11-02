@@ -11316,6 +11316,51 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   word-break: break-word;
 }
 
+.admin-records-bulk-form {
+  margin-bottom: 1.25rem;
+}
+
+.admin-records-bulk-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.admin-records-bulk-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--base-600, #475569);
+}
+
+.admin-records-bulk-controls select {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+  min-width: 180px;
+}
+
+.admin-records-bulk-buttons {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.admin-table__select {
+  width: 3.5rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.admin-table__select input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+}
+
 .admin-table tbody tr:last-child td {
   border-bottom: none;
 }
@@ -11651,6 +11696,15 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 
   .admin-table td:last-of-type {
     padding-bottom: 0;
+  }
+
+  .admin-table__select {
+    width: auto;
+    text-align: left;
+  }
+
+  .admin-table__select input[type='checkbox'] {
+    margin-top: 0.35rem;
   }
 
   .admin-table td[colspan] {
