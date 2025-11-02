@@ -170,6 +170,9 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
 
     $httpHeaders = array_merge(['Content-Type: application/json', 'Accept: application/json'], array_values($headers));
 
+    $responseBody = '';
+    $statusCode = 0;
+
     if (function_exists('curl_init')) {
         $handle = curl_init($url);
         if ($handle === false) {
@@ -185,7 +188,7 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
         if ($responseBody === false) {
             $error = curl_error($handle);
             curl_close($handle);
-            throw new RuntimeException('Gemini request failed: ' . ($error !== '' ? $error : 'unknown error'));
+            throw new RuntimeException('Network timeout or connection error. Please retry.');
         }
 
         $statusCode = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
@@ -197,15 +200,14 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
                 'header' => implode("\r\n", $httpHeaders),
                 'content' => $body,
                 'timeout' => 45,
+                'ignore_errors' => true,
             ],
         ]);
         $responseBody = @file_get_contents($url, false, $context);
         if ($responseBody === false) {
-            $error = error_get_last();
-            throw new RuntimeException('Gemini request failed: ' . ($error['message'] ?? 'network error'));
+            throw new RuntimeException('Network timeout or connection error. Please retry.');
         }
 
-        $statusCode = 0;
         if (isset($http_response_header) && is_array($http_response_header)) {
             foreach ($http_response_header as $headerLine) {
                 if (preg_match('/^HTTP\/\S+\s+(\d+)/', (string) $headerLine, $matches)) {
@@ -216,13 +218,26 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
         }
     }
 
-    if ($statusCode < 200 || $statusCode >= 300) {
-        throw new RuntimeException(sprintf('Gemini API responded with HTTP %d.', $statusCode));
+    if ($statusCode !== 200) {
+        switch ($statusCode) {
+            case 400:
+                throw new RuntimeException('Invalid request. Check the model name.');
+            case 401:
+            case 403:
+                throw new RuntimeException('Permission denied. Check your API key.');
+            case 429:
+                throw new RuntimeException('Quota exceeded or rate limited. Please try again later.');
+            case 500:
+            case 503:
+                throw new RuntimeException('The model provider is temporarily unavailable. Please try again later.');
+            default:
+                throw new RuntimeException("The model provider returned an unexpected error (HTTP {$statusCode}).");
+        }
     }
 
     $decoded = json_decode((string) $responseBody, true);
     if (!is_array($decoded)) {
-        throw new RuntimeException('Gemini API returned an unexpected response.');
+        throw new RuntimeException('The model returned an invalid JSON response.');
     }
 
     if (isset($decoded['error'])) {
@@ -235,13 +250,48 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
 
 function ai_gemini_generate_content(string $model, array $payload, string $apiKey): array
 {
-    $url = sprintf(
-        'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s',
-        rawurlencode($model),
-        urlencode($apiKey)
-    );
+    $urlTemplate = 'https://generativelanguage.googleapis.com/v1beta/models/%s:%s?key=%s';
+    $maxRetries = 2;
+    $lastException = null;
 
-    return ai_http_post_json($url, $payload);
+    // First, try the streaming endpoint
+    $streamingUrl = sprintf($urlTemplate, rawurlencode($model), 'streamGenerateContent', urlencode($apiKey));
+    for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
+        try {
+            $response = ai_http_post_json($streamingUrl, $payload);
+            if (!empty($response['candidates'])) {
+                $text = ai_extract_text_from_gemini($response);
+                if ($text !== '') {
+                    return $response;
+                }
+            }
+            $lastException = new RuntimeException('Gemini API returned a successful but empty streaming response.');
+        } catch (Throwable $exception) {
+            $lastException = $exception;
+        }
+        if ($attempt < $maxRetries) usleep(500000);
+    }
+
+    // Fallback to the non-streaming endpoint
+    $nonStreamingUrl = sprintf($urlTemplate, rawurlencode($model), 'generateContent', urlencode($apiKey));
+    try {
+        $response = ai_http_post_json($nonStreamingUrl, $payload);
+        if (!empty($response['candidates'])) {
+            $text = ai_extract_text_from_gemini($response);
+            if ($text !== '') {
+                return $response;
+            }
+        }
+         throw new RuntimeException('Gemini API returned a successful but empty non-streaming response.');
+    } catch (Throwable $exception) {
+        $lastException = $exception;
+    }
+
+    throw new RuntimeException(
+        'The model did not respond after multiple attempts. Please retry or check API key.',
+        0,
+        $lastException
+    );
 }
 
 function ai_extract_text_from_gemini(array $response): string
@@ -255,7 +305,7 @@ function ai_extract_text_from_gemini(array $response): string
         foreach ($parts as $part) {
             if (isset($part['text']) && is_string($part['text'])) {
                 $text = trim($part['text']);
-                if ($text !== '') {
+                if (strlen($text) > 10) {
                     return $text;
                 }
             }
@@ -875,13 +925,19 @@ TEXT;
 
     try {
         $response = ai_gemini_generate_content($model, $payload, $apiKey);
-        if (empty($response['candidates'])) {
-            throw new RuntimeException('API returned no candidates. Check model compatibility.');
-        }
         $status = 'success';
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
-        throw $exception;
+        ai_log_activity('generate_draft_failed', [
+            'model' => $model,
+            'error' => $error,
+            'prompt_length' => strlen($normalizedPrompt),
+        ]);
+        throw new RuntimeException(
+            'The model did not respond as expected. Please try again or check your API key.',
+            0,
+            $exception
+        );
     } finally {
         $latency = microtime(true) - $startTime;
         if (isset($response['usageMetadata'])) {
