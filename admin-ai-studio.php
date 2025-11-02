@@ -51,24 +51,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ai_save_settings($_POST, $adminId);
                 set_flash('success', 'AI settings saved.');
                 break;
-            case 'test-connection':
-                $result = ai_test_connection();
-                $tone = $result['status'] === 'pass' ? 'success' : 'warning';
-                set_flash($tone, $result['message']);
-                break;
-            case 'generate-draft':
-                $prompt = trim((string) ($_POST['prompt'] ?? ''));
-                $result = ai_generate_blog_draft_from_prompt($prompt, $adminId);
-                $message = sprintf('Draft "%s" generated and saved for review.', $result['title']);
-                if (!empty($result['artwork_generated'])) {
-                    $message .= ' Artwork attached automatically.';
-                } else {
-                    $message .= ' Add cover art later once image settings are ready.';
-                }
-                set_flash('success', $message);
-                $activeTab = 'generator';
-                $draftId = $result['draft_id'] ?? '';
-                break;
             case 'generate-image':
                 $draftId = trim((string) ($_POST['draft_id'] ?? ''));
                 if ($draftId === '') {
@@ -201,7 +183,13 @@ $tabs = [
     'settings' => 'AI Settings',
     'generator' => 'AI Blog Generator',
     'notes' => 'AI Daily Notes',
+    'activity' => 'AI Activity',
 ];
+
+$activityLogs = [];
+if ($activeTab === 'activity') {
+    $activityLogs = ai_get_activity_logs();
+}
 
 $lastTest = '';
 if (!empty($settings['last_test_result']) && !empty($settings['last_tested_at'])) {
@@ -297,12 +285,27 @@ function ai_tab_class(string $current, string $tab): string
             Image Model Code
             <input type="text" name="image_model" value="<?= htmlspecialchars($settings['image_model'] ?? '', ENT_QUOTES) ?>" placeholder="models/image-vision" />
           </label>
+          <label>
+            TTS Model (Optional)
+            <input type="text" name="tts_model" value="<?= htmlspecialchars($settings['tts_model'] ?? '', ENT_QUOTES) ?>" placeholder="models/tts-standard" />
+          </label>
+          <label>
+            Temperature
+            <input type="number" name="temperature" min="0.0" max="1.0" step="0.05" value="<?= htmlspecialchars((string) ($settings['temperature'] ?? 0.7), ENT_QUOTES) ?>" />
+          </label>
+          <label>
+            Max Tokens
+            <input type="number" name="max_tokens" min="256" max="8192" step="64" value="<?= htmlspecialchars((string) ($settings['max_tokens'] ?? 2048), ENT_QUOTES) ?>" />
+          </label>
         </div>
-        <label class="admin-form__full">
-          API Key
-          <input type="password" name="api_key" autocomplete="off" placeholder="Enter new key to replace stored value" />
-          <span class="ai-field-help">Stored securely. Leave blank to keep the current key. Keys are never displayed.</span>
-        </label>
+        <div class="admin-form__full ai-api-key-field">
+          <label for="api-key-input">API Key</label>
+          <div class="ai-api-key-wrapper">
+            <input id="api-key-input" type="password" name="api_key" autocomplete="off" placeholder="•••••••••••••••••••••••••••••••••••••••" />
+            <button type="button" class="btn btn-secondary btn-xs" data-reveal-api-key>Reveal</button>
+          </div>
+          <span class="ai-field-help">Stored securely. Leave blank to keep the current key. Your key is masked for security.</span>
+        </div>
         <?php if ($lastTest !== ''): ?>
         <p class="ai-field-note">Last connection test: <?= htmlspecialchars($lastTest, ENT_QUOTES) ?></p>
         <?php endif; ?>
@@ -311,6 +314,16 @@ function ai_tab_class(string $current, string $tab): string
           <button type="submit" name="action" value="test-connection" class="btn btn-secondary">Test connection</button>
         </div>
       </form>
+      <div class="admin-form__grid">
+        <label>
+            Max Drafts per Day
+            <input type="number" name="max_drafts_per_day" min="1" max="100" value="<?= htmlspecialchars((string) ($settings['max_drafts_per_day'] ?? 10), ENT_QUOTES) ?>" />
+        </label>
+        <label>
+            Max Tokens per Day
+            <input type="number" name="max_tokens_per_day" min="1000" max="100000" step="1000" value="<?= htmlspecialchars((string) ($settings['max_tokens_per_day'] ?? 50000), ENT_QUOTES) ?>" />
+        </label>
+      </div>
     </section>
     <?php endif; ?>
 
@@ -325,14 +338,41 @@ function ai_tab_class(string $current, string $tab): string
         <span class="ai-status-badge">AI disabled</span>
         <?php endif; ?>
       </div>
-      <form method="post" class="admin-form ai-form">
+      <form method="post" class="admin-form ai-form" id="ai-blog-generator-form">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
         <input type="hidden" name="tab" value="generator" />
         <fieldset <?= $aiEnabled ? '' : 'disabled' ?> class="ai-form__fieldset">
+          <div class="admin-form__grid">
+            <label>
+              Title (Optional)
+              <input type="text" name="title" placeholder="e.g. Solar Adoption Trends" />
+            </label>
+            <label>
+              Tone
+              <select name="tone">
+                <option value="formal">Formal</option>
+                <option value="informative" selected>Informative</option>
+                <option value="casual">Casual</option>
+                <option value="inspirational">Inspirational</option>
+              </select>
+            </label>
+            <label>
+              Target Length
+              <select name="target_length">
+                <option value="short">Short (~300 words)</option>
+                <option value="medium" selected>Medium (~600 words)</option>
+                <option value="long">Long (~1000 words)</option>
+              </select>
+            </label>
+            <label>
+              Audience (Optional)
+              <input type="text" name="audience" placeholder="e.g. Small Business Owners" />
+            </label>
+          </div>
           <label class="admin-form__full">
-            Prompt for blog + image
-            <textarea name="prompt" rows="4" placeholder="e.g. Rooftop solar adoption trends for small businesses in tier-2 cities" required></textarea>
-            <span class="ai-field-help">Describe the idea in a few words. AI Studio will handle the title, content, and feature image.</span>
+            Topic / Keywords
+            <textarea name="topic" rows="3" placeholder="e.g. Rooftop solar adoption trends for small businesses in tier-2 cities" required></textarea>
+            <span class="ai-field-help">Provide a clear topic or a comma-separated list of keywords. This is the primary input for the draft.</span>
           </label>
           <div class="ai-form__actions">
             <button type="submit" name="action" value="generate-draft" class="btn btn-primary">Generate blog draft</button>
@@ -580,6 +620,41 @@ function ai_tab_class(string $current, string $tab): string
         </article>
         <?php endforeach; ?>
       </div>
+      <?php endif; ?>
+    </section>
+    <?php endif; ?>
+
+    <?php if ($activeTab === 'activity'): ?>
+    <section class="admin-panel ai-panel" aria-labelledby="ai-activity-heading">
+      <div class="admin-panel__header ai-panel__header">
+        <div>
+          <h2 id="ai-activity-heading">AI Activity</h2>
+          <p>Recent AI-related events across the platform.</p>
+        </div>
+      </div>
+      <?php if (empty($activityLogs)): ?>
+      <p class="ai-empty">No AI activity recorded yet.</p>
+      <?php else: ?>
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th scope="col">Timestamp</th>
+            <th scope="col">User</th>
+            <th scope="col">Action</th>
+            <th scope="col">Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($activityLogs as $log): ?>
+          <tr>
+            <td><?= htmlspecialchars($log['timestamp'], ENT_QUOTES) ?></td>
+            <td><?= htmlspecialchars((string) $log['user_id'], ENT_QUOTES) ?></td>
+            <td><?= htmlspecialchars($log['action'], ENT_QUOTES) ?></td>
+            <td><pre><?= htmlspecialchars(json_encode($log['details'], JSON_PRETTY_PRINT), ENT_QUOTES) ?></pre></td>
+          </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
       <?php endif; ?>
     </section>
     <?php endif; ?>

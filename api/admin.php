@@ -294,6 +294,14 @@ try {
             audit('import_customers', 'system', 0, 'Customer CSV imported.');
             respond_success($result);
             break;
+        case 'test-connection':
+            require_method('POST');
+            respond_success(ai_test_connection());
+            break;
+        case 'generate-draft':
+            require_method('POST');
+            respond_success(ai_generate_blog_draft(read_json(), $actorId));
+            break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
     }
