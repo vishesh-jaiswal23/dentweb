@@ -33,6 +33,10 @@ try {
             require_method('GET');
             respond_success(bootstrap_payload($db));
             break;
+        case 'list-employees':
+            require_method('GET');
+            respond_success(admin_list_accounts($db, ['role' => 'employee', 'status' => 'active']));
+            break;
         case 'create-user':
             require_method('POST');
             respond_success(create_user($db, read_json()));
@@ -241,8 +245,13 @@ try {
                 throw new RuntimeException('Customer ID is required.');
             }
             $targetState = (string) ($payload['state'] ?? '');
+
+            // The CustomerRecordStore::changeState method handles the full payload,
+            // including state-specific fields like assigned_employee_id, system_type,
+            // system_kwp, and handover_date. It also contains validation logic.
             $store = customer_record_store();
             $customer = $store->changeState($customerId, $targetState, $payload);
+
             audit('change_customer_state', 'customer', $customerId, 'Customer state changed to ' . $targetState);
             respond_success(['customer' => $customer]);
             break;
@@ -348,6 +357,7 @@ function bootstrap_payload(PDO $db): array
     $blogPosts = blog_admin_list($db);
 
     return [
+        'employees' => admin_list_accounts($db, ['role' => 'employee', 'status' => 'active']),
         'users' => list_users($db),
         'invitations' => list_invitations($db),
         'complaints' => portal_all_complaints($db),
