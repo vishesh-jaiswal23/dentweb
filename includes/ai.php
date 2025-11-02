@@ -137,6 +137,23 @@ function ai_has_api_key(): bool
     return is_string($key) && $key !== '';
 }
 
+function ai_content_safety_check(string $text): void
+{
+    $disallowedKeywords = [
+        // Hate speech
+        'nazi', 'supremacist', 'incel', 'white power',
+        // Violence
+        'kill', 'murder', 'slaughter', 'massacre', 'terrorist', 'bombing',
+        // Sexual content
+        'porn', 'sex', 'naked', 'xxx',
+    ];
+
+    $pattern = '/\b(' . implode('|', $disallowedKeywords) . ')\b/i';
+    if (preg_match($pattern, $text, $matches)) {
+        throw new RuntimeException(sprintf('Content blocked by safety check due to keyword: %s', $matches[0]));
+    }
+}
+
 function ai_http_post_json(string $url, array $payload, array $headers = []): array
 {
     $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -530,6 +547,11 @@ function ai_settings_defaults(): array
         'provider' => 'Gemini',
         'text_model' => '',
         'image_model' => '',
+        'tts_model' => '',
+        'temperature' => 0.7,
+        'max_tokens' => 2048,
+        'max_drafts_per_day' => 10,
+        'max_tokens_per_day' => 50000,
         'api_key_hash' => null,
         'last_test_result' => null,
         'last_tested_at' => null,
@@ -540,11 +562,17 @@ function ai_settings_defaults(): array
 function ai_get_settings(): array
 {
     ai_bootstrap_storage();
-    $settings = ai_read_json_file(ai_settings_path(), ai_settings_defaults());
-    $settings['enabled'] = (bool) ($settings['enabled'] ?? false);
-    $settings['provider'] = (string) ($settings['provider'] ?? 'Gemini');
-    $settings['text_model'] = (string) ($settings['text_model'] ?? '');
-    $settings['image_model'] = (string) ($settings['image_model'] ?? '');
+    $defaults = ai_settings_defaults();
+    $settings = ai_read_json_file(ai_settings_path(), $defaults);
+    $settings['enabled'] = (bool) ($settings['enabled'] ?? $defaults['enabled']);
+    $settings['provider'] = (string) ($settings['provider'] ?? $defaults['provider']);
+    $settings['text_model'] = (string) ($settings['text_model'] ?? $defaults['text_model']);
+    $settings['image_model'] = (string) ($settings['image_model'] ?? $defaults['image_model']);
+    $settings['tts_model'] = (string) ($settings['tts_model'] ?? $defaults['tts_model']);
+    $settings['temperature'] = (float) ($settings['temperature'] ?? $defaults['temperature']);
+    $settings['max_tokens'] = (int) ($settings['max_tokens'] ?? $defaults['max_tokens']);
+    $settings['max_drafts_per_day'] = (int) ($settings['max_drafts_per_day'] ?? $defaults['max_drafts_per_day']);
+    $settings['max_tokens_per_day'] = (int) ($settings['max_tokens_per_day'] ?? $defaults['max_tokens_per_day']);
     $settings['api_key_hash'] = $settings['api_key_hash'] ?? null;
     $settings['last_test_result'] = $settings['last_test_result'] ?? null;
     $settings['last_tested_at'] = $settings['last_tested_at'] ?? null;
@@ -564,6 +592,11 @@ function ai_save_settings(array $input, int $actorId): array
     }
     $textModel = trim((string) ($input['text_model'] ?? ''));
     $imageModel = trim((string) ($input['image_model'] ?? ''));
+    $ttsModel = trim((string) ($input['tts_model'] ?? ''));
+    $temperature = (float) ($input['temperature'] ?? 0.7);
+    $maxTokens = (int) ($input['max_tokens'] ?? 2048);
+    $maxDraftsPerDay = (int) ($input['max_drafts_per_day'] ?? 10);
+    $maxTokensPerDay = (int) ($input['max_tokens_per_day'] ?? 50000);
     $apiKey = trim((string) ($input['api_key'] ?? ''));
 
     if ($apiKey !== '') {
@@ -577,6 +610,11 @@ function ai_save_settings(array $input, int $actorId): array
     $settings['provider'] = $provider;
     $settings['text_model'] = $textModel;
     $settings['image_model'] = $imageModel;
+    $settings['tts_model'] = $ttsModel;
+    $settings['temperature'] = max(0.0, min(1.0, $temperature));
+    $settings['max_tokens'] = max(256, min(8192, $maxTokens));
+    $settings['max_drafts_per_day'] = max(1, $maxDraftsPerDay);
+    $settings['max_tokens_per_day'] = max(1000, $maxTokensPerDay);
     $settings['updated_at'] = gmdate(DateTimeInterface::ATOM);
     $settings['has_api_key'] = ai_has_api_key();
 
@@ -584,14 +622,148 @@ function ai_save_settings(array $input, int $actorId): array
     return ai_get_settings();
 }
 
+function ai_get_activity_logs(int $limit = 25): array
+{
+    $logFile = ai_storage_path('logs', 'activity.log');
+    if (!is_file($logFile)) {
+        return [];
+    }
+
+    $lines = file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) {
+        return [];
+    }
+
+    $lines = array_slice(array_reverse($lines), 0, $limit);
+    $logs = [];
+    foreach ($lines as $line) {
+        $data = json_decode($line, true);
+        if (is_array($data)) {
+            $logs[] = $data;
+        }
+    }
+
+    return $logs;
+}
+
+function ai_log_activity(string $action, array $details): void
+{
+    $logFile = ai_storage_path('logs', 'activity.log');
+    $timestamp = gmdate(DateTimeInterface::ATOM);
+    $user = current_user();
+    $userId = $user['id'] ?? 'system';
+
+    $logEntry = [
+        'timestamp' => $timestamp,
+        'user_id' => $userId,
+        'action' => $action,
+        'details' => $details,
+    ];
+
+    $logLine = json_encode($logEntry) . PHP_EOL;
+    file_put_contents($logFile, $logLine, FILE_APPEND | LOCK_EX);
+}
+
+function ai_get_usage_data(): array
+{
+    $usagePath = ai_storage_path('usage.json');
+    $defaults = [
+        'daily_drafts' => 0,
+        'daily_tokens' => 0,
+        'last_request_date' => '',
+    ];
+    return ai_read_json_file($usagePath, $defaults);
+}
+
+function ai_update_usage_data(int $tokensUsed): void
+{
+    $usage = ai_get_usage_data();
+    $today = gmdate('Y-m-d');
+
+    if ($usage['last_request_date'] !== $today) {
+        $usage['daily_drafts'] = 0;
+        $usage['daily_tokens'] = 0;
+        $usage['last_request_date'] = $today;
+    }
+
+    $usage['daily_drafts']++;
+    $usage['daily_tokens'] += $tokensUsed;
+
+    ai_write_json_file(ai_storage_path('usage.json'), $usage);
+}
+
+function ai_check_quotas(): void
+{
+    $settings = ai_get_settings();
+    $usage = ai_get_usage_data();
+    $today = gmdate('Y-m-d');
+
+    if ($usage['last_request_date'] === $today) {
+        if ($usage['daily_drafts'] >= $settings['max_drafts_per_day']) {
+            throw new RuntimeException('Daily draft limit reached. Please try again tomorrow.');
+        }
+        if ($usage['daily_tokens'] >= $settings['max_tokens_per_day']) {
+            throw new RuntimeException('Daily token limit reached. Please try again tomorrow.');
+        }
+    }
+}
+
 function ai_test_connection(): array
 {
     $settings = ai_get_settings();
-    $pass = $settings['enabled'] && $settings['has_api_key'] && $settings['text_model'] !== '' && $settings['image_model'] !== '';
-    $result = $pass ? 'pass' : 'fail';
-    $message = $pass
-        ? 'PASS — Configuration looks healthy. AI tools are ready.'
-        : 'FAIL — Provide provider details, models, and a valid API key.';
+    $result = 'fail';
+    $message = 'Test failed. Check settings and API key.';
+    $startTime = microtime(true);
+
+    try {
+        if (!$settings['enabled']) {
+            throw new RuntimeException('AI is disabled in settings.');
+        }
+
+        $apiKey = ai_resolve_api_key();
+        if ($apiKey === null || $apiKey === '') {
+            throw new RuntimeException('API key is not configured.');
+        }
+
+        $model = $settings['text_model'];
+        if ($model === '') {
+            throw new RuntimeException('Text model is not configured.');
+        }
+
+        $payload = [
+            'contents' => [
+                [
+                    'role' => 'user',
+                    'parts' => [['text' => 'Hello']],
+                ],
+            ],
+        ];
+
+        ai_gemini_generate_content($model, $payload, $apiKey);
+
+        $result = 'pass';
+        $message = 'OK — Connection to provider is healthy.';
+    } catch (Throwable $exception) {
+        $error = $exception->getMessage();
+        if (str_contains($error, '400') || str_contains($error, 'API key not valid')) {
+            $message = 'Invalid API key. Update settings.';
+        } elseif (str_contains($error, '429') || str_contains($error, 'rate limit')) {
+            $message = 'Rate limited. Try again shortly.';
+        } elseif (str_contains($error, '404') || str_contains($error, 'not found')) {
+            $message = 'Model not found. Check model code.';
+        } elseif (str_contains($error, 'network') || str_contains($error, 'timed out')) {
+            $message = 'Network error. Check connection and retry.';
+        } else {
+            $message = 'FAIL — ' . $error;
+        }
+    }
+
+    $latency = microtime(true) - $startTime;
+    ai_log_activity('test_connection', [
+        'status' => $result,
+        'message' => $message,
+        'latency' => $latency,
+    ]);
 
     $settings['last_test_result'] = $result;
     $settings['last_tested_at'] = gmdate(DateTimeInterface::ATOM);
@@ -874,6 +1046,11 @@ function ai_save_blog_draft(array $input, int $actorId): array
     $excerpt = trim((string) ($input['excerpt'] ?? ($draft['excerpt'] ?? '')));
     $topic = trim((string) ($input['topic'] ?? ($draft['topic'] ?? $title)));
     $tone = trim((string) ($input['tone'] ?? ($draft['tone'] ?? '')));
+
+    ai_content_safety_check($title);
+    ai_content_safety_check($body);
+    ai_content_safety_check($excerpt);
+    ai_content_safety_check($topic);
     $audience = trim((string) ($input['audience'] ?? ($draft['audience'] ?? '')));
     $purpose = trim((string) ($input['purpose'] ?? ($draft['purpose'] ?? '')));
     $generatedTitle = trim((string) ($input['generated_title'] ?? ($draft['generated_title'] ?? '')));
@@ -923,19 +1100,57 @@ function ai_save_blog_draft(array $input, int $actorId): array
     ];
 }
 
-function ai_generate_blog_draft_from_prompt(string $prompt, int $actorId): array
+function ai_generate_blog_draft(array $options, int $actorId): array
 {
     unset($actorId);
     ai_require_enabled();
+    ai_check_quotas();
+
+    $topic = trim((string) ($options['topic'] ?? ''));
+    if ($topic === '') {
+        throw new RuntimeException('Topic/Keywords are required to generate a draft.');
+    }
+
+    $title = trim((string) ($options['title'] ?? ''));
+    $tone = trim((string) ($options['tone'] ?? 'informative'));
+    $length = trim((string) ($options['target_length'] ?? 'medium'));
+    $audience = trim((string) ($options['audience'] ?? ''));
+
+    $prompt = "Blog topic: {$topic}.";
+    if ($title !== '') {
+        $prompt .= " Desired title: \"{$title}\".";
+    }
+    if ($tone !== '') {
+        $prompt .= " Tone should be {$tone}.";
+    }
+    if ($length !== '') {
+        $wordCount = ['short' => 300, 'medium' => 600, 'long' => 1000];
+        $prompt .= " Target length is around {$wordCount[$length]} words.";
+    }
+    if ($audience !== '') {
+        $prompt .= " The target audience is {$audience}.";
+    }
+
     $content = ai_generate_blog_draft_content($prompt);
 
+    ai_update_usage_data((int) (strlen($content['body_html']) / 4));
+
+    ai_log_activity('generate_draft', [
+        'topic' => $topic,
+        'title' => $title,
+        'tone' => $tone,
+        'length' => $length,
+        'audience' => $audience,
+        'token_estimate' => (int) (strlen($content['body_html']) / 4),
+    ]);
+
     $payload = [
-        'title' => $content['title'],
+        'title' => $title !== '' ? $title : $content['title'],
         'body' => $content['body_html'],
         'excerpt' => $content['excerpt'],
         'topic' => $content['topic'],
-        'tone' => 'Informative',
-        'audience' => 'General readership',
+        'tone' => $tone,
+        'audience' => $audience,
         'purpose' => 'Prompt: ' . mb_substr($content['prompt'], 0, 240),
         'generated_title' => $content['title'],
         'generated_body' => $content['body_html'],
@@ -956,9 +1171,17 @@ function ai_generate_blog_draft_from_prompt(string $prompt, int $actorId): array
 
     return [
         'draft_id' => $saved['id'],
-        'title' => $content['title'],
+        'title' => $saved['title'],
         'artwork_generated' => $artworkGenerated,
     ];
+}
+
+function ai_generate_blog_draft_from_prompt(string $prompt, int $actorId): array
+{
+    $options = [
+        'topic' => $prompt,
+    ];
+    return ai_generate_blog_draft($options, $actorId);
 }
 
 function ai_image_file_path(string $draftId): string
