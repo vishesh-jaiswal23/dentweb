@@ -202,17 +202,66 @@ final class CustomerRecordStore
                 throw new RuntimeException('Record not found.');
             }
 
-            $record['installation_status'] = $this->normalizeInstallationStatus($installationStatus);
-            if ($record['installation_status'] === 'commissioned' && $this->normalizeLeadStatus($record['lead_status'] ?? '') !== 'converted') {
-                $record['lead_status'] = 'converted';
-            }
-            $record['record_type'] = $this->determineType($record);
-            $record['updated_at'] = $this->now();
+            $record = $this->applyInstallationStatusUpdate($record, $installationStatus);
 
             $data['records'][(string) $id] = $record;
             $this->writeData($data);
 
             return $this->prepareRecordForOutput($record);
+        });
+    }
+
+    public function updateInstallationStatuses(array $ids, string $installationStatus): array
+    {
+        $normalizedIds = array_values(array_unique(array_filter(
+            array_map(static fn ($value): int => (int) $value, $ids),
+            static fn (int $value): bool => $value > 0
+        )));
+
+        if ($normalizedIds === []) {
+            throw new RuntimeException('Select at least one record to update.');
+        }
+
+        return $this->withLock(function () use ($normalizedIds, $installationStatus): array {
+            $data = $this->readData();
+
+            $updated = 0;
+            $movedToCustomers = 0;
+            $movedToLeads = 0;
+            $missing = [];
+
+            foreach ($normalizedIds as $id) {
+                $record = $data['records'][(string) $id] ?? null;
+                if (!is_array($record)) {
+                    $missing[] = $id;
+                    continue;
+                }
+
+                $previousType = strtolower((string) ($record['record_type'] ?? ''));
+                $record = $this->applyInstallationStatusUpdate($record, $installationStatus);
+                $data['records'][(string) $id] = $record;
+                $updated++;
+
+                $currentType = strtolower((string) ($record['record_type'] ?? ''));
+                if ($previousType !== $currentType) {
+                    if ($currentType === self::TYPE_CUSTOMER) {
+                        $movedToCustomers++;
+                    } elseif ($currentType === self::TYPE_LEAD) {
+                        $movedToLeads++;
+                    }
+                }
+            }
+
+            if ($updated > 0) {
+                $this->writeData($data);
+            }
+
+            return [
+                'updated' => $updated,
+                'moved_to_customers' => $movedToCustomers,
+                'moved_to_leads' => $movedToLeads,
+                'missing' => $missing,
+            ];
         });
     }
 
@@ -257,6 +306,18 @@ final class CustomerRecordStore
     private function prepareRecordForOutput(array $record): array
     {
         $record['record_type'] = $this->determineType($record);
+        return $record;
+    }
+
+    private function applyInstallationStatusUpdate(array $record, string $installationStatus): array
+    {
+        $record['installation_status'] = $this->normalizeInstallationStatus($installationStatus);
+        if ($record['installation_status'] === 'commissioned' && $this->normalizeLeadStatus($record['lead_status'] ?? '') !== 'converted') {
+            $record['lead_status'] = 'converted';
+        }
+        $record['record_type'] = $this->determineType($record);
+        $record['updated_at'] = $this->now();
+
         return $record;
     }
 
