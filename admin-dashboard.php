@@ -72,13 +72,6 @@ $cardConfigs = [
         'link' => $pathFor('admin-records.php') . '?module=employees&filter=active',
     ],
     [
-        'label' => 'New Leads',
-        'value' => $counts['leads'],
-        'icon' => 'fa-user-plus',
-        'description' => 'Enquiries that still require qualification or hand-off.',
-        'link' => $pathFor('admin-leads.php'),
-    ],
-    [
         'label' => 'Active Referrers',
         'value' => $counts['referrers'],
         'icon' => 'fa-handshake-angle',

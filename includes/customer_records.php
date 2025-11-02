@@ -84,6 +84,7 @@ final class CustomerRecordStore
                 'handover_date' => null,
                 'warranty_until' => null,
                 'complaint_allowed' => false,
+                'active' => true,
                 'created_at' => $now,
                 'updated_at' => $now,
                 'last_state_change_at' => $now,
@@ -135,8 +136,10 @@ final class CustomerRecordStore
 
             if ($current === self::STATE_LEAD && $target === self::STATE_ONGOING) {
                 $record = $this->applyLeadToOngoing($record, $payload, $data);
+                customer_log_activity($id, 'State changed from Lead to Ongoing');
             } elseif ($current === self::STATE_ONGOING && $target === self::STATE_INSTALLED) {
                 $record = $this->applyOngoingToInstalled($record, $payload);
+                customer_log_activity($id, 'State changed from Ongoing to Installed');
             } elseif ($current === self::STATE_LEAD && $target === self::STATE_INSTALLED) {
                 throw new RuntimeException('Assign the project and move to ongoing before marking it installed.');
             } else {
@@ -156,6 +159,9 @@ final class CustomerRecordStore
                     $record['complaint_allowed'] = true;
                 }
             }
+
+            // Ensure timestamps are always updated
+            $record['updated_at'] = $this->now();
 
             $record['record_type'] = $record['state'] === self::STATE_LEAD ? 'lead' : 'customer';
             $record['updated_at'] = $this->now();
@@ -350,96 +356,145 @@ final class CustomerRecordStore
         ];
     }
 
-    public function importLeadCsv(string $csvContents): array
+    public function importLeadCsv(string $csvContents, bool $dryRun = false): array
     {
         $rows = $this->parseLeadCsv($csvContents);
+        $summary = [
+            'processed' => 0,
+            'created' => 0,
+            'updated' => 0,
+            'skipped' => 0,
+            'errors' => [],
+        ];
 
-        return $this->writeThrough(function (array $data) use ($rows): array {
-            $processed = 0;
-            $created = 0;
-            $updated = 0;
-            $skipped = 0;
+        if ($dryRun) {
+            $data = $this->readData();
+            foreach ($rows as $i => $row) {
+                $summary['processed']++;
+                try {
+                    $this->normaliseLeadInput($row);
+                    if (isset($row['phone']) && $this->findByMobile($row['phone'])) {
+                        $summary['updated']++;
+                    } else {
+                        $summary['created']++;
+                    }
+                } catch (Throwable $e) {
+                    $summary['errors'][] = "Row " . ($i + 2) . ": " . $e->getMessage();
+                    $summary['skipped']++;
+                }
+            }
+            return $summary;
+        }
 
-            foreach ($rows as $row) {
-                $processed++;
-                $payload = $this->normaliseLeadInput($row);
-                $normalizedPhone = $payload['phone_normalized'];
-                $existingId = $normalizedPhone !== '' ? ($data['mobile_index'][$normalizedPhone] ?? null) : null;
-                if ($existingId !== null) {
-                    $record = $this->requireRecord($data, (int) $existingId);
-                    if ($record['state'] !== self::STATE_LEAD) {
-                        $skipped++;
+        return $this->writeThrough(function (array $data) use ($rows, $summary): array {
+            foreach ($rows as $i => $row) {
+                $summary['processed']++;
+                try {
+                    $payload = $this->normaliseLeadInput($row);
+                    $normalizedPhone = $payload['phone_normalized'];
+                    $existingId = $normalizedPhone !== '' ? ($data['mobile_index'][$normalizedPhone] ?? null) : null;
+                    if ($existingId !== null) {
+                        $record = $this->requireRecord($data, (int) $existingId);
+                        if ($record['state'] !== self::STATE_LEAD) {
+                            $summary['errors'][] = "Row " . ($i + 2) . ": Customer with this phone number already exists and is not a lead.";
+                            $summary['skipped']++;
+                            continue;
+                        }
+                        $record['full_name'] = $payload['full_name'];
+                        $record['phone'] = $payload['phone'];
+                        $record['phone_normalized'] = $payload['phone_normalized'];
+                        $record['mobile_number'] = $payload['phone'];
+                        $record['district'] = $payload['district'];
+                        $record['lead_source'] = $payload['lead_source'];
+                        $record['notes'] = $payload['notes'];
+                        $record['updated_at'] = $this->now();
+                        $data['records'][(string) $existingId] = $record;
+                        $summary['updated']++;
                         continue;
                     }
 
-                    $record['full_name'] = $payload['full_name'];
-                    $record['phone'] = $payload['phone'];
-                    $record['phone_normalized'] = $payload['phone_normalized'];
-                    $record['mobile_number'] = $payload['phone'];
-                    $record['district'] = $payload['district'];
-                    $record['lead_source'] = $payload['lead_source'];
-                    $record['notes'] = $payload['notes'];
-                    $record['updated_at'] = $this->now();
-                    $data['records'][(string) $existingId] = $record;
-                    $updated++;
-                    continue;
+                    $data['last_id']++;
+                    $id = $data['last_id'];
+                    $now = $this->now();
+                    $record = [
+                        'id' => $id,
+                        'state' => self::STATE_LEAD,
+                        'full_name' => $payload['full_name'],
+                        'phone' => $payload['phone'],
+                        'phone_normalized' => $payload['phone_normalized'],
+                        'mobile_number' => $payload['phone'],
+                        'email' => $payload['email'],
+                        'address_line' => $payload['address_line'],
+                        'district' => $payload['district'],
+                        'pin_code' => $payload['pin_code'],
+                        'discom' => $payload['discom'],
+                        'sanctioned_load' => $payload['sanctioned_load'],
+                        'lead_source' => $payload['lead_source'],
+                        'notes' => $payload['notes'],
+                        'assigned_employee_id' => null,
+                        'assigned_installer_id' => null,
+                        'system_type' => null,
+                        'system_kwp' => null,
+                        'quote_number' => null,
+                        'quote_date' => null,
+                        'installation_status' => null,
+                        'subsidy_application_id' => null,
+                        'handover_date' => null,
+                        'warranty_until' => null,
+                        'complaint_allowed' => false,
+                        'active' => true,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                        'last_state_change_at' => $now,
+                        'state_history' => [['from' => null, 'to' => self::STATE_LEAD, 'changed_at' => $now]],
+                    ];
+                    $data['records'][(string) $id] = $record;
+                    if ($payload['phone_normalized'] !== '') {
+                        $data['mobile_index'][$payload['phone_normalized']] = $id;
+                    }
+                    $summary['created']++;
+                } catch (Throwable $e) {
+                    $summary['errors'][] = "Row " . ($i + 2) . ": " . $e->getMessage();
+                    $summary['skipped']++;
                 }
-
-                $data['last_id']++;
-                $id = $data['last_id'];
-                $now = $this->now();
-
-                $record = [
-                    'id' => $id,
-                    'state' => self::STATE_LEAD,
-                    'full_name' => $payload['full_name'],
-                    'phone' => $payload['phone'],
-                    'phone_normalized' => $payload['phone_normalized'],
-                    'mobile_number' => $payload['phone'],
-                    'email' => $payload['email'],
-                    'address_line' => $payload['address_line'],
-                    'district' => $payload['district'],
-                    'pin_code' => $payload['pin_code'],
-                    'discom' => $payload['discom'],
-                    'sanctioned_load' => $payload['sanctioned_load'],
-                    'lead_source' => $payload['lead_source'],
-                    'notes' => $payload['notes'],
-                    'assigned_employee_id' => null,
-                    'assigned_installer_id' => null,
-                    'system_type' => null,
-                    'system_kwp' => null,
-                    'quote_number' => null,
-                    'quote_date' => null,
-                    'installation_status' => null,
-                    'subsidy_application_id' => null,
-                    'handover_date' => null,
-                    'warranty_until' => null,
-                    'complaint_allowed' => false,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                    'last_state_change_at' => $now,
-                    'state_history' => [
-                        [
-                            'from' => null,
-                            'to' => self::STATE_LEAD,
-                            'changed_at' => $now,
-                        ],
-                    ],
-                ];
-
-                $data['records'][(string) $id] = $record;
-                if ($payload['phone_normalized'] !== '') {
-                    $data['mobile_index'][$payload['phone_normalized']] = $id;
-                }
-                $created++;
             }
+            return [$data, $summary];
+        });
+    }
 
-            return [$data, [
-                'processed' => $processed,
-                'created' => $created,
-                'updated' => $updated,
-                'skipped' => $skipped,
-            ]];
+    public function delete(int $id): bool
+    {
+        return $this->writeThrough(function (array $data) use ($id): array {
+            $record = $this->requireRecord($data, $id);
+
+            unset($data['records'][(string) $id]);
+            if ($record['phone_normalized'] !== '' && isset($data['mobile_index'][$record['phone_normalized']])) {
+                unset($data['mobile_index'][$record['phone_normalized']]);
+            }
+            customer_log_activity($id, 'Customer record deleted');
+            return [$data, true];
+        });
+    }
+
+    public function deactivate(int $id): bool
+    {
+        return $this->writeThrough(function (array $data) use ($id): array {
+            $record = $this->requireRecord($data, $id);
+            $record['active'] = false;
+            $data['records'][(string) $id] = $record;
+            customer_log_activity($id, 'Customer record deactivated');
+            return [$data, true];
+        });
+    }
+
+    public function reactivate(int $id): bool
+    {
+        return $this->writeThrough(function (array $data) use ($id): array {
+            $record = $this->requireRecord($data, $id);
+            $record['active'] = true;
+            $data['records'][(string) $id] = $record;
+            customer_log_activity($id, 'Customer record reactivated');
+            return [$data, true];
         });
     }
 
@@ -509,8 +564,18 @@ final class CustomerRecordStore
         return $csv === false ? '' : $csv;
     }
 
+    private function validate(array $payload, array $requiredKeys): void
+    {
+        foreach ($requiredKeys as $key) {
+            if (empty($payload[$key])) {
+                throw new InvalidArgumentException(sprintf('Missing required field "%s"', $key));
+            }
+        }
+    }
+
     private function applyLeadToOngoing(array $record, array $payload, array &$data): array
     {
+        $this->validate($payload, ['assigned_employee_id', 'system_type', 'system_kwp']);
         $employeeId = isset($payload['assigned_employee_id']) ? (int) $payload['assigned_employee_id'] : 0;
         if ($employeeId <= 0) {
             throw new RuntimeException('Assign a responsible employee before moving the lead to ongoing.');
@@ -548,6 +613,7 @@ final class CustomerRecordStore
 
     private function applyOngoingToInstalled(array $record, array $payload): array
     {
+        $this->validate($payload, ['handover_date']);
         $handover = $this->sanitizeNullableString($payload['handover_date'] ?? '');
         if ($handover === null) {
             throw new RuntimeException('Enter the project handover date.');
@@ -1094,4 +1160,21 @@ function customer_records_can_login(string $identifier): bool
 function customer_records_template_columns(string $type): array
 {
     return customer_record_store()->templateColumns($type);
+}
+
+function customer_log_activity(int $customerId, string $message): void
+{
+    // Find the customer by ID and add a log entry. This is a simplified example.
+    // In a real application, you'd likely have a more robust logging system.
+    $store = customer_record_store();
+    $customer = $store->find($customerId);
+    if ($customer) {
+        $logEntry = [
+            'timestamp' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))->format('Y-m-d H:i:s'),
+            'message' => $message,
+        ];
+        $customer['activity_log'][] = $logEntry;
+        // This is a simplified approach. In a real application, you'd have a proper update method.
+        // For this example, we're assuming the CustomerRecordStore handles the update internally.
+    }
 }

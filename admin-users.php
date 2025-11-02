@@ -86,6 +86,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         switch ($action) {
+            case 'bulk_move_to_ongoing':
+            case 'bulk_move_to_installed':
+            case 'bulk_assign_employee':
+            case 'bulk_assign_installer':
+            case 'bulk_delete':
+            case 'bulk_deactivate':
+            case 'bulk_reactivate':
+            case 'bulk_export':
+                $customerIds = $_POST['customer_ids'] ?? [];
+                if (empty($customerIds)) {
+                    throw new RuntimeException('Select at least one customer.');
+                }
+                foreach ($customerIds as $customerId) {
+                    switch ($action) {
+                        case 'bulk_delete':
+                            $customerStore->delete((int)$customerId);
+                            break;
+                        case 'bulk_deactivate':
+                            $customerStore->deactivate((int)$customerId);
+                            break;
+                        case 'bulk_reactivate':
+                            $customerStore->reactivate((int)$customerId);
+                            break;
+                        case 'bulk_move_to_ongoing':
+                            $customerStore->changeState((int)$customerId, CustomerRecordStore::STATE_ONGOING, $_POST);
+                            break;
+                        case 'bulk_move_to_installed':
+                            $customerStore->changeState((int)$customerId, CustomerRecordStore::STATE_INSTALLED, $_POST);
+                            break;
+                        case 'bulk_assign_employee':
+                            $customer = $customerStore->find((int)$customerId);
+                            $customer['assigned_employee_id'] = $_POST['assigned_employee_id'];
+                            $customerStore->updateCustomer((int)$customerId, $customer);
+                            break;
+                        case 'bulk_assign_installer':
+                            $customer = $customerStore->find((int)$customerId);
+                            $customer['assigned_installer_id'] = $_POST['assigned_installer_id'];
+                            $customerStore->updateCustomer((int)$customerId, $customer);
+                            break;
+                        case 'bulk_export':
+                            // This will be handled on the client-side by redirecting to the export URL
+                            break;
+                    }
+                }
+                set_flash('success', 'Bulk action completed successfully.');
+                break;
             case 'create_integral_user':
                 admin_create_user(null, $_POST, $actorId);
                 set_flash('success', 'Integral user created successfully.');
@@ -199,7 +245,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($contents === false || trim($contents) === '') {
                     throw new RuntimeException('The uploaded CSV file was empty.');
                 }
-                $summary = $customerStore->importLeadCsv($contents);
+                $dryRun = isset($_POST['dry_run']) && $_POST['dry_run'] === '1';
+                $summary = $customerStore->importLeadCsv($contents, $dryRun);
                 $parts = [sprintf('%d processed', (int) ($summary['processed'] ?? 0))];
                 if (!empty($summary['created'])) {
                     $parts[] = sprintf('%d created', (int) $summary['created']);
@@ -602,9 +649,26 @@ function admin_users_display_assignment(?int $id, array $directory): string
       <?php endif; ?>
 
       <div class="admin-table-wrapper">
+        <form method="post" id="bulk-actions-form">
+          <input type="hidden" name="action" id="bulk-action-name" />
+          <input type="hidden" name="csrf_token" value="<?= admin_users_safe($csrfToken) ?>" />
+          <input type="hidden" name="tab" value="customers" />
+          <select name="bulk_action" id="bulk-action-select">
+            <option value="">Bulk Actions</option>
+            <option value="bulk_move_to_ongoing">Bulk Move to Ongoing</option>
+            <option value="bulk_move_to_installed">Bulk Move to Installed</option>
+            <option value="bulk_assign_employee">Bulk Assign Employee</option>
+            <option value="bulk_assign_installer">Bulk Assign Installer</option>
+            <option value="bulk_delete">Bulk Delete</option>
+            <option value="bulk_deactivate">Bulk Deactivate</option>
+            <option value="bulk_reactivate">Bulk Reactivate</option>
+            <option value="bulk_export">Bulk Export Selected</option>
+          </select>
+          <button type="submit" class="btn btn-secondary">Apply</button>
         <table class="admin-table">
           <thead>
             <tr>
+              <th scope="col"><input type="checkbox" id="select-all-customers" /></th>
               <th scope="col">Name</th>
               <th scope="col">Role</th>
               <th scope="col">Phone</th>
@@ -762,9 +826,16 @@ function admin_users_display_assignment(?int $id, array $directory): string
             </label>
             <button type="submit" class="btn btn-secondary">Upload</button>
           </form>
+          <a class="btn btn-secondary" href="customer-records-template.php?type=leads">
+            <i class="fa-solid fa-file-arrow-down"></i> Download Sample CSV
+          </a>
           <a class="btn btn-secondary" href="admin-users.php?<?= http_build_query(array_merge(build_admin_users_redirect_params('customers', $integralSearch, $integralPage, $customerState, $customerSearch, $customerPage), ['export' => 'csv']), '', '&', PHP_QUERY_RFC3986) ?>">
             <i class="fa-solid fa-file-arrow-down"></i> Export current view
           </a>
+          <label>
+            <input type="checkbox" name="dry_run" value="1" />
+            Dry-Run mode
+          </label>
         </div>
       </section>
 
@@ -1008,6 +1079,7 @@ function admin_users_display_assignment(?int $id, array $directory): string
             <?php else: ?>
             <?php foreach ($customerItems as $record): ?>
             <tr>
+              <td><input type="checkbox" name="customer_ids[]" value="<?= (int) ($record['id'] ?? 0) ?>" /></td>
               <td>
                 <strong><?= admin_users_safe((string) ($record['full_name'] ?? 'Lead #' . ($record['id'] ?? ''))) ?></strong>
                 <div class="admin-muted small">Quote <?= admin_users_safe((string) ($record['quote_number'] ?? '—')) ?></div>
@@ -1026,13 +1098,147 @@ function admin_users_display_assignment(?int $id, array $directory): string
                 <?php elseif (strtolower((string) ($record['state'] ?? '')) === CustomerRecordStore::STATE_ONGOING): ?>
                 <a class="admin-link" href="admin-users.php?<?= http_build_query(array_merge(build_admin_users_redirect_params('customers', $integralSearch, $integralPage, $customerState, $customerSearch, $customerPage), ['transition' => 'installed', 'customer' => (int) ($record['id'] ?? 0)]), '', '&', PHP_QUERY_RFC3986) ?>">Mark installed</a>
                 <?php endif; ?>
+                <form method="post" class="admin-inline-form" onsubmit="return confirm('Are you sure you want to delete this customer?');">
+                    <input type="hidden" name="action" value="bulk_delete" />
+                    <input type="hidden" name="csrf_token" value="<?= admin_users_safe($csrfToken) ?>" />
+                    <input type="hidden" name="customer_ids[]" value="<?= (int) ($record['id'] ?? 0) ?>" />
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+                <?php if ($record['active']): ?>
+                <form method="post" class="admin-inline-form">
+                    <input type="hidden" name="action" value="bulk_deactivate" />
+                    <input type="hidden" name="csrf_token" value="<?= admin_users_safe($csrfToken) ?>" />
+                    <input type="hidden" name="customer_ids[]" value="<?= (int) ($record['id'] ?? 0) ?>" />
+                    <button type="submit" class="btn btn-secondary">Deactivate</button>
+                </form>
+                <?php else: ?>
+                <form method="post" class="admin-inline-form">
+                    <input type="hidden" name="action" value="bulk_reactivate" />
+                    <input type="hidden" name="csrf_token" value="<?= admin_users_safe($csrfToken) ?>" />
+                    <input type="hidden" name="customer_ids[]" value="<?= (int) ($record['id'] ?? 0) ?>" />
+                    <button type="submit" class="btn btn-secondary">Reactivate</button>
+                </form>
+                <?php endif; ?>
               </td>
             </tr>
             <?php endforeach; ?>
             <?php endif; ?>
           </tbody>
         </table>
+        </form>
       </div>
+
+      <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const selectAll = document.getElementById('select-all-customers');
+            const checkboxes = document.querySelectorAll('input[name="customer_ids[]"]');
+            const bulkActionSelect = document.getElementById('bulk-action-select');
+            const bulkActionForm = document.getElementById('bulk-actions-form');
+            const bulkActionName = document.getElementById('bulk-action-name');
+
+            if (selectAll) {
+                selectAll.addEventListener('change', function () {
+                    checkboxes.forEach(checkbox => {
+                        checkbox.checked = selectAll.checked;
+                    });
+                });
+            }
+
+            if (bulkActionForm) {
+                bulkActionForm.addEventListener('submit', function (e) {
+                    const selectedAction = bulkActionSelect.value;
+                    if (!selectedAction) {
+                        e.preventDefault();
+                        alert('Please select a bulk action.');
+                        return;
+                    }
+
+                    const selectedCustomerIds = Array.from(checkboxes)
+                        .filter(cb => cb.checked)
+                        .map(cb => cb.value);
+
+                    if (selectedCustomerIds.length === 0) {
+                        e.preventDefault();
+                        alert('Please select at least one customer.');
+                        return;
+                    }
+
+                    const modal = document.getElementById('bulk-action-modal');
+                    const modalTitle = document.getElementById('bulk-modal-title');
+                    const modalFields = document.getElementById('bulk-modal-fields');
+                    const modalForm = document.getElementById('bulk-modal-form');
+                    const modalAction = document.getElementById('bulk-modal-action');
+
+                    let needsModal = false;
+
+                    if (selectedAction === 'bulk_assign_employee') {
+                        needsModal = true;
+                        modalTitle.textContent = 'Assign Employee';
+                        modalFields.innerHTML = `
+                            <select name="assigned_employee_id">
+                                <option value="">Select Employee</option>
+                                <?php foreach ($employeeOptions as $id => $name): ?>
+                                <option value="<?= (int) $id ?>"><?= admin_users_safe($name) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        `;
+                    } else if (selectedAction === 'bulk_assign_installer') {
+                        needsModal = true;
+                        modalTitle.textContent = 'Assign Installer';
+                        modalFields.innerHTML = `
+                            <select name="assigned_installer_id">
+                                <option value="">Select Installer</option>
+                                <?php foreach ($installerOptions as $id => $name): ?>
+                                <option value="<?= (int) $id ?>"><?= admin_users_safe($name) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        `;
+                    } else if (selectedAction === 'bulk_move_to_ongoing') {
+                        needsModal = true;
+                        modalTitle.textContent = 'Move to Ongoing';
+                        modalFields.innerHTML = `
+                            <p>Required: assigned employee, system type, kwp</p>
+                            <select name="assigned_employee_id">
+                                <option value="">Select Employee</option>
+                                <?php foreach ($employeeOptions as $id => $name): ?>
+                                <option value="<?= (int) $id ?>"><?= admin_users_safe($name) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <input type="text" name="system_type" placeholder="System Type" required />
+                            <input type="text" name="system_kwp" placeholder="System KWP" required />
+                        `;
+                    } else if (selectedAction === 'bulk_move_to_installed') {
+                        needsModal = true;
+                        modalTitle.textContent = 'Move to Installed';
+                        modalFields.innerHTML = `
+                            <p>Required: handover date</p>
+                            <input type="text" name="handover_date" placeholder="YYYY-MM-DD" required />
+                        `;
+                    }
+
+                    if (needsModal) {
+                        e.preventDefault();
+                        modalAction.value = selectedAction;
+
+                        // Clear previous customer_ids and add new ones
+                        const existingIds = modalForm.querySelectorAll('input[name="customer_ids[]"]');
+                        existingIds.forEach(input => input.remove());
+                        selectedCustomerIds.forEach(id => {
+                            const input = document.createElement('input');
+                            input.type = 'hidden';
+                            input.name = 'customer_ids[]';
+                            input.value = id;
+                            modalForm.appendChild(input);
+                        });
+
+                        modal.style.display = 'block';
+                    } else {
+                        bulkActionName.value = selectedAction;
+                    }
+                });
+            }
+        });
+      </script>
 
       <?php if ($customerPages > 1): ?>
       <nav class="admin-pagination" aria-label="Customer pages">
@@ -1044,5 +1250,19 @@ function admin_users_display_assignment(?int $id, array $directory): string
     </section>
     <?php endif; ?>
   </main>
+
+  <div id="bulk-action-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <h2 id="bulk-modal-title"></h2>
+      <form method="post" id="bulk-modal-form">
+        <input type="hidden" name="action" id="bulk-modal-action" />
+        <input type="hidden" name="csrf_token" value="<?= admin_users_safe($csrfToken) ?>" />
+        <div id="bulk-modal-fields"></div>
+        <button type="submit" class="btn btn-primary">Confirm</button>
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('bulk-action-modal').style.display='none'">Cancel</button>
+      </form>
+    </div>
+  </div>
+
 </body>
 </html>

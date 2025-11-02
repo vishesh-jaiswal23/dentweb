@@ -4392,7 +4392,6 @@ function portal_admin_update_complaint_status(PDO $db, string $reference, string
 function admin_overview_counts(PDO $db): array
 {
     $activeEmployees = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee' AND users.status = 'active'")->fetchColumn();
-    $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
     $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
     $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active') AND deleted_at IS NULL")->fetchColumn();
@@ -4416,7 +4415,6 @@ SQL
 
     return [
         'employees' => $activeEmployees,
-        'leads' => $newLeads,
         'installations' => $activeInstallations,
         'complaints' => $openComplaints,
         'subsidy' => $pendingSubsidy,
