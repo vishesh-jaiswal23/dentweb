@@ -51,6 +51,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ai_save_settings($_POST, $adminId);
                 set_flash('success', 'AI settings saved.');
                 break;
+            case 'test-connection':
+                $testResult = ai_test_connection();
+                set_flash($testResult['status'] === 'pass' ? 'success' : 'error', $testResult['message']);
+                break;
+            case 'generate-draft':
+                $result = ai_generate_blog_draft($_POST, $adminId);
+                set_flash('success', 'New draft generated: ' . $result['title']);
+                $activeTab = 'generator';
+                $draftId = $result['draft_id'];
+                break;
             case 'generate-image':
                 $draftId = trim((string) ($_POST['draft_id'] ?? ''));
                 if ($draftId === '') {
