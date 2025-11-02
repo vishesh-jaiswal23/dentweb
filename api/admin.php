@@ -197,6 +197,103 @@ try {
             }
             respond_success(['post' => blog_archive_post($db, $postId, $actorId)]);
             break;
+        case 'delete-customer':
+            require_method('POST');
+            $payload = read_json();
+            $customerId = (int) ($payload['id'] ?? 0);
+            if ($customerId <= 0) {
+                throw new RuntimeException('Customer ID is required.');
+            }
+            $store = customer_record_store();
+            $result = $store->delete($customerId);
+            audit('delete_customer', 'customer', $customerId, 'Customer record permanently deleted.');
+            respond_success($result);
+            break;
+        case 'deactivate-customer':
+            require_method('POST');
+            $payload = read_json();
+            $customerId = (int) ($payload['id'] ?? 0);
+            if ($customerId <= 0) {
+                throw new RuntimeException('Customer ID is required.');
+            }
+            $store = customer_record_store();
+            $customer = $store->deactivate($customerId);
+            audit('deactivate_customer', 'customer', $customerId, 'Customer record deactivated.');
+            respond_success(['customer' => $customer]);
+            break;
+        case 'reactivate-customer':
+            require_method('POST');
+            $payload = read_json();
+            $customerId = (int) ($payload['id'] ?? 0);
+            if ($customerId <= 0) {
+                throw new RuntimeException('Customer ID is required.');
+            }
+            $store = customer_record_store();
+            $customer = $store->reactivate($customerId);
+            audit('reactivate_customer', 'customer', $customerId, 'Customer record reactivated.');
+            respond_success(['customer' => $customer]);
+            break;
+        case 'change-customer-state':
+            require_method('POST');
+            $payload = read_json();
+            $customerId = (int) ($payload['id'] ?? 0);
+            if ($customerId <= 0) {
+                throw new RuntimeException('Customer ID is required.');
+            }
+            $targetState = (string) ($payload['state'] ?? '');
+            $store = customer_record_store();
+            $customer = $store->changeState($customerId, $targetState, $payload);
+            audit('change_customer_state', 'customer', $customerId, 'Customer state changed to ' . $targetState);
+            respond_success(['customer' => $customer]);
+            break;
+        case 'bulk-update-customers':
+            require_method('POST');
+            $payload = read_json();
+            $customerIds = $payload['customer_ids'] ?? [];
+            if (empty($customerIds)) {
+                throw new RuntimeException('Select at least one customer to update.');
+            }
+            $action = $payload['bulk_action'] ?? '';
+            $store = customer_record_store();
+            $results = [];
+            foreach ($customerIds as $customerId) {
+                try {
+                    switch ($action) {
+                        case 'delete':
+                            $results[] = $store->delete($customerId);
+                            audit('bulk_delete_customer', 'customer', $customerId, 'Customer record permanently deleted in bulk action.');
+                            break;
+                        case 'deactivate':
+                            $results[] = $store->deactivate($customerId);
+                            audit('bulk_deactivate_customer', 'customer', $customerId, 'Customer record deactivated in bulk action.');
+                            break;
+                        case 'reactivate':
+                            $results[] = $store->reactivate($customerId);
+                            audit('bulk_reactivate_customer', 'customer', $customerId, 'Customer record reactivated in bulk action.');
+                            break;
+                        case 'change_state':
+                            $targetState = (string) ($payload['state'] ?? '');
+                            $results[] = $store->changeState($customerId, $targetState, $payload);
+                            audit('bulk_change_customer_state', 'customer', $customerId, 'Customer state changed to ' . $targetState . ' in bulk action.');
+                            break;
+                    }
+                } catch (Throwable $exception) {
+                    $results[] = ['error' => $exception->getMessage()];
+                }
+            }
+            respond_success(['results' => $results]);
+            break;
+        case 'import-customers':
+            require_method('POST');
+            if (empty($_FILES['csv_file'])) {
+                throw new RuntimeException('Please select a CSV file to upload.');
+            }
+            $csvContent = file_get_contents($_FILES['csv_file']['tmp_name']);
+            $store = customer_record_store();
+            $result = $store->importLeadCsv($csvContent);
+            audit('import_customers', 'system', 0, 'Customer CSV imported.');
+            respond_success($result);
+            break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
     }
