@@ -1843,3 +1843,75 @@ function ai_daily_notes_build_plan_summary(DateTimeImmutable $nowIst): string
     $nextDay = $nowIst->modify('+1 day')->format('d M Y');
     return sprintf('Next-Day Plan (%s): Align morning priorities, lock installation checklists, and confirm subsidy follow-ups for the team.', $nextDay);
 }
+
+function ai_generate_sms_template(string $prompt): array
+{
+    ai_require_enabled();
+    $settings = ai_get_settings();
+    $model = $settings['text_model'] ?? '';
+    if ($model === '') {
+        throw new RuntimeException('Set a Gemini text model in AI settings before generating templates.');
+    }
+
+    $apiKey = ai_resolve_api_key();
+    if ($apiKey === null || $apiKey === '') {
+        throw new RuntimeException('Configure the Gemini API key to enable SMS/WhatsApp templates.');
+    }
+
+    $systemInstruction = "You are a helpful assistant for a solar energy company. Generate a concise and professional SMS/WhatsApp template based on the user's prompt. The template should be under 160 characters.";
+    $payload = [
+        'contents' => [
+            [
+                'role' => 'user',
+                'parts' => [['text' => $prompt]],
+            ],
+            [
+                'role' => 'model',
+                'parts' => [['text' => $systemInstruction]],
+            ],
+        ],
+    ];
+
+    $response = ai_gemini_generate_content($model, $payload, $apiKey);
+    $text = ai_extract_text_from_gemini($response);
+
+    if ($text === '') {
+        throw new RuntimeException('Gemini returned an empty response while generating the template.');
+    }
+
+    return ['template' => $text];
+}
+
+function ai_convert_installation_notes(string $notes): array
+{
+    ai_require_enabled();
+    $settings = ai_get_settings();
+    $model = $settings['text_model'] ?? '';
+    if ($model === '') {
+        throw new RuntimeException('Set a Gemini text model in AI settings before converting notes.');
+    }
+
+    $apiKey = ai_resolve_api_key();
+    if ($apiKey === null || $apiKey === '') {
+        throw new RuntimeException('Configure the Gemini API key to enable note conversion.');
+    }
+
+    $prompt = "Convert the following raw installation notes into a formatted, professional message suitable for sharing with a customer:\n\n" . $notes;
+    $payload = [
+        'contents' => [
+            [
+                'role' => 'user',
+                'parts' => [['text' => $prompt]],
+            ],
+        ],
+    ];
+
+    $response = ai_gemini_generate_content($model, $payload, $apiKey);
+    $text = ai_extract_text_from_gemini($response);
+
+    if ($text === '') {
+        throw new RuntimeException('Gemini returned an empty response while converting the notes.');
+    }
+
+    return ['message' => $text];
+}
