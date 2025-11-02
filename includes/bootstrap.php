@@ -3189,50 +3189,39 @@ function admin_create_user(?PDO $db, array $input, int $actorId): array
         throw new RuntimeException('Full name is required.');
     }
 
-    $roleName = (string) ($input['role'] ?? 'employee');
+    $roleName = strtolower(trim((string) ($input['role'] ?? 'employee')));
     admin_resolve_role_id($db, $roleName);
 
-    $roleKey = strtolower($roleName);
-    $isCustomerRole = $roleKey === 'customer';
-
-    $email = strtolower(trim((string) ($input['email'] ?? '')));
-    $usernameInput = (string) ($input['username'] ?? '');
-    $mobileRaw = (string) ($input['mobile'] ?? '');
-    $mobileDigits = preg_replace('/\D+/', '', $mobileRaw);
-    if (!is_string($mobileDigits)) {
-        $mobileDigits = '';
+    if (!in_array($roleName, ['admin', 'employee', 'installer', 'referrer'], true)) {
+        throw new RuntimeException('Select a supported integral user role.');
     }
 
-    if ($isCustomerRole) {
-        if (strlen($mobileDigits) === 12 && substr($mobileDigits, 0, 2) === '91') {
-            $mobileDigits = substr($mobileDigits, -10);
-        }
+    $emailInput = trim((string) ($input['email'] ?? ''));
+    $email = $emailInput !== '' ? strtolower($emailInput) : '';
 
-        if (strlen($mobileDigits) !== 10) {
-            throw new RuntimeException('Customer accounts require a valid 10-digit mobile number.');
-        }
+    $username = strtolower(trim((string) ($input['username'] ?? '')));
+    if ($username === '' || !preg_match('/^[a-z0-9._-]{3,}$/', $username)) {
+        throw new RuntimeException('Username must be at least 3 characters (letters, numbers, dot, underscore, or dash).');
+    }
 
-        $username = $mobileDigits;
-
-        if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            throw new RuntimeException('Customer email must be a valid address when provided.');
-        }
-
-        if ($email === '') {
-            $email = sprintf('customer+%s@dakshayani.in', $username);
-        }
-    } else {
+    if (in_array($roleName, ['admin', 'employee'], true)) {
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            throw new RuntimeException('A valid email address is required.');
+            throw new RuntimeException('A valid email address is required for this role.');
         }
-
-        $username = strtolower(trim($usernameInput));
-        if ($username === '' || !preg_match('/^[a-z0-9._-]{3,}$/', $username)) {
-            throw new RuntimeException('Username must be at least 3 characters (letters, numbers, dot, underscore, or dash).');
-        }
+    } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('Provide a valid email address or leave the field blank.');
     }
 
-    $username = strtolower($username);
+    $phoneDigits = preg_replace('/\D+/', '', (string) ($input['mobile'] ?? ''));
+    if (!is_string($phoneDigits)) {
+        $phoneDigits = '';
+    }
+    if ($phoneDigits === '' || strlen($phoneDigits) < 10) {
+        throw new RuntimeException('Enter a contact number with at least 10 digits.');
+    }
+    if (strlen($phoneDigits) > 10) {
+        $phoneDigits = substr($phoneDigits, -10);
+    }
 
     $password = (string) ($input['password'] ?? '');
     if (strlen($password) < 8) {
@@ -3240,21 +3229,11 @@ function admin_create_user(?PDO $db, array $input, int $actorId): array
     }
 
     $status = strtolower(trim((string) ($input['status'] ?? 'active')));
-    if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
+    if (!in_array($status, ['active', 'inactive'], true)) {
         $status = 'active';
     }
 
     $permissionsNote = trim((string) ($input['permissions_note'] ?? ''));
-
-    $phone = null;
-    if ($isCustomerRole) {
-        $phone = $mobileDigits;
-    } elseif ($mobileDigits !== '') {
-        if (strlen($mobileDigits) < 10) {
-            throw new RuntimeException('Phone numbers must contain at least 10 digits.');
-        }
-        $phone = $mobileDigits;
-    }
 
     $hash = password_hash($password, PASSWORD_DEFAULT);
     $now = now_ist();
@@ -3262,10 +3241,10 @@ function admin_create_user(?PDO $db, array $input, int $actorId): array
     $store = user_store();
     $record = $store->save([
         'full_name' => $fullName,
-        'email' => $email,
+        'email' => $email !== '' ? $email : null,
         'username' => $username,
-        'phone' => $phone,
-        'role' => $roleKey,
+        'phone' => $phoneDigits,
+        'role' => $roleName,
         'status' => $status,
         'permissions_note' => $permissionsNote,
         'password_hash' => $hash,
@@ -3277,17 +3256,77 @@ function admin_create_user(?PDO $db, array $input, int $actorId): array
         'event' => 'admin_create_user',
         'actor_id' => $actorId,
         'user_id' => (int) ($record['id'] ?? 0),
-        'role' => $roleKey,
+        'role' => $roleName,
         'status' => $status,
     ]);
 
     return admin_list_accounts($db, ['status' => 'all']);
 }
 
+function admin_update_integral_user(?PDO $db, int $userId, array $input, int $actorId): array
+{
+    unset($db);
+
+    $store = user_store();
+    $record = $store->get($userId);
+    if (!$record) {
+        throw new RuntimeException('User not found.');
+    }
+
+    $fullName = trim((string) ($input['full_name'] ?? ($record['full_name'] ?? '')));
+    if ($fullName === '') {
+        throw new RuntimeException('Full name is required.');
+    }
+
+    $roleName = strtolower(trim((string) ($input['role'] ?? ($record['role'] ?? 'employee'))));
+    admin_resolve_role_id(null, $roleName);
+    if (!in_array($roleName, ['admin', 'employee', 'installer', 'referrer'], true)) {
+        throw new RuntimeException('Select a supported integral user role.');
+    }
+
+    $emailInput = trim((string) ($input['email'] ?? ($record['email'] ?? '')));
+    $email = $emailInput !== '' ? strtolower($emailInput) : '';
+    if (in_array($roleName, ['admin', 'employee'], true)) {
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('A valid email address is required for this role.');
+        }
+    } elseif ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        throw new RuntimeException('Provide a valid email address or leave the field blank.');
+    }
+
+    $phoneDigits = preg_replace('/\D+/', '', (string) ($input['phone'] ?? ($record['phone'] ?? '')));
+    if (!is_string($phoneDigits)) {
+        $phoneDigits = '';
+    }
+    if ($phoneDigits === '' || strlen($phoneDigits) < 10) {
+        throw new RuntimeException('Enter a contact number with at least 10 digits.');
+    }
+    if (strlen($phoneDigits) > 10) {
+        $phoneDigits = substr($phoneDigits, -10);
+    }
+
+    $record['full_name'] = $fullName;
+    $record['email'] = $email !== '' ? $email : null;
+    $record['phone'] = $phoneDigits;
+    $record['role'] = $roleName;
+    $record['updated_at'] = now_ist();
+
+    $updated = $store->save($record);
+
+    $store->appendAudit([
+        'event' => 'admin_update_user_profile',
+        'actor_id' => $actorId,
+        'user_id' => (int) ($updated['id'] ?? $userId),
+        'role' => $roleName,
+    ]);
+
+    return admin_list_accounts(null, ['status' => 'all']);
+}
+
 function admin_update_user_status(?PDO $db, int $userId, string $status, int $actorId): array
 {
     $status = strtolower(trim($status));
-    if (!in_array($status, ['active', 'inactive', 'pending'], true)) {
+    if (!in_array($status, ['active', 'inactive'], true)) {
         throw new RuntimeException('Unsupported status.');
     }
 
