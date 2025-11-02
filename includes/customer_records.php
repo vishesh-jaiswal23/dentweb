@@ -61,6 +61,7 @@ final class CustomerRecordStore
             $record = [
                 'id' => $id,
                 'state' => self::STATE_LEAD,
+                'active' => true,
                 'full_name' => $payload['full_name'],
                 'phone' => $payload['phone'],
                 'phone_normalized' => $payload['phone_normalized'],
@@ -117,6 +118,46 @@ final class CustomerRecordStore
         });
     }
 
+    public function delete(int $id): array
+    {
+        return $this->writeThrough(function (array $data) use ($id): array {
+            $record = $this->requireRecord($data, $id);
+
+            $normalizedPhone = $record['phone_normalized'] ?? null;
+            if ($normalizedPhone !== null && isset($data['mobile_index'][$normalizedPhone])) {
+                unset($data['mobile_index'][$normalizedPhone]);
+            }
+
+            unset($data['records'][(string) $id]);
+
+            return [$data, ['deleted' => true]];
+        });
+    }
+
+    public function deactivate(int $id): array
+    {
+        return $this->writeThrough(function (array $data) use ($id): array {
+            $record = $this->requireRecord($data, $id);
+            $record['active'] = false;
+            $record['updated_at'] = $this->now();
+            $data['records'][(string) $id] = $record;
+
+            return [$data, $this->prepareRecordForOutput($record)];
+        });
+    }
+
+    public function reactivate(int $id): array
+    {
+        return $this->writeThrough(function (array $data) use ($id): array {
+            $record = $this->requireRecord($data, $id);
+            $record['active'] = true;
+            $record['updated_at'] = $this->now();
+            $data['records'][(string) $id] = $record;
+
+            return [$data, $this->prepareRecordForOutput($record)];
+        });
+    }
+
     public function changeState(int $id, string $targetState, array $payload = []): array
     {
         $target = $this->normaliseState($targetState);
@@ -169,6 +210,7 @@ final class CustomerRecordStore
     public function list(array $filters = []): array
     {
         $stateFilter = isset($filters['state']) ? $this->normaliseStateOrAll((string) $filters['state']) : 'all';
+        $activeStatus = isset($filters['active_status']) ? strtolower((string) $filters['active_status']) : 'active';
         $search = isset($filters['search']) ? strtolower(trim((string) $filters['search'])) : '';
         $perPage = isset($filters['per_page']) ? max(5, min(100, (int) $filters['per_page'])) : 20;
         $page = isset($filters['page']) ? max(1, (int) $filters['page']) : 1;
@@ -183,6 +225,15 @@ final class CustomerRecordStore
             $record = $this->prepareRecordForOutput($raw);
             if ($stateFilter !== 'all' && $record['state'] !== $stateFilter) {
                 continue;
+            }
+            if ($activeStatus !== 'all') {
+                $isActive = (bool) ($record['active'] ?? true);
+                if ($activeStatus === 'active' && !$isActive) {
+                    continue;
+                }
+                if ($activeStatus === 'inactive' && $isActive) {
+                    continue;
+                }
             }
             if ($search !== '') {
                 $haystack = strtolower(
@@ -392,6 +443,7 @@ final class CustomerRecordStore
                 $record = [
                     'id' => $id,
                     'state' => self::STATE_LEAD,
+                    'active' => true,
                     'full_name' => $payload['full_name'],
                     'phone' => $payload['phone'],
                     'phone_normalized' => $payload['phone_normalized'],
@@ -718,6 +770,7 @@ final class CustomerRecordStore
     {
         $state = $this->normaliseState((string) ($record['state'] ?? self::STATE_LEAD));
         $record['state'] = $state;
+        $record['active'] = (bool) ($record['active'] ?? true);
         $record['record_type'] = $state === self::STATE_LEAD ? 'lead' : 'customer';
         $record['complaint_allowed'] = (bool) ($record['complaint_allowed'] ?? false);
         $record['system_kwp'] = isset($record['system_kwp']) && $record['system_kwp'] !== null
@@ -889,6 +942,7 @@ final class CustomerRecordStore
                 }
 
                 $record['id'] = isset($record['id']) ? (int) $record['id'] : (int) $key;
+                $record['active'] = (bool) ($record['active'] ?? true);
                 $record['full_name'] = $this->sanitizeName($record['full_name'] ?? '');
                 $record['phone'] = $this->sanitizePhoneForStorage($record['phone'] ?? ($record['mobile_number'] ?? ''));
                 $record['phone_normalized'] = $this->normalizePhone($record['phone']);
