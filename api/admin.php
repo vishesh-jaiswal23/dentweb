@@ -395,6 +395,10 @@ try {
             require_method('POST');
             respond_success(ai_restore_draft_from_temp(read_json(), $actorId));
             break;
+        case 'discard-streamed-draft':
+            require_method('POST');
+            respond_success(ai_discard_streamed_draft(read_json()));
+            break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
     }

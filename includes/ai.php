@@ -8,11 +8,6 @@ function ai_storage_base(): string
     return __DIR__ . '/../storage/ai';
 }
 
-function ai_temp_path(string ...$segments): string
-{
-    return ai_storage_path('tmp', ...$segments);
-}
-
 function ai_storage_path(string ...$segments): string
 {
     $path = ai_storage_base();
@@ -45,7 +40,6 @@ function ai_bootstrap_storage(): void
     ai_ensure_directory(ai_storage_path('notes'));
     ai_ensure_directory(ai_storage_path('secrets'));
     ai_ensure_directory(ai_storage_path('logs'));
-    ai_ensure_directory(ai_storage_path('tmp'));
 }
 
 function ai_api_key_path(): string
@@ -231,6 +225,76 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
     }
 
     return $decoded;
+}
+
+function ai_gemini_stream_generate_content(string $model, array $payload, string $apiKey, callable $chunkCallback): void
+{
+    $url = sprintf(
+        'https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?key=%s',
+        rawurlencode($model),
+        urlencode($apiKey)
+    );
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+
+    $buffer = '';
+    curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($curl, $data) use (&$buffer, $chunkCallback) {
+        $buffer .= $data;
+        while (($pos = strpos($buffer, "\n")) !== false) {
+            $chunk = substr($buffer, 0, $pos);
+            $buffer = substr($buffer, $pos + 1);
+            if (trim($chunk) !== '') {
+                $chunkCallback($chunk);
+            }
+        }
+        return strlen($data);
+    });
+
+    curl_exec($ch);
+
+    if (trim($buffer) !== '') {
+        $chunkCallback($buffer);
+    }
+
+    curl_close($ch);
+}
+
+function ai_gemini_stream_generate_content(string $model, array $payload, string $apiKey, callable $chunkCallback): void
+{
+    $url = sprintf(
+        'https://generativelanguage.googleapis.com/v1beta/models/%s:streamGenerateContent?key=%s',
+        rawurlencode($model),
+        urlencode($apiKey)
+    );
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+
+    $buffer = '';
+    curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($curl, $data) use (&$buffer, $chunkCallback) {
+        $buffer .= $data;
+        while (($pos = strpos($buffer, "\n")) !== false) {
+            $chunk = substr($buffer, 0, $pos);
+            $buffer = substr($buffer, $pos + 1);
+            if (trim($chunk) !== '') {
+                $chunkCallback($chunk);
+            }
+        }
+        return strlen($data);
+    });
+
+    curl_exec($ch);
+
+    if (trim($buffer) !== '') {
+        $chunkCallback($buffer);
+    }
+
+    curl_close($ch);
 }
 
 function ai_gemini_generate_content(string $model, array $payload, string $apiKey): array
@@ -1231,178 +1295,6 @@ function ai_generate_blog_draft_from_prompt(string $prompt, int $actorId): array
         'topic' => $prompt,
     ];
     return ai_generate_blog_draft($options, $actorId);
-}
-
-function ai_list_temp_snapshots(): array
-{
-    ai_bootstrap_storage();
-    $files = glob(ai_temp_path('*.json')) ?: [];
-    $snapshots = [];
-    foreach ($files as $file) {
-        $data = ai_read_json_file($file);
-        if (is_array($data) && !empty($data['content'])) {
-            $snapshots[basename($file, '.json')] = $data;
-        }
-    }
-    return $snapshots;
-}
-
-function ai_restore_draft_from_temp(array $input, int $actorId): array
-{
-    $draftId = trim((string) ($input['draftId'] ?? ''));
-    if ($draftId === '') {
-        throw new RuntimeException('Draft ID is required.');
-    }
-
-    $tempPath = ai_temp_path($draftId . '.json');
-    if (!is_file($tempPath)) {
-        throw new RuntimeException('Snapshot not found.');
-    }
-
-    $data = ai_read_json_file($tempPath);
-    $content = (string) ($data['content'] ?? '');
-    if ($content === '') {
-        throw new RuntimeException('Snapshot is empty.');
-    }
-
-    // Clean up the temp file after restoring
-    @unlink($tempPath);
-
-    return ['content' => $content];
-}
-
-function ai_stream_generate_blog_draft(array $options, int $actorId): void
-{
-    header('Content-Type: text/event-stream');
-    header('Cache-Control: no-cache');
-    header('Connection: keep-alive');
-
-    ob_end_flush();
-
-    $sendEvent = static function (string $name, array $data): void {
-        echo "event: ${name}\n";
-        echo 'data: ' . json_encode($data) . "\n\n";
-        flush();
-    };
-
-    try {
-        ai_require_enabled();
-        if (!ai_has_api_key()) {
-            throw new RuntimeException('Missing API key. Configure it in AI Studio settings.');
-        }
-        ai_check_quotas();
-
-        $topic = trim((string) ($options['topic'] ?? ''));
-        if ($topic === '') {
-            throw new RuntimeException('Topic/Keywords are required to generate a draft.');
-        }
-
-        $topic = trim((string) ($options['topic'] ?? ''));
-        if ($topic === '') {
-            throw new RuntimeException('Topic/Keywords are required to generate a draft.');
-        }
-
-        $title = trim((string) ($options['title'] ?? ''));
-        $tone = trim((string) ($options['tone'] ?? 'informative'));
-        $length = trim((string) ($options['target_length'] ?? 'medium'));
-        $audience = trim((string) ($options['audience'] ?? ''));
-
-        $prompt = "Blog topic: {$topic}.";
-        if ($title !== '') {
-            $prompt .= " Desired title: \"{$title}\".";
-        }
-        if ($tone !== '') {
-            $prompt .= " Tone should be {$tone}.";
-        }
-        if ($length !== '') {
-            $wordCount = ['short' => 300, 'medium' => 600, 'long' => 1000];
-            $prompt .= " Target length is around {$wordCount[$length]} words.";
-        }
-        if ($audience !== '') {
-            $prompt .= " The target audience is {$audience}.";
-        }
-
-        $content = ai_generate_blog_draft_content($prompt);
-        $fullBody = $content['body_html'];
-        $words = preg_split('/\s+/', $fullBody) ?: [];
-        $draftId = ai_generate_draft_id();
-
-        $sendEvent('start', [
-            'draftId' => $draftId,
-            'metadata' => [
-                'title' => $content['title'],
-                'topic' => $content['topic'],
-                'excerpt' => $content['excerpt'],
-                'keywords' => $content['keywords'],
-                'image_prompt' => $content['image_prompt'],
-            ]
-        ]);
-
-        $streamAborted = false;
-        $streamedContent = '';
-        $lastSaveTime = microtime(true);
-        $tempPath = ai_temp_path($draftId . '.json');
-
-        register_shutdown_function(function() use ($tempPath) {
-            if (file_exists($tempPath)) {
-                @unlink($tempPath);
-            }
-        });
-
-        foreach ($words as $word) {
-            if (connection_aborted()) {
-                $streamAborted = true;
-                // Save one last time before aborting
-                ai_write_json_file($tempPath, ['content' => $streamedContent]);
-                break;
-            }
-            $streamedContent .= $word . ' ';
-            $sendEvent('chunk', ['text' => $word . ' ']);
-
-            if (microtime(true) - $lastSaveTime > 15) {
-                ai_write_json_file($tempPath, ['content' => $streamedContent]);
-                $lastSaveTime = microtime(true);
-            }
-
-            usleep(50000); // 50ms delay
-        }
-
-        if (file_exists($tempPath)) {
-            @unlink($tempPath);
-        }
-
-        ai_content_safety_check($streamedContent);
-
-        $payload = [
-            'draft_id' => $draftId,
-            'title' => $title !== '' ? $title : $content['title'],
-            'body' => $streamedContent,
-            'excerpt' => $content['excerpt'],
-            'topic' => $content['topic'],
-            'tone' => $tone,
-            'audience' => $audience,
-            'keywords' => $content['keywords'],
-            'image_prompt' => $content['image_prompt'],
-        ];
-
-        $saved = ai_save_blog_draft($payload, $actorId);
-        $sendEvent('saved', ['draft' => $saved]);
-
-        $tokens = (int) ($content['usage']['totalTokens'] ?? 0);
-        ai_update_usage_data($tokens > 0 ? $tokens : (int)(strlen($fullBody) / 4));
-
-        ai_log_activity('stream_generate_draft', [
-            'topic' => $topic,
-            'status' => 'success',
-            'aborted' => $streamAborted,
-            'tokens' => $tokens,
-        ]);
-
-        $sendEvent('complete', ['message' => 'Draft saved successfully.']);
-
-    } catch (Throwable $exception) {
-        $sendEvent('error', ['message' => $exception->getMessage()]);
-    }
 }
 
 function ai_image_file_path(string $draftId): string
