@@ -248,10 +248,8 @@ function refreshContent() {
             if (result.artwork_generated) {
               message += 'Artwork attached.';
             }
+            message += ` <a href="admin-ai-studio.php?tab=generator&draft=${result.draft_id}#ai-draft-editor" class="admin-toast__link">View Draft</a>`;
             showToast(message, 'success');
-            setTimeout(() => {
-              window.location.href = `admin-ai-studio.php?tab=generator&draft=${result.draft_id}#ai-draft-editor`;
-            }, 1000);
           } else {
             showToast(data.error || 'An error occurred.', 'error');
           }
