@@ -747,6 +747,17 @@ SQL
     $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_posts_status_published_at ON blog_posts(status, published_at DESC)');
     $db->exec('CREATE INDEX IF NOT EXISTS idx_blog_post_tags_tag ON blog_post_tags(tag_id)');
 
+    $db->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS activity_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    module TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    customer_id INTEGER,
+    timestamp TEXT NOT NULL
+)
+SQL
+    );
+
     apply_schema_patches($db);
 }
 
@@ -4391,9 +4402,9 @@ function portal_admin_update_complaint_status(PDO $db, string $reference, string
 
 function admin_overview_counts(PDO $db): array
 {
+    $customerStore = customer_record_store();
     $activeEmployees = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee' AND users.status = 'active'")->fetchColumn();
-    $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
-    $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
+    $ongoingInstallations = $customerStore->list(['state' => 'ongoing', 'active_status' => 'active'])['total'];
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
     $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active') AND deleted_at IS NULL")->fetchColumn();
     $activeReferrers = (int) $db->query("SELECT COUNT(*) FROM referrers WHERE status = 'active'")->fetchColumn();
@@ -4416,8 +4427,7 @@ SQL
 
     return [
         'employees' => $activeEmployees,
-        'leads' => $newLeads,
-        'installations' => $activeInstallations,
+        'installations' => $ongoingInstallations,
         'complaints' => $openComplaints,
         'subsidy' => $pendingSubsidy,
         'reminders' => $activeReminders,
@@ -4425,109 +4435,91 @@ SQL
     ];
 }
 
+function log_activity(string $module, string $summary, ?int $customerId = null): void
+{
+    $db = get_db();
+    $stmt = $db->prepare('INSERT INTO activity_log (module, summary, customer_id, timestamp) VALUES (:module, :summary, :customer_id, :timestamp)');
+    $stmt->execute([
+        ':module' => $module,
+        ':summary' => $summary,
+        ':customer_id' => $customerId,
+        ':timestamp' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))->format('Y-m-d H:i:s'),
+    ]);
+}
+
 function admin_today_highlights(PDO $db, int $limit = 12): array
 {
-    $entries = [];
-
-    $addEntry = static function (?string $timestamp, string $module, string $summary, array $context = []) use (&$entries): void {
-        if ($timestamp === null || trim($timestamp) === '') {
-            return;
-        }
-
-        $parsed = strtotime($timestamp);
-        if ($parsed === false) {
-            return;
-        }
-
-        $entries[] = [
-            'module' => $module,
-            'summary' => $summary,
-            'timestamp' => $timestamp,
-            'sort_key' => $parsed,
-            'context' => $context,
-        ];
-    };
-
-    $leadStmt = $db->query('SELECT id, name, status, updated_at, created_at FROM crm_leads ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
-    foreach ($leadStmt->fetchAll() as $row) {
-        $status = lead_status_label($row['status'] ?? '');
-        $title = sprintf('Lead "%s" is %s', $row['name'], strtolower($status));
-        $addEntry($row['updated_at'] ?: $row['created_at'], 'leads', $title, [
-            'id' => (int) $row['id'],
-            'status' => $status,
-        ]);
-    }
-
-    $installationStmt = $db->query('SELECT id, customer_name, project_reference, stage, requested_stage, updated_at, created_at FROM installations ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
-    foreach ($installationStmt->fetchAll() as $row) {
-        $stage = strtolower(trim((string) ($row['stage'] ?? 'structure')));
-        $stageLabel = installation_stage_label($stage);
-        $name = $row['project_reference'] ?: $row['customer_name'];
-        $requested = strtolower(trim((string) ($row['requested_stage'] ?? '')));
-        if ($requested === 'commissioned') {
-            $title = sprintf('Installation %s pending commissioning approval', $name);
-        } else {
-            $title = sprintf('Installation %s now %s', $name, strtolower($stageLabel));
-        }
-        $addEntry($row['updated_at'] ?: $row['created_at'], 'installations', $title, [
-            'id' => (int) $row['id'],
-            'status' => $requested === 'commissioned' ? 'Commissioning pending' : $stageLabel,
-        ]);
-    }
-
-    $complaintStmt = $db->query('SELECT id, reference, status, updated_at, created_at FROM complaints ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
-    foreach ($complaintStmt->fetchAll() as $row) {
-        $status = complaint_status_label($row['status'] ?? '');
-        $title = sprintf('Complaint %s moved to %s', $row['reference'], strtolower($status));
-        $addEntry($row['updated_at'] ?: $row['created_at'], 'complaints', $title, [
-            'id' => (int) $row['id'],
-            'status' => $status,
-        ]);
-    }
-
-    $subsidyStmt = $db->query('SELECT application_reference, stage, stage_date FROM subsidy_tracker ORDER BY stage_date DESC, id DESC LIMIT 25');
-    foreach ($subsidyStmt->fetchAll() as $row) {
-        $stage = subsidy_stage_label($row['stage'] ?? '');
-        $label = $row['application_reference'] ?: 'Application';
-        $title = sprintf('Subsidy %s moved to %s', $label, strtolower($stage));
-        $addEntry($row['stage_date'] ?? null, 'subsidy', $title, [
-            'reference' => $label,
-            'stage' => $stage,
-        ]);
-    }
-
-    $reminderStmt = $db->query("SELECT id, title, status, module, due_at, updated_at, created_at FROM reminders WHERE deleted_at IS NULL ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25");
-    foreach ($reminderStmt->fetchAll() as $row) {
-        $status = reminder_status_label($row['status'] ?? '');
-        $moduleLabel = reminder_module_label($row['module'] ?? '');
-        $due = $row['due_at'] ? (' · due ' . format_due_date($row['due_at'])) : '';
-        $title = sprintf('%s reminder "%s" is %s%s', $moduleLabel, $row['title'], strtolower($status), $due);
-        $addEntry($row['updated_at'] ?: $row['created_at'], 'reminders', $title, [
-            'id' => (int) $row['id'],
-            'status' => $status,
-            'module' => $row['module'] ?? '',
-        ]);
-    }
-
-    if (count($entries) === 0) {
-        return [];
-    }
-
-    usort($entries, static function (array $a, array $b): int {
-        return $b['sort_key'] <=> $a['sort_key'];
-    });
-
-    $sliced = array_slice($entries, 0, $limit);
+    $twentyFourHoursAgo = (new DateTimeImmutable('-24 hours', new DateTimeZone('Asia/Kolkata')))->format('Y-m-d H:i:s');
+    $stmt = $db->prepare("SELECT * FROM activity_log WHERE timestamp >= :timestamp ORDER BY timestamp DESC LIMIT :limit");
+    $stmt->bindValue(':timestamp', $twentyFourHoursAgo);
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     return array_map(static function (array $item): array {
-        $timestamp = new DateTimeImmutable($item['timestamp']);
+        $link = '#';
+        if ($item['module'] === 'customer' && !empty($item['customer_id'])) {
+            $link = 'admin-customers.php#customer-' . ((int) $item['customer_id']);
+        }
+
         return [
             'module' => $item['module'],
             'summary' => $item['summary'],
-            'timestamp' => $timestamp->format(DateTimeInterface::ATOM),
-            'context' => $item['context'],
+            'timestamp' => (new DateTimeImmutable($item['timestamp']))->format(DateTimeInterface::ATOM),
+            'context' => ['customer_id' => $item['customer_id']],
+            'link' => $link,
         ];
-    }, $sliced);
+    }, $rows);
+}
+
+function admin_past_activities(PDO $db, int $page = 1, int $perPage = 15): array
+{
+    $twentyFourHoursAgo = (new DateTimeImmutable('-24 hours', new DateTimeZone('Asia/Kolkata')))->format('Y-m-d H:i:s');
+
+    $countStmt = $db->prepare("SELECT COUNT(*) FROM activity_log WHERE timestamp < :timestamp");
+    $countStmt->bindValue(':timestamp', $twentyFourHoursAgo);
+    $countStmt->execute();
+    $total = (int) $countStmt->fetchColumn();
+
+    $page = max(1, $page);
+    $perPage = max(1, $perPage);
+    $pageCount = (int) ceil($total / $perPage);
+    if ($page > $pageCount) {
+        $page = $pageCount;
+    }
+    $offset = ($page - 1) * $perPage;
+
+    $stmt = $db->prepare("SELECT * FROM activity_log WHERE timestamp < :timestamp ORDER BY timestamp DESC LIMIT :limit OFFSET :offset");
+    $stmt->bindValue(':timestamp', $twentyFourHoursAgo);
+    $stmt->bindValue(':limit', $perPage, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $items = array_map(static function (array $item): array {
+        $link = '#';
+        if ($item['module'] === 'customer' && !empty($item['customer_id'])) {
+            $link = 'admin-customers.php#customer-' . ((int) $item['customer_id']);
+        }
+
+        return [
+            'module' => $item['module'],
+            'summary' => $item['summary'],
+            'timestamp' => (new DateTimeImmutable($item['timestamp']))->format(DateTimeInterface::ATOM),
+            'context' => ['customer_id' => $item['customer_id']],
+            'link' => $link,
+        ];
+    }, $rows);
+
+    return [
+        'items' => $items,
+        'pagination' => [
+            'page' => $page,
+            'perPage' => $perPage,
+            'total' => $total,
+            'pages' => $pageCount,
+        ],
+    ];
 }
 
 function installation_stage_keys(): array
