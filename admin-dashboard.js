@@ -339,6 +339,92 @@ function deactivateCustomer(customerId) {
     );
 }
 
+  const generateDraftForm = document.getElementById('ai-blog-generator-form');
+  if (generateDraftForm) {
+    generateDraftForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const generateButton = generateDraftForm.querySelector('button[value="generate-draft"]');
+      generateButton.disabled = true;
+      generateButton.textContent = 'Generating...';
+
+      const formData = new FormData(generateDraftForm);
+      const payload = Object.fromEntries(formData.entries());
+
+      fetch('api/admin.php?action=generate-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            const result = data.data;
+            let message = `Draft "${result.title}" generated. `;
+            if (result.artwork_generated) {
+              message += 'Artwork attached.';
+            }
+            showToast(message, 'success');
+            setTimeout(() => {
+              window.location.href = `admin-ai-studio.php?tab=generator&draft=${result.draft_id}#ai-draft-editor`;
+            }, 1000);
+          } else {
+            showToast(data.error || 'An error occurred.', 'error');
+          }
+        })
+        .catch(() => {
+          showToast('An unexpected network error occurred.', 'error');
+        })
+        .finally(() => {
+          generateButton.disabled = false;
+          generateButton.textContent = 'Generate blog draft';
+        });
+    });
+  }
+
+  const testConnectionButton = document.querySelector('button[value="test-connection"]');
+  if (testConnectionButton) {
+    testConnectionButton.addEventListener('click', (event) => {
+      event.preventDefault();
+      testConnectionButton.disabled = true;
+      testConnectionButton.textContent = 'Testing...';
+
+      fetch('api/admin.php?action=test-connection', {
+        method: 'POST',
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success) {
+            const result = data.data;
+            showToast(result.message, result.status === 'pass' ? 'success' : 'warning');
+          } else {
+            showToast(data.error || 'An error occurred.', 'error');
+          }
+        })
+        .catch(() => {
+          showToast('An unexpected network error occurred.', 'error');
+        })
+        .finally(() => {
+          testConnectionButton.disabled = false;
+          testConnectionButton.textContent = 'Test connection';
+        });
+    });
+  }
+  const revealApiKeyButton = document.querySelector('[data-reveal-api-key]');
+  if (revealApiKeyButton) {
+    revealApiKeyButton.addEventListener('click', () => {
+      const apiKeyInput = document.getElementById('api-key-input');
+      if (apiKeyInput.type === 'password') {
+        if (confirm('Show API key? This is not recommended.')) {
+          apiKeyInput.type = 'text';
+          revealApiKeyButton.textContent = 'Hide';
+        }
+      } else {
+        apiKeyInput.type = 'password';
+        revealApiKeyButton.textContent = 'Reveal';
+      }
+    });
+  }
+
 function reactivateCustomer(customerId) {
     const onConfirm = () => {
         fetch('api/admin.php?action=reactivate-customer', {

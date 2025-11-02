@@ -306,6 +306,13 @@ try {
             $users = user_store()->list(['role' => 'employee', 'status' => 'active']);
             $installers = user_store()->list(['role' => 'installer', 'status' => 'active']);
             respond_success(['employees' => $users, 'installers' => $installers]);
+        case 'test-connection':
+            require_method('POST');
+            respond_success(ai_test_connection());
+            break;
+        case 'generate-draft':
+            require_method('POST');
+            respond_success(ai_generate_blog_draft(read_json(), $actorId));
             break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
