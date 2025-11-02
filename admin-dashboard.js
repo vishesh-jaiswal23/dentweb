@@ -93,64 +93,6 @@ function refreshContent() {
   highlightTimes.forEach(formatRelativeTime);
   initTheme();
 
-  function updateDashboard() {
-    fetch('api/admin.php?action=dashboard-data')
-      .then(response => response.json())
-      .then(data => {
-        if (!data.success) return;
-
-        // Update counts
-        const counts = data.data.counts;
-        document.querySelectorAll('.overview-card').forEach(card => {
-          const label = card.querySelector('.overview-card__label').textContent.trim();
-          const valueEl = card.querySelector('.overview-card__value');
-          switch (label) {
-            case 'Active Employees': valueEl.textContent = counts.employees; break;
-            case 'New Leads': valueEl.textContent = counts.leads; break;
-            case 'Active Referrers': valueEl.textContent = counts.referrers; break;
-            case 'Ongoing Installations': valueEl.textContent = counts.installations; break;
-            case 'Open Complaints': valueEl.textContent = counts.complaints; break;
-            case 'Subsidy Pending': valueEl.textContent = counts.subsidy; break;
-            case 'Active Reminders': valueEl.textContent = counts.reminders; break;
-          }
-        });
-
-        // Update highlights
-        const highlights = data.data.highlights;
-        const highlightsList = document.querySelector('.highlight-list');
-        if (highlightsList) {
-          if (highlights.length === 0) {
-            document.querySelector('.admin-overview__highlights').innerHTML = `
-              <div class="admin-overview__highlights-header">
-                <h2 id="highlights-title">Today's Highlights</h2>
-                <p class="admin-overview__highlights-sub">Recent changes across leads, installations, complaints, subsidy, and reminders.</p>
-              </div>
-              <p class="admin-overview__empty">No highlights for today yet.</p>
-            `;
-          } else {
-            highlightsList.innerHTML = highlights.map(item => `
-              <li class="highlight-list__item highlight-list__item--${item.module}">
-                <div class="highlight-list__icon" aria-hidden="true"><i class="fa-solid ${item.icon || 'fa-circle-info'}"></i></div>
-                <div class="highlight-list__content">
-                  <p class="highlight-list__module">${item.moduleLabel || item.module}</p>
-                  <p class="highlight-list__summary">${item.summary}</p>
-                </div>
-                <time class="highlight-list__time" datetime="${item.timestamp}" data-highlight-time>${new Date(item.timestamp).toLocaleTimeString()}</time>
-              </li>
-            `).join('');
-            document.querySelectorAll('[data-highlight-time]').forEach(formatRelativeTime);
-          }
-        }
-      })
-      .catch(error => console.error('Error updating dashboard:', error));
-  }
-
-  // Initial update and then poll every 30 seconds
-  if (document.querySelector('.admin-overview__shell')) {
-    updateDashboard();
-    setInterval(updateDashboard, 30000);
-  }
-
   function showModal(title, content, onConfirm) {
     const modal = document.createElement('div');
     modal.className = 'admin-modal';

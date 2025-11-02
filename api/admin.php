@@ -311,13 +311,6 @@ try {
             require_method('POST');
             respond_success(ai_generate_blog_draft(read_json(), $actorId));
             break;
-        case 'dashboard-data':
-            require_method('GET');
-            respond_success([
-                'counts' => admin_overview_counts($db),
-                'highlights' => admin_today_highlights($db),
-            ]);
-            break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
     }

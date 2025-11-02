@@ -4425,46 +4425,9 @@ SQL
     ];
 }
 
-function admin_overview_counts(PDO $db): array
-{
-    $activeEmployees = (int) $db->query("SELECT COUNT(*) FROM users INNER JOIN roles ON users.role_id = roles.id WHERE roles.name = 'employee' AND users.status = 'active'")->fetchColumn();
-    $newLeads = (int) $db->query("SELECT COUNT(*) FROM crm_leads WHERE status = 'new'")->fetchColumn();
-    $activeInstallations = (int) $db->query("SELECT COUNT(*) FROM installations WHERE stage != 'commissioned' AND status NOT IN ('cancelled')")->fetchColumn();
-    $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
-    $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active') AND deleted_at IS NULL")->fetchColumn();
-    $activeReferrers = (int) $db->query("SELECT COUNT(*) FROM referrers WHERE status = 'active'")->fetchColumn();
-
-    $pendingStmt = $db->query(<<<'SQL'
-WITH ranked AS (
-    SELECT
-        application_reference,
-        stage,
-        stage_date,
-        id,
-        ROW_NUMBER() OVER (PARTITION BY application_reference ORDER BY stage_date DESC, id DESC) AS rn
-    FROM subsidy_tracker
-)
-SELECT COUNT(*) FROM ranked WHERE rn = 1 AND stage != 'disbursed'
-SQL
-    );
-    $pendingValue = $pendingStmt ? $pendingStmt->fetchColumn() : 0;
-    $pendingSubsidy = (int) ($pendingValue !== false ? $pendingValue : 0);
-
-    return [
-        'employees' => $activeEmployees,
-        'leads' => $newLeads,
-        'installations' => $activeInstallations,
-        'complaints' => $openComplaints,
-        'subsidy' => $pendingSubsidy,
-        'reminders' => $activeReminders,
-        'referrers' => $activeReferrers,
-    ];
-}
-
-function admin_today_highlights(PDO $db, int $limit = 20): array
+function admin_today_highlights(PDO $db, int $limit = 12): array
 {
     $entries = [];
-    $since = date('Y-m-d H:i:s', strtotime('-24 hours'));
 
     $addEntry = static function (?string $timestamp, string $module, string $summary, array $context = []) use (&$entries): void {
         if ($timestamp === null || trim($timestamp) === '') {
@@ -4485,8 +4448,7 @@ function admin_today_highlights(PDO $db, int $limit = 20): array
         ];
     };
 
-    $leadStmt = $db->prepare("SELECT id, name, status, updated_at, created_at FROM crm_leads WHERE COALESCE(updated_at, created_at) >= :since ORDER BY COALESCE(updated_at, created_at) DESC");
-    $leadStmt->execute([':since' => $since]);
+    $leadStmt = $db->query('SELECT id, name, status, updated_at, created_at FROM crm_leads ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
     foreach ($leadStmt->fetchAll() as $row) {
         $status = lead_status_label($row['status'] ?? '');
         $title = sprintf('Lead "%s" is %s', $row['name'], strtolower($status));
@@ -4496,8 +4458,7 @@ function admin_today_highlights(PDO $db, int $limit = 20): array
         ]);
     }
 
-    $installationStmt = $db->prepare("SELECT id, customer_name, project_reference, stage, requested_stage, updated_at, created_at FROM installations WHERE COALESCE(updated_at, created_at) >= :since ORDER BY COALESCE(updated_at, created_at) DESC");
-    $installationStmt->execute([':since' => $since]);
+    $installationStmt = $db->query('SELECT id, customer_name, project_reference, stage, requested_stage, updated_at, created_at FROM installations ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
     foreach ($installationStmt->fetchAll() as $row) {
         $stage = strtolower(trim((string) ($row['stage'] ?? 'structure')));
         $stageLabel = installation_stage_label($stage);
@@ -4514,8 +4475,7 @@ function admin_today_highlights(PDO $db, int $limit = 20): array
         ]);
     }
 
-    $complaintStmt = $db->prepare("SELECT id, reference, status, updated_at, created_at FROM complaints WHERE COALESCE(updated_at, created_at) >= :since ORDER BY COALESCE(updated_at, created_at) DESC");
-    $complaintStmt->execute([':since' => $since]);
+    $complaintStmt = $db->query('SELECT id, reference, status, updated_at, created_at FROM complaints ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25');
     foreach ($complaintStmt->fetchAll() as $row) {
         $status = complaint_status_label($row['status'] ?? '');
         $title = sprintf('Complaint %s moved to %s', $row['reference'], strtolower($status));
@@ -4525,8 +4485,7 @@ function admin_today_highlights(PDO $db, int $limit = 20): array
         ]);
     }
 
-    $subsidyStmt = $db->prepare("SELECT application_reference, stage, stage_date FROM subsidy_tracker WHERE stage_date >= :since ORDER BY stage_date DESC, id DESC");
-    $subsidyStmt->execute([':since' => $since]);
+    $subsidyStmt = $db->query('SELECT application_reference, stage, stage_date FROM subsidy_tracker ORDER BY stage_date DESC, id DESC LIMIT 25');
     foreach ($subsidyStmt->fetchAll() as $row) {
         $stage = subsidy_stage_label($row['stage'] ?? '');
         $label = $row['application_reference'] ?: 'Application';
@@ -4537,8 +4496,7 @@ function admin_today_highlights(PDO $db, int $limit = 20): array
         ]);
     }
 
-    $reminderStmt = $db->prepare("SELECT id, title, status, module, due_at, updated_at, created_at FROM reminders WHERE deleted_at IS NULL AND COALESCE(updated_at, created_at) >= :since ORDER BY COALESCE(updated_at, created_at) DESC");
-    $reminderStmt->execute([':since' => $since]);
+    $reminderStmt = $db->query("SELECT id, title, status, module, due_at, updated_at, created_at FROM reminders WHERE deleted_at IS NULL ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 25");
     foreach ($reminderStmt->fetchAll() as $row) {
         $status = reminder_status_label($row['status'] ?? '');
         $moduleLabel = reminder_module_label($row['module'] ?? '');
