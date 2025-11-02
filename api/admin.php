@@ -311,6 +311,14 @@ try {
             require_method('POST');
             respond_success(ai_generate_blog_draft(read_json(), $actorId));
             break;
+        case 'stream-generate-draft':
+            require_method('POST');
+            ai_stream_generate_blog_draft(read_json(), $actorId);
+            break;
+        case 'restore-draft':
+            require_method('POST');
+            respond_success(ai_restore_draft_from_temp(read_json(), $actorId));
+            break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
     }

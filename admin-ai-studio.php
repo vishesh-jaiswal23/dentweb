@@ -165,6 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $settings = ai_get_settings();
 $aiEnabled = $settings['enabled'];
+$snapshots = ai_list_temp_snapshots();
 
 ai_daily_notes_generate_if_due();
 ai_publish_due_posts($db);
@@ -352,6 +353,12 @@ function ai_tab_class(string $current, string $tab): string
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
         <input type="hidden" name="tab" value="generator" />
         <fieldset <?= $aiEnabled ? '' : 'disabled' ?> class="ai-form__fieldset">
+          <?php if (!empty($snapshots)): ?>
+          <div class="admin-alert admin-alert--info" role="status">
+            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+            <span>Found an unsaved draft. <button type="button" class="admin-link" id="restore-snapshot-btn" data-draft-id="<?= htmlspecialchars(array_key_first($snapshots), ENT_QUOTES) ?>">Restore it?</button></span>
+          </div>
+          <?php endif; ?>
           <div class="admin-form__grid">
             <label>
               Title (Optional)
@@ -384,11 +391,40 @@ function ai_tab_class(string $current, string $tab): string
             <textarea name="topic" rows="3" placeholder="e.g. Rooftop solar adoption trends for small businesses in tier-2 cities" required></textarea>
             <span class="ai-field-help">Provide a clear topic or a comma-separated list of keywords. This is the primary input for the draft.</span>
           </label>
+          <div class="admin-form__grid">
+            <label class="ai-toggle">
+              <span>Live Typing</span>
+              <input type="checkbox" name="live_typing" value="1" checked />
+              <span class="ai-toggle__hint">Stream the draft word-by-word.</span>
+            </label>
+          </div>
           <div class="ai-form__actions">
             <button type="submit" name="action" value="generate-draft" class="btn btn-primary">Generate blog draft</button>
           </div>
         </fieldset>
       </form>
+
+      <div id="ai-live-preview-container" style="display: none;">
+        <div class="admin-panel__header ai-panel__header">
+            <div>
+                <h2 id="ai-live-preview-heading">Live Preview</h2>
+                <p>The AI is generating the blog draft in real-time.</p>
+            </div>
+            <span id="ai-live-status" class="ai-status-badge">Initializing...</span>
+        </div>
+        <div class="ai-live-preview">
+            <div id="ai-live-preview-content" class="ai-live-preview-content"></div>
+        </div>
+        <div class="ai-live-controls">
+            <button id="ai-pause-resume" class="btn btn-secondary">Pause</button>
+            <button id="ai-stop-save" class="btn btn-primary">Stop & Save Draft</button>
+            <button id="ai-discard" class="btn btn-danger">Discard</button>
+        </div>
+        <div class="ai-live-meta">
+            <span>Elapsed time: <span id="ai-elapsed-time">0s</span></span>
+            <span>Tokens/sec: <span id="ai-tokens-sec">0</span></span>
+        </div>
+      </div>
     </section>
 
     <section class="admin-panel ai-panel" aria-labelledby="ai-draft-library">

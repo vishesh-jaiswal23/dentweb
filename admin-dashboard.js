@@ -228,6 +228,12 @@ function refreshContent() {
   if (generateDraftForm) {
     generateDraftForm.addEventListener('submit', (event) => {
       event.preventDefault();
+      const liveTypingCheckbox = generateDraftForm.querySelector('input[name="live_typing"]');
+      if (liveTypingCheckbox && liveTypingCheckbox.checked) {
+        handleLiveTyping();
+        return;
+      }
+
       const generateButton = generateDraftForm.querySelector('button[value="generate-draft"]');
       generateButton.disabled = true;
       generateButton.textContent = 'Generating...';
@@ -264,6 +270,122 @@ function refreshContent() {
     });
   }
 
+  async function handleLiveTyping() {
+    const livePreviewContainer = document.getElementById('ai-live-preview-container');
+    const livePreviewContent = document.getElementById('ai-live-preview-content');
+    const liveStatus = document.getElementById('ai-live-status');
+    const elapsedTimeEl = document.getElementById('ai-elapsed-time');
+    const tokensSecEl = document.getElementById('ai-tokens-sec');
+    const pauseResumeButton = document.getElementById('ai-pause-resume');
+    const stopSaveButton = document.getElementById('ai-stop-save');
+    const discardButton = document.getElementById('ai-discard');
+    const generateButton = generateDraftForm.querySelector('button[value="generate-draft"]');
+
+    livePreviewContainer.style.display = 'block';
+    livePreviewContent.innerHTML = '';
+    liveStatus.textContent = 'Initializing...';
+    generateButton.disabled = true;
+
+    const formData = new FormData(generateDraftForm);
+    const payload = Object.fromEntries(formData.entries());
+
+    let isPaused = false;
+    let startTime = Date.now();
+    let tokens = 0;
+    const controller = new AbortController();
+
+    pauseResumeButton.onclick = () => {
+      isPaused = !isPaused;
+      pauseResumeButton.textContent = isPaused ? 'Resume' : 'Pause';
+    };
+
+    stopSaveButton.onclick = () => {
+      controller.abort();
+    };
+
+    discardButton.onclick = () => {
+      controller.abort();
+      livePreviewContainer.style.display = 'none';
+    };
+
+    const timerInterval = setInterval(() => {
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      elapsedTimeEl.textContent = `${elapsed}s`;
+      const tokensPerSec = elapsed > 0 ? (tokens / elapsed).toFixed(1) : 0;
+      tokensSecEl.textContent = tokensPerSec;
+    }, 1000);
+
+    try {
+      const response = await fetch('api/admin.php?action=stream-generate-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // Keep the last partial line in the buffer
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+
+          const eventData = line.substring(5).trim();
+          if (!eventData) continue;
+
+          let eventName = 'message';
+          const prevLine = lines[lines.indexOf(line) - 1];
+          if (prevLine && prevLine.startsWith('event:')) {
+            eventName = prevLine.substring(6).trim();
+          }
+
+          const data = JSON.parse(eventData);
+
+          if (eventName === 'start') {
+            liveStatus.textContent = 'Live';
+            liveStatus.insertAdjacentHTML('afterend', '<span class="ai-status-badge" id="ai-unverified-badge">Preview (Unverified)</span>');
+          } else if (eventName === 'chunk' && !isPaused) {
+            livePreviewContent.innerHTML += data.text;
+            tokens++;
+          } else if (eventName === 'saved') {
+            showToast(`Draft saved: ${data.draft.title}`, 'success');
+            liveStatus.textContent = 'Draft Saved';
+            const unverifiedBadge = document.getElementById('ai-unverified-badge');
+            if (unverifiedBadge) unverifiedBadge.remove();
+          } else if (eventName === 'complete') {
+            // Stream finished from server side
+          } else if (eventName === 'error') {
+            throw new Error(data.message);
+          }
+        }
+      }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            showToast(error.message || 'An unexpected error occurred.', 'error');
+            liveStatus.textContent = 'Error';
+        }
+    } finally {
+      clearInterval(timerInterval);
+      stopSaveButton.disabled = true;
+      pauseResumeButton.disabled = true;
+      generateButton.disabled = false;
+    }
+  }
+
   const testConnectionButton = document.querySelector('button[value="test-connection"]');
   if (testConnectionButton) {
     testConnectionButton.addEventListener('click', (event) => {
@@ -292,6 +414,35 @@ function refreshContent() {
         });
     });
   }
+
+  const restoreSnapshotButton = document.getElementById('restore-snapshot-btn');
+  if (restoreSnapshotButton) {
+    restoreSnapshotButton.addEventListener('click', () => {
+      const draftId = restoreSnapshotButton.dataset.draftId;
+      fetch('api/admin.php?action=restore-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draftId }),
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          const topicTextarea = document.querySelector('textarea[name="topic"]');
+          if (topicTextarea) {
+            topicTextarea.value = data.data.content;
+          }
+          showToast('Draft restored.', 'success');
+          restoreSnapshotButton.closest('.admin-alert').remove();
+        } else {
+          showToast(data.error || 'Failed to restore draft.', 'error');
+        }
+      })
+      .catch(() => {
+        showToast('An unexpected error occurred.', 'error');
+      });
+    });
+  }
+
   const revealApiKeyButton = document.querySelector('[data-reveal-api-key]');
   if (revealApiKeyButton) {
     revealApiKeyButton.addEventListener('click', () => {
