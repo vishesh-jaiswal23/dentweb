@@ -65,6 +65,7 @@ $portalTimeLabel = (string) ($portalClock['label'] ?? 'IST');
 
 $cardConfigs = [
     [
+        'key' => 'employees',
         'label' => 'Active Employees',
         'value' => $counts['employees'],
         'icon' => 'fa-user-check',
@@ -72,13 +73,16 @@ $cardConfigs = [
         'link' => $pathFor('admin-records.php') . '?module=employees&filter=active',
     ],
     [
+        'key' => 'leads',
         'label' => 'New Leads',
         'value' => $counts['leads'],
         'icon' => 'fa-user-plus',
         'description' => 'Enquiries that still require qualification or hand-off.',
         'link' => $pathFor('admin-leads.php'),
+        'state_key' => 'lead',
     ],
     [
+        'key' => 'referrers',
         'label' => 'Active Referrers',
         'value' => $counts['referrers'],
         'icon' => 'fa-handshake-angle',
@@ -86,13 +90,16 @@ $cardConfigs = [
         'link' => $pathFor('admin-referrers.php'),
     ],
     [
+        'key' => 'installations',
         'label' => 'Ongoing Installations',
         'value' => $counts['installations'],
         'icon' => 'fa-solar-panel',
         'description' => 'Projects that are live on-site and awaiting closure.',
         'link' => $pathFor('admin-records.php') . '?module=installations&filter=ongoing',
+        'state_key' => 'ongoing',
     ],
     [
+        'key' => 'complaints',
         'label' => 'Open Complaints',
         'value' => $counts['complaints'],
         'icon' => 'fa-headset',
@@ -100,6 +107,7 @@ $cardConfigs = [
         'link' => $pathFor('admin-complaints.php') . '?filter=open',
     ],
     [
+        'key' => 'subsidy',
         'label' => 'Subsidy Pending',
         'value' => $counts['subsidy'],
         'icon' => 'fa-indian-rupee-sign',
@@ -107,6 +115,7 @@ $cardConfigs = [
         'link' => $pathFor('admin-subsidy-tracker.php') . '?stage=pending',
     ],
     [
+        'key' => 'reminders',
         'label' => 'Active Reminders',
         'value' => $counts['reminders'],
         'icon' => 'fa-bell',
@@ -255,11 +264,25 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
 
     <section class="admin-overview__cards" aria-label="Operational summaries">
       <?php foreach ($cardConfigs as $card): ?>
-      <a class="overview-card" href="<?= htmlspecialchars($card['link'], ENT_QUOTES) ?>">
+      <?php
+        $cardKey = isset($card['key']) ? (string) $card['key'] : '';
+        $cardStateKey = isset($card['state_key']) ? (string) $card['state_key'] : '';
+      ?>
+      <a
+        class="overview-card"
+        href="<?= htmlspecialchars($card['link'], ENT_QUOTES) ?>"
+        <?php if ($cardKey !== ''): ?> data-dashboard-card="<?= htmlspecialchars($cardKey, ENT_QUOTES) ?>"<?php endif; ?>
+      >
         <div class="overview-card__icon" aria-hidden="true"><i class="fa-solid <?= htmlspecialchars($card['icon'], ENT_QUOTES) ?>"></i></div>
         <div class="overview-card__body">
           <p class="overview-card__label"><?= htmlspecialchars($card['label'], ENT_QUOTES) ?></p>
-          <p class="overview-card__value"><?= number_format((int) $card['value']) ?></p>
+          <p
+            class="overview-card__value"
+            <?php if ($cardKey !== ''): ?> data-dashboard-count="<?= htmlspecialchars($cardKey, ENT_QUOTES) ?>"<?php endif; ?>
+            <?php if ($cardStateKey !== ''): ?> data-customer-state-count="<?= htmlspecialchars($cardStateKey, ENT_QUOTES) ?>"<?php endif; ?>
+          >
+            <?= number_format((int) $card['value']) ?>
+          </p>
           <p class="overview-card__meta"><?= htmlspecialchars($card['description'], ENT_QUOTES) ?></p>
         </div>
         <span class="overview-card__cta" aria-hidden="true">View list <i class="fa-solid fa-arrow-right"></i></span>
@@ -273,9 +296,9 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
         <p class="admin-overview__highlights-sub">Recent changes across leads, installations, complaints, subsidy, and reminders.</p>
       </div>
       <?php if (count($highlightItems) === 0): ?>
-      <p class="admin-overview__empty">No activity recorded yet today. Updates from leads, installations, complaints, subsidy, and reminders will appear here.</p>
+      <p class="admin-overview__empty" data-highlight-empty>No activity recorded yet today. Updates from leads, installations, complaints, subsidy, and reminders will appear here.</p>
       <?php else: ?>
-      <ol class="highlight-list">
+      <ol class="highlight-list" data-highlight-feed>
         <?php foreach ($highlightItems as $item): ?>
         <li class="highlight-list__item highlight-list__item--<?= htmlspecialchars($item['moduleKey'], ENT_QUOTES) ?>">
           <div class="highlight-list__icon" aria-hidden="true"><i class="fa-solid <?= htmlspecialchars($item['icon'], ENT_QUOTES) ?>"></i></div>

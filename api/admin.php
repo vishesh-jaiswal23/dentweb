@@ -246,14 +246,90 @@ try {
             }
             $targetState = (string) ($payload['state'] ?? '');
 
+            $store = customer_record_store();
+            $existing = $store->find($customerId);
+            $previousState = is_array($existing) ? (string) ($existing['state'] ?? '') : '';
+
             // The CustomerRecordStore::changeState method handles the full payload,
             // including state-specific fields like assigned_employee_id, system_type,
             // system_kwp, and handover_date. It also contains validation logic.
-            $store = customer_record_store();
             $customer = $store->changeState($customerId, $targetState, $payload);
 
-            audit('change_customer_state', 'customer', $customerId, 'Customer state changed to ' . $targetState);
-            respond_success(['customer' => $customer]);
+            $currentState = (string) ($customer['state'] ?? $targetState);
+            $stateLabel = ucfirst($currentState);
+            $customerName = trim((string) ($customer['full_name'] ?? 'Customer #' . $customerId));
+            if ($customerName === '') {
+                $customerName = 'Customer #' . $customerId;
+            }
+
+            $message = sprintf('%s state updated to %s.', $customerName, strtolower($stateLabel));
+            if ($currentState === CustomerRecordStore::STATE_ONGOING) {
+                $message = sprintf('%s moved to ongoing. Assigned details saved.', $customerName);
+            } elseif ($currentState === CustomerRecordStore::STATE_INSTALLED) {
+                $message = sprintf('%s marked as installed. Complaints enabled.', $customerName);
+            }
+
+            $summary = $store->stateSummary();
+
+            $assignmentNote = '';
+            if ($currentState === CustomerRecordStore::STATE_ONGOING) {
+                $employeeId = isset($customer['assigned_employee_id']) ? (int) $customer['assigned_employee_id'] : 0;
+                if ($employeeId > 0) {
+                    $assignmentNote = sprintf('Employee #%d assigned', $employeeId);
+                }
+            }
+
+            $handoverNote = '';
+            if ($currentState === CustomerRecordStore::STATE_INSTALLED) {
+                $handover = (string) ($customer['handover_date'] ?? '');
+                if ($handover !== '') {
+                    $handoverNote = 'Handover on ' . $handover;
+                }
+            }
+
+            $auditParts = [];
+            $auditParts[] = sprintf('State changed from %s to %s',
+                $previousState !== '' ? ucfirst($previousState) : 'Unknown',
+                $stateLabel
+            );
+            if ($assignmentNote !== '') {
+                $auditParts[] = $assignmentNote;
+            }
+            if ($handoverNote !== '') {
+                $auditParts[] = $handoverNote;
+            }
+
+            $auditDescription = implode('; ', array_filter($auditParts));
+            audit('change_customer_state', 'customer', $customerId, $auditDescription);
+
+            $activityTimeRaw = (string) ($customer['last_state_change_at'] ?? '');
+            try {
+                $activityTime = new DateTimeImmutable($activityTimeRaw !== '' ? $activityTimeRaw : 'now', new DateTimeZone('Asia/Kolkata'));
+            } catch (Throwable $exception) {
+                $activityTime = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+            }
+
+            $activity = [
+                'moduleKey' => $currentState === CustomerRecordStore::STATE_ONGOING ? 'installations' : 'installations',
+                'moduleLabel' => 'Installations',
+                'icon' => $currentState === CustomerRecordStore::STATE_INSTALLED ? 'fa-circle-check' : 'fa-solar-panel',
+                'summary' => $currentState === CustomerRecordStore::STATE_INSTALLED
+                    ? sprintf('%s marked as installed', $customerName)
+                    : sprintf('%s moved to ongoing', $customerName),
+                'isoTime' => $activityTime->format(DateTimeInterface::ATOM),
+                'timeDisplay' => $activityTime->format('d M · h:i A'),
+            ];
+
+            respond_success([
+                'customer' => $customer,
+                'message' => $message,
+                'summary' => [
+                    'states' => $summary,
+                    'previous_state' => $previousState,
+                    'current_state' => $currentState,
+                ],
+                'activity' => $activity,
+            ]);
             break;
         case 'bulk-update-customers':
             require_method('POST');

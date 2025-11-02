@@ -28,6 +28,205 @@ function refreshContent() {
         });
 }
 
+function formatNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return '0';
+    }
+    try {
+        return new Intl.NumberFormat('en-IN').format(number);
+    } catch (error) {
+        return String(number);
+    }
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function updateCustomerStateBadges(summary) {
+    if (!summary || typeof summary !== 'object') {
+        return;
+    }
+
+    const normalized = {
+        lead: Number(summary.lead ?? summary.leads ?? 0),
+        ongoing: Number(summary.ongoing ?? summary.installations ?? 0),
+        installed: Number(summary.installed ?? 0),
+        active: Number(summary.active ?? 0),
+        inactive: Number(summary.inactive ?? 0),
+        total: Number(summary.total ?? 0),
+    };
+
+    document.querySelectorAll('[data-customer-state-count]').forEach((node) => {
+        const state = node.getAttribute('data-customer-state-count');
+        if (!state || !(state in normalized)) {
+            return;
+        }
+        node.textContent = formatNumber(normalized[state]);
+    });
+
+    document.querySelectorAll('[data-dashboard-count]').forEach((node) => {
+        const key = node.getAttribute('data-dashboard-count');
+        if (!key) {
+            return;
+        }
+        let value;
+        switch (key) {
+            case 'leads':
+                value = normalized.lead;
+                break;
+            case 'installations':
+            case 'ongoing':
+                value = normalized.ongoing;
+                break;
+            case 'installed':
+                value = normalized.installed;
+                break;
+            case 'customers_total':
+            case 'total':
+                value = normalized.total;
+                break;
+            default:
+                return;
+        }
+
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            node.textContent = formatNumber(value);
+        }
+    });
+}
+
+function computeRelativeTimeParts(isoString) {
+    const result = { text: '', title: '' };
+    if (!isoString || typeof isoString !== 'string') {
+        return result;
+    }
+    const target = new Date(isoString);
+    if (Number.isNaN(target.getTime())) {
+        return result;
+    }
+
+    const now = new Date();
+    const diffMs = target.getTime() - now.getTime();
+    const diffMinutes = Math.round(diffMs / 60000);
+    const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+
+    let value;
+    let unit;
+    if (Math.abs(diffMinutes) < 60) {
+        value = diffMinutes;
+        unit = 'minute';
+    } else if (Math.abs(diffMinutes) < 60 * 24) {
+        value = Math.round(diffMinutes / 60);
+        unit = 'hour';
+    } else {
+        value = Math.round(diffMinutes / (60 * 24));
+        unit = 'day';
+    }
+
+    return {
+        text: formatter.format(value, unit),
+        title: target.toLocaleString(),
+    };
+}
+
+function appendAdminActivity(activity) {
+    if (!activity || typeof activity !== 'object') {
+        return;
+    }
+
+    let list = document.querySelector('[data-highlight-feed]');
+    const emptyState = document.querySelector('[data-highlight-empty]');
+
+    if (!list && !emptyState) {
+        return;
+    }
+
+    if (!list) {
+        list = document.createElement('ol');
+        list.className = 'highlight-list';
+        list.setAttribute('data-highlight-feed', '');
+        if (emptyState) {
+            emptyState.replaceWith(list);
+        } else {
+            document.body.appendChild(list);
+        }
+    } else if (emptyState) {
+        emptyState.remove();
+    }
+
+    const moduleKey = activity.moduleKey ? String(activity.moduleKey) : 'system';
+    const icon = activity.icon ? String(activity.icon) : 'fa-circle-info';
+    const moduleLabel = activity.moduleLabel ? String(activity.moduleLabel) : 'Activity';
+    const summary = activity.summary ? String(activity.summary) : '';
+
+    const item = document.createElement('li');
+    item.className = `highlight-list__item highlight-list__item--${moduleKey}`;
+
+    const iconWrapper = document.createElement('div');
+    iconWrapper.className = 'highlight-list__icon';
+    iconWrapper.setAttribute('aria-hidden', 'true');
+    const iconElement = document.createElement('i');
+    iconElement.className = `fa-solid ${icon}`;
+    iconElement.setAttribute('aria-hidden', 'true');
+    iconWrapper.appendChild(iconElement);
+    item.appendChild(iconWrapper);
+
+    const content = document.createElement('div');
+    content.className = 'highlight-list__content';
+
+    const moduleNode = document.createElement('p');
+    moduleNode.className = 'highlight-list__module';
+    moduleNode.textContent = moduleLabel;
+    content.appendChild(moduleNode);
+
+    const summaryNode = document.createElement('p');
+    summaryNode.className = 'highlight-list__summary';
+    summaryNode.textContent = summary;
+    content.appendChild(summaryNode);
+
+    item.appendChild(content);
+
+    const timeNode = document.createElement('time');
+    timeNode.className = 'highlight-list__time';
+
+    const isoTime = activity.isoTime || activity.timestamp || '';
+    const display = activity.timeDisplay ? String(activity.timeDisplay) : '';
+    if (isoTime) {
+        timeNode.setAttribute('datetime', isoTime);
+        timeNode.setAttribute('data-highlight-time', isoTime);
+        const relative = computeRelativeTimeParts(isoTime);
+        if (relative.text !== '') {
+            timeNode.textContent = relative.text;
+            if (relative.title !== '') {
+                timeNode.setAttribute('title', relative.title);
+            }
+        } else if (display !== '') {
+            timeNode.textContent = display;
+        }
+    } else if (display !== '') {
+        timeNode.textContent = display;
+    }
+
+    item.appendChild(timeNode);
+
+    list.prepend(item);
+
+    const maxItems = 20;
+    const items = list.querySelectorAll('.highlight-list__item');
+    if (items.length > maxItems) {
+        for (let index = maxItems; index < items.length; index += 1) {
+            items[index].remove();
+        }
+    }
+}
+
 (function () {
   'use strict';
 
@@ -341,46 +540,134 @@ function showFormModal(title, content, onConfirm) {
     </div>
   `;
   document.body.appendChild(modal);
+
   const form = modal.querySelector('form');
   const cancelButton = modal.querySelector('[data-dismiss="modal"]');
+  const confirmButton = modal.querySelector('button[type="submit"]');
 
-  const closeModal = () => modal.remove();
+  const handleEscape = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeModal();
+    }
+  };
 
+  const closeModal = () => {
+    modal.remove();
+    document.removeEventListener('keydown', handleEscape);
+  };
+
+  document.addEventListener('keydown', handleEscape);
   cancelButton.addEventListener('click', closeModal);
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
+
+  let isSubmitting = false;
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (isSubmitting) {
+      return;
+    }
+
     const formData = new FormData(form);
     const payload = Object.fromEntries(formData.entries());
-    if (onConfirm(payload) !== false) {
+
+    if (typeof onConfirm !== 'function') {
+      closeModal();
+      return;
+    }
+
+    let result;
+    try {
+      result = onConfirm(payload);
+    } catch (error) {
+      console.error('Modal submission failed', error);
+      result = false;
+    }
+
+    if (result instanceof Promise) {
+      isSubmitting = true;
+      const originalText = confirmButton.textContent;
+      confirmButton.disabled = true;
+      confirmButton.textContent = 'Saving...';
+      try {
+        const outcome = await result;
+        if (outcome !== false) {
+          closeModal();
+        }
+      } finally {
+        confirmButton.disabled = false;
+        confirmButton.textContent = originalText;
+        isSubmitting = false;
+      }
+    } else if (result !== false) {
       closeModal();
     }
   });
 }
 
 async function changeState(customerId, state) {
-  const performStateChange = (payload) => {
-    fetch('api/admin.php?action=change-customer-state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    .then(response => response.json())
-    .then(data => {
-      if (data.success) {
-        showToast('Customer state updated.', 'success');
-        refreshContent();
-      } else {
-        showToast(data.error || 'An error occurred.', 'error');
+  const performStateChange = async (payload) => {
+    try {
+      const response = await fetch('api/admin.php?action=change-customer-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        showToast('Failed to update customer state.', 'error');
+        return false;
       }
-    })
-    .catch(() => {
+
+      const data = await response.json();
+      if (!data.success) {
+        showToast(data.error || 'An error occurred.', 'error');
+        return false;
+      }
+
+      const result = data.data || {};
+      const message = result.message || 'Customer state updated.';
+      showToast(message, 'success');
+      refreshContent();
+
+      const summary = result.summary?.states ?? result.summary ?? null;
+      if (summary) {
+        updateCustomerStateBadges(summary);
+      }
+
+      if (result.activity) {
+        appendAdminActivity(result.activity);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Failed to change customer state', error);
       showToast('An unexpected error occurred.', 'error');
-    });
+      return false;
+    }
   };
 
   if (state === 'ongoing') {
     const employees = await getEmployees();
-    const employeeOptions = employees.map(e => `<option value="${e.id}">${e.full_name}</option>`).join('');
+    if (!Array.isArray(employees) || employees.length === 0) {
+      showToast('Activate at least one employee before moving a lead to ongoing.', 'error');
+      return;
+    }
+    const employeeOptions = employees
+      .map((employee) => {
+        const id = employee && typeof employee.id !== 'undefined' ? String(employee.id) : '';
+        let labelSource = '';
+        if (employee && employee.full_name) {
+          labelSource = String(employee.full_name);
+        } else if (employee && employee.email) {
+          labelSource = String(employee.email);
+        } else {
+          labelSource = `ID ${id}`;
+        }
+        return `<option value="${id}">${escapeHtml(labelSource)}</option>`;
+      })
+      .join('');
     const modalContent = `
       <div class="admin-form" style="display: grid; gap: 1rem;">
         <label for="modal-assigned-employee">Assigned Employee</label>
@@ -399,7 +686,7 @@ async function changeState(customerId, state) {
         showToast('All fields are required.', 'warning');
         return false;
       }
-      performStateChange({ ...formData, id: customerId, state: state });
+      return performStateChange({ ...formData, id: customerId, state });
     });
   } else if (state === 'installed') {
     const today = new Date().toISOString().split('T')[0];
@@ -414,7 +701,7 @@ async function changeState(customerId, state) {
         showToast('Handover date is required.', 'warning');
         return false;
       }
-      performStateChange({ ...formData, id: customerId, state: state });
+      return performStateChange({ ...formData, id: customerId, state });
     });
   }
 }
