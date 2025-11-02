@@ -1,18 +1,3 @@
-function refreshContent() {
-  fetch(window.location.href)
-    .then(response => response.text())
-    .then(html => {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      const newContent = doc.getElementById('main-content').innerHTML;
-      document.getElementById('main-content').innerHTML = newContent;
-    })
-    .catch(error => {
-      console.error('Failed to refresh content:', error);
-      showToast('Could not refresh content automatically.', 'error');
-    });
-}
-
 (function () {
   'use strict';
 
@@ -78,8 +63,7 @@ function refreshContent() {
   highlightTimes.forEach(formatRelativeTime);
   initTheme();
 
-  // Make showToast globally available
-  window.showToast = function showToast(message, tone = 'info') {
+  function showToast(message, tone = 'info') {
     const toast = document.createElement('div');
     toast.className = `admin-toast admin-toast--${tone}`;
     toast.innerHTML = `<i class="fa-solid fa-circle-info"></i><span>${message}</span>`;
@@ -89,14 +73,13 @@ function refreshContent() {
     }, 5000);
   }
 
-  // Make showModal globally available
-  window.showModal = function showModal(title, content, onConfirm) {
+  function showModal(title, content, onConfirm) {
     const modal = document.createElement('div');
     modal.className = 'admin-modal';
     modal.innerHTML = `
       <div class="admin-modal__content">
         <h2>${title}</h2>
-        <div class="admin-modal-body">${content}</div>
+        <div>${content}</div>
         <div class="admin-modal__actions">
           <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
           <button class="btn btn-primary" id="modal-confirm">Confirm</button>
@@ -105,24 +88,13 @@ function refreshContent() {
     `;
     document.body.appendChild(modal);
 
-    const closeModal = () => modal.remove();
-    const confirmButton = document.getElementById('modal-confirm');
-    const cancelButton = document.getElementById('modal-cancel');
+    document.getElementById('modal-cancel').addEventListener('click', () => {
+      modal.remove();
+    });
 
-    cancelButton.addEventListener('click', closeModal);
-    confirmButton.addEventListener('click', () => {
-      const modalBody = modal.querySelector('.admin-modal-body');
-      const form = modalBody.querySelector('form');
-      let payload = {};
-      if (form) {
-        const formData = new FormData(form);
-        for (const [key, value] of formData.entries()) {
-          payload[key] = value;
-        }
-      }
-      if (onConfirm(payload) !== false) {
-        closeModal();
-      }
+    document.getElementById('modal-confirm').addEventListener('click', () => {
+      onConfirm();
+      modal.remove();
     });
   }
 
@@ -170,7 +142,7 @@ function refreshContent() {
           .then(data => {
             if (data.success) {
               showToast('Bulk action completed successfully.', 'success');
-              refreshContent();
+              location.reload();
             } else {
               showToast(data.error || 'An error occurred.', 'error');
             }
@@ -219,7 +191,7 @@ function refreshContent() {
                 message += ` ${data.data.skipped} skipped.`;
             }
             showToast(message, 'success');
-            refreshContent();
+            location.reload();
           } else {
             showToast(data.error || 'An error occurred during CSV import.', 'error');
           }
@@ -231,84 +203,32 @@ function refreshContent() {
   }
 })();
 
-async function changeState(customerId, state) {
-  let modalTitle = 'Confirm State Change';
-  let modalContent = `<p>Are you sure you want to move this customer to '${state}'?</p>`;
-  let onConfirm = (payload) => {
-    // Default confirm handler
-    const finalPayload = { id: customerId, state, ...payload };
+function changeState(customerId, state) {
+  const onConfirm = () => {
     fetch('api/admin.php?action=change-customer-state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(finalPayload),
+      body: JSON.stringify({ id: customerId, state: state }),
     })
       .then(response => response.json())
       .then(data => {
         if (data.success) {
-          showToast('Customer state updated successfully.', 'success');
-          refreshContent();
+          showToast('Customer state updated.', 'success');
+          location.reload();
         } else {
           showToast(data.error || 'An error occurred.', 'error');
         }
       })
-      .catch((err) => {
-        showToast('An unexpected network error occurred.', 'error');
-        console.error(err);
+      .catch(() => {
+        showToast('An unexpected error occurred.', 'error');
       });
-    return true; // Close modal after sending
   };
 
-  if (state === 'ongoing') {
-    modalTitle = 'Move to Ongoing';
-    try {
-      const response = await fetch('api/admin.php?action=get-employees');
-      const { data } = await response.json();
-      const employees = data.employees || [];
-      const installers = data.installers || [];
-      const employeeOptions = employees.map(e => `<option value="${e.id}">${e.full_name}</option>`).join('');
-      const installerOptions = installers.map(i => `<option value="${i.id}">${i.full_name}</option>`).join('');
-
-      modalContent = `
-        <form id="ongoing-form">
-          <div class="form-group">
-            <label for="assigned_employee_id">Assign Employee *</label>
-            <select name="assigned_employee_id" id="assigned_employee_id" required>${employeeOptions}</select>
-          </div>
-          <div class="form-group">
-            <label for="assigned_installer_id">Assign Installer</label>
-            <select name="assigned_installer_id" id="assigned_installer_id"><option value="">-- None --</option>${installerOptions}</select>
-          </div>
-          <div class="form-group">
-            <label for="system_type">System Type *</label>
-            <input type="text" name="system_type" id="system_type" required>
-          </div>
-          <div class="form-group">
-            <label for="system_kwp">System kWp *</label>
-            <input type="number" name="system_kwp" id="system_kwp" step="0.01" required>
-          </div>
-          <div class="form-group">
-            <label for="notes">Notes</label>
-            <textarea name="notes" id="notes"></textarea>
-          </div>
-        </form>
-      `;
-    } catch (error) {
-        showToast('Failed to load required data. Please try again.', 'error');
-        return;
-    }
-  } else if (state === 'installed') {
-    modalTitle = 'Mark as Installed';
-    modalContent = `
-      <form id="installed-form">
-        <div class="form-group">
-          <label for="handover_date">Handover Date *</label>
-          <input type="date" name="handover_date" id="handover_date" required>
-        </div>
-      </form>
-    `;
-  }
-
-  showModal(modalTitle, modalContent, onConfirm);
+  showModal(
+    'Confirm State Change',
+    `<p>Are you sure you want to move this customer to '${state}'?</p>`,
+    onConfirm
+  );
 }
 
 function deactivateCustomer(customerId) {
@@ -322,7 +242,7 @@ function deactivateCustomer(customerId) {
         .then(data => {
             if (data.success) {
                 showToast('Customer deactivated.', 'success');
-                refreshContent();
+                location.reload();
             } else {
                 showToast(data.error || 'An error occurred.', 'error');
             }
@@ -436,7 +356,7 @@ function reactivateCustomer(customerId) {
             .then(data => {
                 if (data.success) {
                     showToast('Customer reactivated.', 'success');
-                    refreshContent();
+                    location.reload();
                 } else {
                     showToast(data.error || 'An error occurred.', 'error');
                 }
@@ -464,7 +384,7 @@ function deleteCustomer(customerId) {
             .then(data => {
                 if (data.success) {
                     showToast('Customer deleted.', 'success');
-                    refreshContent();
+                    location.reload();
                 } else {
                     showToast(data.error || 'An error occurred.', 'error');
                 }
