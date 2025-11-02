@@ -36,9 +36,6 @@ $counts = admin_overview_counts($db);
 $highlights = admin_today_highlights($db, 20);
 $reminderDueCounts = reminder_due_counts($db);
 
-$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-$pastActivities = admin_past_activities($db, $page, 15);
-
 ai_daily_notes_generate_if_due();
 $aiDashboardNotes = ai_daily_notes_recent(2);
 
@@ -73,6 +70,13 @@ $cardConfigs = [
         'icon' => 'fa-user-check',
         'description' => 'Staff with Dentweb access who are currently enabled.',
         'link' => $pathFor('admin-records.php') . '?module=employees&filter=active',
+    ],
+    [
+        'label' => 'New Leads',
+        'value' => $counts['leads'],
+        'icon' => 'fa-user-plus',
+        'description' => 'Enquiries that still require qualification or hand-off.',
+        'link' => $pathFor('admin-leads.php'),
     ],
     [
         'label' => 'Active Referrers',
@@ -137,29 +141,8 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
         'summary' => $item['summary'],
         'timeDisplay' => $localTime->format('d M · h:i A'),
         'isoTime' => $localTime->format(DateTimeInterface::ATOM),
-        'link' => $item['link'] ?? '#',
     ];
 }, $highlights);
-
-$pastActivityItems = array_map(static function (array $item) use ($moduleMeta, $indiaTz): array {
-    $module = $moduleMeta[$item['module']] ?? ['label' => ucfirst($item['module']), 'icon' => 'fa-circle-info'];
-    try {
-        $timestamp = new DateTimeImmutable($item['timestamp']);
-    } catch (Throwable $exception) {
-        $timestamp = new DateTimeImmutable('now', new DateTimeZone('UTC'));
-    }
-    $localTime = $timestamp->setTimezone($indiaTz);
-
-    return [
-        'moduleKey' => $item['module'],
-        'moduleLabel' => $module['label'],
-        'icon' => $module['icon'],
-        'summary' => $item['summary'],
-        'timeDisplay' => $localTime->format('d M · h:i A'),
-        'isoTime' => $localTime->format(DateTimeInterface::ATOM),
-        'link' => $item['link'] ?? '#',
-    ];
-}, $pastActivities['items']);
 
 ?><!DOCTYPE html>
 <html lang="en">
@@ -184,7 +167,7 @@ $pastActivityItems = array_map(static function (array $item) use ($moduleMeta, $
   />
 </head>
 <body class="admin-overview" data-theme="light">
-  <main id="main-content" class="admin-overview__shell">
+  <main class="admin-overview__shell">
     <?php if ($flashMessage !== ''): ?>
     <div class="admin-alert admin-alert--<?= htmlspecialchars($flashTone, ENT_QUOTES) ?>" role="status" aria-live="polite">
       <i class="fa-solid <?= htmlspecialchars($flashIcon, ENT_QUOTES) ?>" aria-hidden="true"></i>
@@ -295,52 +278,16 @@ $pastActivityItems = array_map(static function (array $item) use ($moduleMeta, $
       <ol class="highlight-list">
         <?php foreach ($highlightItems as $item): ?>
         <li class="highlight-list__item highlight-list__item--<?= htmlspecialchars($item['moduleKey'], ENT_QUOTES) ?>">
-          <a href="<?= htmlspecialchars($item['link'], ENT_QUOTES) ?>" class="highlight-list__link">
-            <div class="highlight-list__icon" aria-hidden="true"><i class="fa-solid <?= htmlspecialchars($item['icon'], ENT_QUOTES) ?>"></i></div>
-            <div class="highlight-list__content">
-              <p class="highlight-list__module"><?= htmlspecialchars($item['moduleLabel'], ENT_QUOTES) ?></p>
-              <p class="highlight-list__summary"><?= htmlspecialchars($item['summary'], ENT_QUOTES) ?></p>
-            </div>
-            <time class="highlight-list__time" datetime="<?= htmlspecialchars($item['isoTime'], ENT_QUOTES) ?>" data-highlight-time><?= htmlspecialchars($item['timeDisplay'], ENT_QUOTES) ?></time>
-          </a>
+          <div class="highlight-list__icon" aria-hidden="true"><i class="fa-solid <?= htmlspecialchars($item['icon'], ENT_QUOTES) ?>"></i></div>
+          <div class="highlight-list__content">
+            <p class="highlight-list__module"><?= htmlspecialchars($item['moduleLabel'], ENT_QUOTES) ?></p>
+            <p class="highlight-list__summary"><?= htmlspecialchars($item['summary'], ENT_QUOTES) ?></p>
+          </div>
+          <time class="highlight-list__time" datetime="<?= htmlspecialchars($item['isoTime'], ENT_QUOTES) ?>" data-highlight-time><?= htmlspecialchars($item['timeDisplay'], ENT_QUOTES) ?></time>
         </li>
         <?php endforeach; ?>
       </ol>
       <?php endif; ?>
-    </section>
-
-    <section class="admin-overview__past-activity" aria-labelledby="past-activity-title">
-        <div class="admin-overview__highlights-header">
-            <h2 id="past-activity-title">Past Activities</h2>
-            <p class="admin-overview__highlights-sub">Historical log of all recorded activities older than 24 hours.</p>
-        </div>
-        <?php if (count($pastActivityItems) === 0): ?>
-            <p class="admin-overview__empty">No older activities found.</p>
-        <?php else: ?>
-            <ol class="highlight-list">
-                <?php foreach ($pastActivityItems as $item): ?>
-                    <li class="highlight-list__item highlight-list__item--<?= htmlspecialchars($item['moduleKey'], ENT_QUOTES) ?>">
-                        <a href="<?= htmlspecialchars($item['link'], ENT_QUOTES) ?>" class="highlight-list__link">
-                            <div class="highlight-list__icon" aria-hidden="true"><i class="fa-solid <?= htmlspecialchars($item['icon'], ENT_QUOTES) ?>"></i></div>
-                            <div class="highlight-list__content">
-                                <p class="highlight-list__module"><?= htmlspecialchars($item['moduleLabel'], ENT_QUOTES) ?></p>
-                                <p class="highlight-list__summary"><?= htmlspecialchars($item['summary'], ENT_QUOTES) ?></p>
-                            </div>
-                            <time class="highlight-list__time" datetime="<?= htmlspecialchars($item['isoTime'], ENT_QUOTES) ?>"><?= htmlspecialchars($item['timeDisplay'], ENT_QUOTES) ?></time>
-                        </a>
-                    </li>
-                <?php endforeach; ?>
-            </ol>
-            <nav class="pagination" aria-label="Past activities pagination">
-                <?php if ($pastActivities['pagination']['page'] > 1): ?>
-                    <a href="?page=<?= $pastActivities['pagination']['page'] - 1 ?>" class="pagination__link">Previous</a>
-                <?php endif; ?>
-                <span class="pagination__info">Page <?= $pastActivities['pagination']['page'] ?> of <?= $pastActivities['pagination']['pages'] ?></span>
-                <?php if ($pastActivities['pagination']['page'] < $pastActivities['pagination']['pages']): ?>
-                    <a href="?page=<?= $pastActivities['pagination']['page'] + 1 ?>" class="pagination__link">Next</a>
-                <?php endif; ?>
-            </nav>
-        <?php endif; ?>
     </section>
   </main>
 

@@ -243,14 +243,7 @@ try {
             $targetState = (string) ($payload['state'] ?? '');
             $store = customer_record_store();
             $customer = $store->changeState($customerId, $targetState, $payload);
-            $auditMessage = sprintf(
-                'Customer %d (%s) state changed to %s.',
-                $customerId,
-                $customer['full_name'] ?? 'N/A',
-                $targetState
-            );
-            audit('change_customer_state', 'customer', $customerId, $auditMessage);
-            log_activity('customer', $auditMessage, $customerId);
+            audit('change_customer_state', 'customer', $customerId, 'Customer state changed to ' . $targetState);
             respond_success(['customer' => $customer]);
             break;
         case 'bulk-update-customers':
@@ -301,11 +294,6 @@ try {
             audit('import_customers', 'system', 0, 'Customer CSV imported.');
             respond_success($result);
             break;
-        case 'get-employees':
-            require_method('GET');
-            $users = user_store()->list(['role' => 'employee', 'status' => 'active']);
-            $installers = user_store()->list(['role' => 'installer', 'status' => 'active']);
-            respond_success(['employees' => $users, 'installers' => $installers]);
         case 'test-connection':
             require_method('POST');
             respond_success(ai_test_connection());
