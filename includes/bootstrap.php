@@ -2605,7 +2605,7 @@ function portal_update_task_status(PDO $db, int $taskId, string $status, int $ac
     if (!in_array($status, ['todo', 'in_progress', 'done'], true)) {
         throw new RuntimeException('Invalid task status.');
     }
-
+    enforce_task_access($db, $taskId, $actorId);
     $stmt = $db->prepare('SELECT * FROM portal_tasks WHERE id = :id LIMIT 1');
     $stmt->execute([':id' => $taskId]);
     $row = $stmt->fetch();
@@ -3558,6 +3558,71 @@ function employee_submit_request(PDO $db, int $userId, string $type, array $payl
 {
     $type = strtolower(trim($type));
     switch ($type) {
+        case 'leave':
+            $startRaw = trim((string) ($payload['start_date'] ?? ''));
+            $endRaw = trim((string) ($payload['end_date'] ?? ''));
+            if ($startRaw === '' || $endRaw === '') {
+                throw new RuntimeException('Provide both start and end dates.');
+            }
+            $start = DateTimeImmutable::createFromFormat('Y-m-d', $startRaw, new DateTimeZone('Asia/Kolkata'));
+            $end = DateTimeImmutable::createFromFormat('Y-m-d', $endRaw, new DateTimeZone('Asia/Kolkata'));
+            if (!$start || !$end) {
+                throw new RuntimeException('Dates must use the YYYY-MM-DD format.');
+            }
+            if ($end < $start) {
+                throw new RuntimeException('End date cannot be before start date.');
+            }
+            $reason = trim((string) ($payload['reason'] ?? ''));
+            $subject = sprintf('Leave from %s to %s', $start->format('d M'), $end->format('d M'));
+            return approval_request_register($db, 'leave', $userId, $subject, [
+                'start_date' => $start->format('Y-m-d'),
+                'end_date' => $end->format('Y-m-d'),
+                'reason' => $reason,
+            ], 'user', $userId, $reason);
+        case 'data_correction':
+            $module = strtolower(trim((string) ($payload['module'] ?? '')));
+            $recordId = (int) ($payload['record_id'] ?? 0);
+            $field = trim((string) ($payload['field'] ?? ''));
+            $value = trim((string) ($payload['value'] ?? ''));
+            $details = trim((string) ($payload['details'] ?? ''));
+
+            if ($module === '' || !in_array($module, ['lead', 'installation', 'complaint', 'other'], true)) {
+                throw new RuntimeException('Select a supported module for correction.');
+            }
+            if ($module !== 'other' && $recordId <= 0) {
+                throw new RuntimeException('Provide a valid record reference.');
+            }
+            if ($field === '' && $details === '') {
+                throw new RuntimeException('Describe the correction needed.');
+            }
+
+            $subject = 'Data correction for ' . ucfirst($module) . ($recordId > 0 ? ' #' . $recordId : '');
+            return approval_request_register($db, 'data_correction', $userId, $subject, [
+                'module' => $module,
+                'record_id' => $recordId,
+                'field' => $field,
+                'value' => $value,
+                'details' => $details,
+            ], $module !== 'other' ? $module : null, $recordId > 0 ? $recordId : null, $details !== '' ? $details : $field);
+        case 'reassignment':
+            $module = strtolower(trim((string) ($payload['module'] ?? '')));
+            $recordId = (int) ($payload['record_id'] ?? 0);
+            $reason = trim((string) ($payload['reason'] ?? ''));
+            if ($module === '' || !in_array($module, ['lead', 'installation', 'complaint'], true)) {
+                throw new RuntimeException('Select a supported module for reassignment.');
+            }
+            if ($recordId <= 0) {
+                throw new RuntimeException('Provide a valid record reference.');
+            }
+            if ($reason === '') {
+                throw new RuntimeException('Provide a reason for reassignment.');
+            }
+            $subject = 'Reassignment request for ' . ucfirst($module) . ' #' . $recordId;
+            return approval_request_register($db, 'reassignment', $userId, $subject, [
+                'module' => $module,
+                'record_id' => $recordId,
+                'reason' => $reason,
+            ], $module, $recordId, $reason);
         case 'profile_edit':
             $fullName = trim((string) ($payload['full_name'] ?? ''));
             $email = strtolower(trim((string) ($payload['email'] ?? '')));
@@ -4729,6 +4794,108 @@ function installation_stage_transition_allowed(string $role, string $currentStag
     }
 
     return true;
+}
+
+function enforce_installation_access(PDO $db, int $installationId, int $employeeId): void
+{
+    $installation = installation_fetch($db, $installationId);
+    if (empty($installation)) {
+        throw new RuntimeException('Installation not found.');
+    }
+    if ((int) ($installation['assigned_to'] ?? 0) !== $employeeId) {
+        throw new RuntimeException('You are not assigned to this installation.');
+    }
+}
+
+function enforce_task_access(PDO $db, int $taskId, int $employeeId): void
+{
+    $stmt = $db->prepare('SELECT assignee_id FROM portal_tasks WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $taskId]);
+    $assigneeId = $stmt->fetchColumn();
+    if ($assigneeId === false) {
+        throw new RuntimeException('Task not found.');
+    }
+    if ((int) $assigneeId !== $employeeId) {
+        throw new RuntimeException('You are not assigned to this task.');
+    }
+}
+
+function employee_upload_installation_photo(PDO $db, int $employeeId, array $input): array
+{
+    $installationId = (int) ($input['installation_id'] ?? 0);
+    if ($installationId <= 0) {
+        throw new RuntimeException('Installation reference is required.');
+    }
+    enforce_installation_access($db, $installationId, $employeeId);
+
+    $photo = lead_extract_file_upload($input['photo'] ?? null, ['image/jpeg', 'image/png', 'image/gif'], 5 * 1024 * 1024);
+    if (!$photo) {
+        throw new RuntimeException('Photo is required.');
+    }
+
+    $actor = installation_actor_details($db, $employeeId);
+    $entry = [
+        'id' => bin2hex(random_bytes(8)),
+        'stage' => strtolower(trim((string) ($input['stage'] ?? ''))),
+        'type' => 'note',
+        'remarks' => trim((string) ($input['remarks'] ?? '')),
+        'photo' => $photo['name'],
+        'actorId' => $actor['id'],
+        'actorName' => $actor['name'],
+        'actorRole' => $actor['role'],
+        'timestamp' => now_ist(),
+    ];
+
+    $installation = installation_fetch($db, $installationId);
+    return installation_append_stage_entry($db, $installation, $entry);
+}
+
+function employee_add_installation_note(PDO $db, int $installationId, string $note, int $employeeId): array
+{
+    enforce_installation_access($db, $installationId, $employeeId);
+    $installation = installation_fetch($db, $installationId);
+    $actor = installation_actor_details($db, $employeeId);
+    $entry = [
+        'id' => bin2hex(random_bytes(8)),
+        'stage' => strtolower(trim((string) ($installation['stage'] ?? 'structure'))),
+        'type' => 'note',
+        'remarks' => $note,
+        'photo' => '',
+        'actorId' => $actor['id'],
+        'actorName' => $actor['name'],
+        'actorRole' => $actor['role'],
+        'timestamp' => now_ist(),
+    ];
+    return installation_append_stage_entry($db, $installation, $entry);
+}
+
+function employee_generate_installation_completion_note(PDO $db, int $installationId, int $employeeId): array
+{
+    enforce_installation_access($db, $installationId, $employeeId);
+    $installation = installation_fetch($db, $installationId);
+    $installation_details = installation_normalize_row($db, $installation, 'employee');
+    $actor = installation_actor_details($db, $employeeId);
+
+    $completion_note = "Internal Installation Completion Note\n";
+    $completion_note .= "------------------------------------\n";
+    $completion_note .= "Project: " . $installation_details['project'] . "\n";
+    $completion_note .= "Customer: " . $installation_details['customer'] . "\n";
+    $completion_note .= "Capacity: " . $installation_details['capacity'] . " kWp\n";
+    $completion_note .= "Handover Date: " . $installation_details['handover'] . "\n";
+    $completion_note .= "Generated by: " . $actor['name'] . " on " . now_ist() . "\n";
+
+    $entry = [
+        'id' => bin2hex(random_bytes(8)),
+        'stage' => strtolower(trim((string) ($installation['stage'] ?? 'structure'))),
+        'type' => 'note',
+        'remarks' => $completion_note,
+        'photo' => '',
+        'actorId' => $actor['id'],
+        'actorName' => $actor['name'],
+        'actorRole' => $actor['role'],
+        'timestamp' => now_ist(),
+    ];
+    return installation_append_stage_entry($db, $installation, $entry);
 }
 
 function installation_stage_requires_approval(string $role, string $targetStage): bool
@@ -6207,6 +6374,58 @@ function employee_list_leads(PDO $db, int $employeeId): array
     return $leads;
 }
 
+function employee_create_lead(PDO $db, array $input, int $employeeId): array
+{
+    $now = new DateTime('now', new DateTimeZone('Asia/Kolkata'));
+    $iso = $now->format('Y-m-d H:i:s');
+    $stmt = $db->prepare('INSERT INTO crm_leads (name, phone, address, district, system_type, kwp, status, created_by, assigned_to, created_at, updated_at) VALUES (:name, :phone, :address, :district, :system_type, :kwp, :status, :created_by, :assigned_to, :created_at, :updated_at)');
+    $stmt->execute([
+        ':name' => $input['name'],
+        ':phone' => $input['phone'],
+        ':address' => $input['address'],
+        ':district' => $input['district'],
+        ':system_type' => $input['system_type'],
+        ':kwp' => $input['kwp'],
+        ':status' => 'new',
+        ':created_by' => $employeeId,
+        ':assigned_to' => $employeeId,
+        ':created_at' => $iso,
+        ':updated_at' => $iso,
+    ]);
+    $leadId = (int) $db->lastInsertId();
+    return lead_fetch($db, $leadId);
+}
+
+function employee_update_lead(PDO $db, int $leadId, array $input, int $employeeId): array
+{
+    enforce_lead_access($db, $leadId, $employeeId);
+    $now = new DateTime('now', new DateTimeZone('Asia/Kolkata'));
+    $iso = $now->format('Y-m-d H:i:s');
+    $stmt = $db->prepare('UPDATE crm_leads SET name = :name, phone = :phone, address = :address, district = :district, system_type = :system_type, kwp = :kwp, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':name' => $input['name'],
+        ':phone' => $input['phone'],
+        ':address' => $input['address'],
+        ':district' => $input['district'],
+        ':system_type' => $input['system_type'],
+        ':kwp' => $input['kwp'],
+        ':updated_at' => $iso,
+        ':id' => $leadId,
+    ]);
+    return lead_fetch($db, $leadId);
+}
+
+function enforce_lead_access(PDO $db, int $leadId, int $employeeId): void
+{
+    $lead = lead_fetch($db, $leadId);
+    if (empty($lead)) {
+        throw new RuntimeException('Lead not found.');
+    }
+    if ((int) ($lead['assigned_to'] ?? 0) !== $employeeId) {
+        throw new RuntimeException('You are not assigned to this lead.');
+    }
+}
+
 function employee_add_lead_visit(PDO $db, array $input, int $employeeId): array
 {
     $leadId = (int) ($input['lead_id'] ?? 0);
@@ -6908,6 +7127,74 @@ function portal_employee_reminders(PDO $db, int $employeeId, array $options = []
     return $reminders;
 }
 
+function employee_edit_reminder(PDO $db, int $reminderId, array $input, int $employeeId): array
+{
+    $reminder = employee_find_reminder($db, $reminderId, $employeeId);
+    if (!$reminder) {
+        throw new RuntimeException('Reminder not found.');
+    }
+
+    $title = trim((string) ($input['title'] ?? ''));
+    if ($title === '') {
+        throw new RuntimeException('Reminder title is required.');
+    }
+
+    $dueAt = employee_parse_reminder_due((string) ($input['due_at'] ?? ''));
+    $notes = trim((string) ($input['notes'] ?? ''));
+    $now = now_ist();
+
+    $stmt = $db->prepare('UPDATE reminders SET title = :title, due_at = :due_at, notes = :notes, updated_at = :updated_at WHERE id = :id');
+    $stmt->execute([
+        ':title' => $title,
+        ':due_at' => $dueAt,
+        ':notes' => $notes !== '' ? $notes : null,
+        ':updated_at' => $now,
+        ':id' => $reminderId,
+    ]);
+
+    return employee_find_reminder($db, $reminderId, $employeeId);
+}
+
+function employee_update_profile(PDO $db, int $employeeId, array $input): array
+{
+    $user = portal_find_user($db, $employeeId);
+    if (!$user) {
+        throw new RuntimeException('User not found.');
+    }
+
+    $photo = lead_extract_file_upload($input['photo'] ?? null, ['image/jpeg', 'image/png', 'image/gif'], 5 * 1024 * 1024);
+    if ($photo) {
+        $storage = new PortalFileStorage('profile_photos');
+        $storage->store($employeeId . '.json', json_encode($photo));
+    }
+
+    $emergencyContact = trim((string) ($input['emergency_contact'] ?? ''));
+    if ($emergencyContact !== '') {
+        set_setting('user_emergency_contact_' . $employeeId, $emergencyContact, $db);
+    }
+
+    $workingDistrict = trim((string) ($input['working_district'] ?? ''));
+    if ($workingDistrict !== '') {
+        set_setting('user_working_district_' . $employeeId, $workingDistrict, $db);
+    }
+
+    $password = trim((string) ($input['password'] ?? ''));
+    if ($password !== '') {
+        if (strlen($password) < 8) {
+            throw new RuntimeException('Password must be at least 8 characters.');
+        }
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $stmt = $db->prepare('UPDATE users SET password_hash = :hash, updated_at = :updated_at WHERE id = :id');
+        $stmt->execute([
+            ':hash' => $hash,
+            ':updated_at' => now_ist(),
+            ':id' => $employeeId,
+        ]);
+    }
+
+    return portal_find_user($db, $employeeId);
+}
+
 function employee_parse_reminder_due(string $value): string
 {
     $value = trim($value);
@@ -7094,6 +7381,34 @@ function employee_validate_reminder_target(PDO $db, string $module, int $linkedI
     if ((int) ($complaint['assigned_to'] ?? 0) !== $employeeId) {
         throw new RuntimeException('You are not assigned to this complaint.');
     }
+}
+
+function employee_upload_complaint_media(PDO $db, int $employeeId, array $input): array
+{
+    $reference = (string) ($input['reference'] ?? '');
+    if ($reference === '') {
+        throw new RuntimeException('Complaint reference is required.');
+    }
+    enforce_complaint_access($db, $reference, $employeeId);
+
+    $media = lead_extract_file_upload($input['media'] ?? null, ['image/jpeg', 'image/png', 'image/gif', 'video/mp4', 'video/quicktime'], 10 * 1024 * 1024);
+    if (!$media) {
+        throw new RuntimeException('Media file is required.');
+    }
+
+    $complaint = portal_add_complaint_attachment(
+        $db,
+        $reference,
+        [
+            'filename' => $media['name'],
+            'label' => $media['name'],
+            'note' => trim((string) ($input['note'] ?? '')),
+            'visibility' => 'both',
+        ],
+        $employeeId
+    );
+
+    return $complaint;
 }
 
 function employee_propose_reminder(PDO $db, array $input, int $employeeId): array
@@ -8090,4 +8405,15 @@ function portal_employee_submit_complaint_document(PDO $db, int $userId, string 
         'document' => $document,
         'complaint' => $complaint,
     ];
+}
+
+function enforce_complaint_access(PDO $db, string $reference, int $userId): void
+{
+    $complaint = portal_get_complaint($db, $reference);
+    if (empty($complaint)) {
+        throw new RuntimeException('Complaint not found.');
+    }
+    if ((int) ($complaint['assignedTo'] ?? 0) !== $userId) {
+        throw new RuntimeException('You are not assigned to this complaint.');
+    }
 }
