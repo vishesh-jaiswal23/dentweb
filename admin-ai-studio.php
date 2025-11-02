@@ -11,7 +11,7 @@ $db = get_db();
 
 $adminId = (int) ($admin['id'] ?? 0);
 $csrfToken = $_SESSION['csrf_token'] ?? '';
-$allowedTabs = ['settings', 'generator', 'notes'];
+$allowedTabs = ['settings', 'generator', 'notes', 'activity'];
 $activeTab = isset($_GET['tab']) ? strtolower(trim((string) $_GET['tab'])) : 'settings';
 if (!in_array($activeTab, $allowedTabs, true)) {
     $activeTab = 'settings';
@@ -651,16 +651,36 @@ function ai_tab_class(string $current, string $tab): string
             <th scope="col">Timestamp</th>
             <th scope="col">User</th>
             <th scope="col">Action</th>
-            <th scope="col">Details</th>
+            <th scope="col">Model</th>
+            <th scope="col">Status</th>
+            <th scope="col">Latency</th>
+            <th scope="col">Tokens</th>
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($activityLogs as $log): ?>
+          <?php
+          $timezone = new DateTimeZone('Asia/Kolkata');
+          foreach ($activityLogs as $log):
+              $timestamp = '–';
+              try {
+                  $utc = new DateTimeImmutable($log['timestamp'], new DateTimeZone('UTC'));
+                  $timestamp = $utc->setTimezone($timezone)->format('d M Y, h:i:s A');
+              } catch (Throwable $e) {}
+              $details = $log['details'] ?? [];
+              $tokens = (int) ($details['usage']['totalTokens'] ?? ($details['tokens'] ?? 0));
+          ?>
           <tr>
-            <td><?= htmlspecialchars($log['timestamp'], ENT_QUOTES) ?></td>
-            <td><?= htmlspecialchars((string) $log['user_id'], ENT_QUOTES) ?></td>
-            <td><?= htmlspecialchars($log['action'], ENT_QUOTES) ?></td>
-            <td><pre><?= htmlspecialchars(json_encode($log['details'], JSON_PRETTY_PRINT), ENT_QUOTES) ?></pre></td>
+            <td><?= htmlspecialchars($timestamp, ENT_QUOTES) ?></td>
+            <td><?= htmlspecialchars((string) ($log['user_id'] ?? 'N/A'), ENT_QUOTES) ?></td>
+            <td><?= htmlspecialchars($log['action'] ?? 'N/A', ENT_QUOTES) ?></td>
+            <td><?= htmlspecialchars($details['model'] ?? 'N/A', ENT_QUOTES) ?></td>
+            <td>
+              <span class="status-badge status-<?= htmlspecialchars($details['status'] ?? 'default', ENT_QUOTES) ?>">
+                <?= htmlspecialchars(ucfirst($details['status'] ?? 'N/A'), ENT_QUOTES) ?>
+              </span>
+            </td>
+            <td><?= isset($details['latency']) ? htmlspecialchars(sprintf('%.2f s', $details['latency']), ENT_QUOTES) : 'N/A' ?></td>
+            <td><?= $tokens > 0 ? htmlspecialchars((string) $tokens, ENT_QUOTES) : 'N/A' ?></td>
           </tr>
           <?php endforeach; ?>
         </tbody>

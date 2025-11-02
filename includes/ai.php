@@ -39,6 +39,7 @@ function ai_bootstrap_storage(): void
     ai_ensure_directory(ai_storage_path('images'));
     ai_ensure_directory(ai_storage_path('notes'));
     ai_ensure_directory(ai_storage_path('secrets'));
+    ai_ensure_directory(ai_storage_path('logs'));
 }
 
 function ai_api_key_path(): string
@@ -860,7 +861,36 @@ TEXT;
         ],
     ];
 
-    $response = ai_gemini_generate_content($model, $payload, $apiKey);
+    $startTime = microtime(true);
+    $status = 'failure';
+    $response = [];
+    $error = null;
+    $usageMetadata = [];
+
+    try {
+        $response = ai_gemini_generate_content($model, $payload, $apiKey);
+        if (empty($response['candidates'])) {
+            throw new RuntimeException('API returned no candidates. Check model compatibility.');
+        }
+        $status = 'success';
+    } catch (Throwable $exception) {
+        $error = $exception->getMessage();
+        throw $exception;
+    } finally {
+        $latency = microtime(true) - $startTime;
+        if (isset($response['usageMetadata'])) {
+            $usageMetadata = $response['usageMetadata'];
+        }
+        ai_log_activity('generate_draft_content', [
+            'model' => $model,
+            'status' => $status,
+            'latency' => $latency,
+            'usage' => $usageMetadata,
+            'error' => $error,
+            'prompt_length' => strlen($normalizedPrompt),
+        ]);
+    }
+
     $text = ai_extract_text_from_gemini($response);
     if ($text === '') {
         throw new RuntimeException('Gemini returned an empty response while generating the blog draft.');
@@ -875,6 +905,7 @@ TEXT;
     if ($title === '') {
         $title = 'AI Studio Insight';
     }
+    ai_content_safety_check($title);
 
     $topic = trim((string) ($data['topic'] ?? ''));
     if ($topic === '') {
@@ -882,6 +913,7 @@ TEXT;
     }
 
     $bodyHtml = (string) ($data['body_html'] ?? ($data['bodyHtml'] ?? ''));
+    ai_content_safety_check($bodyHtml);
     $bodyHtml = blog_sanitize_html($bodyHtml);
     if ($bodyHtml === '') {
         throw new RuntimeException('Gemini did not return any body content for the blog draft.');
@@ -914,6 +946,9 @@ TEXT;
         $imagePrompt = sprintf('Feature image showing %s in the context of clean energy, 16:9, no text.', mb_strtolower($normalizedPrompt));
     }
 
+    ai_content_safety_check($excerpt);
+    ai_content_safety_check($imagePrompt);
+
     return [
         'prompt' => $normalizedPrompt,
         'topic' => $topic,
@@ -922,6 +957,7 @@ TEXT;
         'excerpt' => $excerpt,
         'keywords' => $keywords,
         'image_prompt' => $imagePrompt,
+        'usage' => $usageMetadata,
     ];
 }
 
@@ -1104,6 +1140,9 @@ function ai_generate_blog_draft(array $options, int $actorId): array
 {
     unset($actorId);
     ai_require_enabled();
+    if (!ai_has_api_key()) {
+        throw new RuntimeException('Missing API key. Configure it in AI Studio settings.');
+    }
     ai_check_quotas();
 
     $topic = trim((string) ($options['topic'] ?? ''));
@@ -1133,15 +1172,19 @@ function ai_generate_blog_draft(array $options, int $actorId): array
 
     $content = ai_generate_blog_draft_content($prompt);
 
-    ai_update_usage_data((int) (strlen($content['body_html']) / 4));
+    $tokens = (int) ($content['usage']['totalTokens'] ?? 0);
+    if ($tokens === 0) {
+        $tokens = (int) (strlen($content['body_html']) / 4);
+    }
+    ai_update_usage_data($tokens);
 
-    ai_log_activity('generate_draft', [
+    ai_log_activity('generate_draft_api', [
         'topic' => $topic,
         'title' => $title,
         'tone' => $tone,
         'length' => $length,
         'audience' => $audience,
-        'token_estimate' => (int) (strlen($content['body_html']) / 4),
+        'tokens' => $tokens,
     ]);
 
     $payload = [
