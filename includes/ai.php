@@ -219,9 +219,21 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
     }
 
     if ($statusCode !== 200) {
+        $decoded = json_decode((string) $responseBody, true);
+        $errorMessage = 'The model provider returned an unexpected error.';
+        if (is_array($decoded) && isset($decoded['error']['message'])) {
+            $errorMessage = (string) $decoded['error']['message'];
+        }
+
+        ai_log_activity('gemini_api_error', [
+            'status_code' => $statusCode,
+            'error_message' => $errorMessage,
+            'response_body' => (string) $responseBody,
+        ]);
+
         switch ($statusCode) {
             case 400:
-                throw new RuntimeException('Invalid request. Check the model name.');
+                throw new RuntimeException('Invalid request. Check the model name and API endpoint.');
             case 401:
             case 403:
                 throw new RuntimeException('Permission denied. Check your API key.');
@@ -242,6 +254,11 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
 
     if (isset($decoded['error'])) {
         $message = is_array($decoded['error']) ? ($decoded['error']['message'] ?? 'Unknown error') : (string) $decoded['error'];
+        ai_log_activity('gemini_api_error', [
+            'status_code' => $statusCode,
+            'error_message' => $message,
+            'response_body' => (string) $responseBody,
+        ]);
         throw new RuntimeException('Gemini API error: ' . $message);
     }
 
@@ -251,44 +268,43 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
 function ai_gemini_generate_content(string $model, array $payload, string $apiKey): array
 {
     $urlTemplate = 'https://generativelanguage.googleapis.com/v1beta/models/%s:%s?key=%s';
-    $maxRetries = 2;
+    $maxRetries = 3;
     $lastException = null;
 
-    // First, try the streaming endpoint
-    $streamingUrl = sprintf($urlTemplate, rawurlencode($model), 'streamGenerateContent', urlencode($apiKey));
-    for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
-        try {
-            $response = ai_http_post_json($streamingUrl, $payload);
-            if (!empty($response['candidates'])) {
+    $endpoints = [
+        'streamGenerateContent' => 'streaming',
+        'generateContent' => 'non-streaming',
+    ];
+
+    foreach ($endpoints as $endpoint => $type) {
+        $url = sprintf($urlTemplate, rawurlencode($model), $endpoint, urlencode($apiKey));
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            try {
+                $response = ai_http_post_json($url, $payload);
                 $text = ai_extract_text_from_gemini($response);
+
                 if ($text !== '') {
                     return $response;
                 }
-            }
-            $lastException = new RuntimeException('Gemini API returned a successful but empty streaming response.');
-        } catch (Throwable $exception) {
-            $lastException = $exception;
-        }
-        if ($attempt < $maxRetries) usleep(500000);
-    }
 
-    // Fallback to the non-streaming endpoint
-    $nonStreamingUrl = sprintf($urlTemplate, rawurlencode($model), 'generateContent', urlencode($apiKey));
-    try {
-        $response = ai_http_post_json($nonStreamingUrl, $payload);
-        if (!empty($response['candidates'])) {
-            $text = ai_extract_text_from_gemini($response);
-            if ($text !== '') {
-                return $response;
+                $lastException = new RuntimeException("Gemini API returned a successful but empty {$type} response.");
+            } catch (Throwable $exception) {
+                $lastException = $exception;
+                ai_log_activity('gemini_api_attempt_failed', [
+                    'model' => $model,
+                    'endpoint' => $endpoint,
+                    'attempt' => $attempt,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+            if ($attempt < $maxRetries) {
+                usleep(500000 * $attempt);
             }
         }
-         throw new RuntimeException('Gemini API returned a successful but empty non-streaming response.');
-    } catch (Throwable $exception) {
-        $lastException = $exception;
     }
 
     throw new RuntimeException(
-        'The model did not respond after multiple attempts. Please retry or check API key.',
+        'The AI model did not respond. Please retry or check your API key.',
         0,
         $lastException
     );
@@ -296,23 +312,35 @@ function ai_gemini_generate_content(string $model, array $payload, string $apiKe
 
 function ai_extract_text_from_gemini(array $response): string
 {
-    $candidates = $response['candidates'] ?? [];
-    foreach ($candidates as $candidate) {
+    if (empty($response['candidates']) || !is_array($response['candidates'])) {
+        return '';
+    }
+
+    $fullText = '';
+    foreach ($response['candidates'] as $candidate) {
+        if (!is_array($candidate)) continue;
+
         if (!empty($candidate['finishReason']) && $candidate['finishReason'] === 'SAFETY') {
             continue;
         }
-        $parts = $candidate['content']['parts'] ?? [];
-        foreach ($parts as $part) {
-            if (isset($part['text']) && is_string($part['text'])) {
-                $text = trim($part['text']);
-                if (strlen($text) > 10) {
-                    return $text;
-                }
+
+        if (empty($candidate['content']['parts']) || !is_array($candidate['content']['parts'])) {
+            continue;
+        }
+
+        foreach ($candidate['content']['parts'] as $part) {
+            if (is_array($part) && !empty($part['text']) && is_string($part['text'])) {
+                $fullText .= $part['text'];
             }
         }
     }
 
-    return '';
+    $trimmed = trim($fullText);
+    if (mb_strlen($trimmed) < 10) {
+        return '';
+    }
+
+    return $trimmed;
 }
 
 function ai_json_candidates_from_text(string $text): array
@@ -438,7 +466,28 @@ function ai_gemini_generate_image(string $model, string $prompt, string $apiKey)
         urlencode($apiKey)
     );
 
-    return ai_http_post_json($url, $payload);
+    $maxRetries = 2;
+    $lastException = null;
+
+    for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
+        try {
+            $response = ai_http_post_json($url, $payload);
+            if (!empty($response)) {
+                return $response;
+            }
+        } catch (Throwable $exception) {
+            $lastException = $exception;
+        }
+        if ($attempt < $maxRetries) {
+            usleep(500000);
+        }
+    }
+
+    throw new RuntimeException(
+        'The model did not respond after multiple attempts. Please retry or check API key.',
+        0,
+        $lastException
+    );
 }
 
 function ai_extract_image_payload(array $response): array
@@ -1333,11 +1382,12 @@ function ai_stream_generate_blog_draft(array $options, int $actorId): void
     header('Cache-Control: no-cache');
     header('Connection: keep-alive');
 
-    ob_end_flush();
+    ob_start();
 
     $sendEvent = static function (string $name, array $data): void {
         echo "event: ${name}\n";
         echo 'data: ' . json_encode($data) . "\n\n";
+        ob_flush();
         flush();
     };
 
@@ -1353,111 +1403,84 @@ function ai_stream_generate_blog_draft(array $options, int $actorId): void
             throw new RuntimeException('Topic/Keywords are required to generate a draft.');
         }
 
-        $topic = trim((string) ($options['topic'] ?? ''));
-        if ($topic === '') {
-            throw new RuntimeException('Topic/Keywords are required to generate a draft.');
-        }
+        $settings = ai_get_settings();
+        $model = $settings['text_model'];
+        $apiKey = ai_resolve_api_key();
 
-        $title = trim((string) ($options['title'] ?? ''));
-        $tone = trim((string) ($options['tone'] ?? 'informative'));
-        $length = trim((string) ($options['target_length'] ?? 'medium'));
-        $audience = trim((string) ($options['audience'] ?? ''));
+        $prompt = "Write a blog post about: {$topic}.";
+        $payload = ['contents' => [['parts' => [['text' => $prompt]]]]];
 
-        $prompt = "Blog topic: {$topic}.";
-        if ($title !== '') {
-            $prompt .= " Desired title: \"{$title}\".";
-        }
-        if ($tone !== '') {
-            $prompt .= " Tone should be {$tone}.";
-        }
-        if ($length !== '') {
-            $wordCount = ['short' => 300, 'medium' => 600, 'long' => 1000];
-            $prompt .= " Target length is around {$wordCount[$length]} words.";
-        }
-        if ($audience !== '') {
-            $prompt .= " The target audience is {$audience}.";
-        }
+        $urlTemplate = 'https://generativelanguage.googleapis.com/v1beta/models/%s:%s?key=%s';
+        $url = sprintf($urlTemplate, rawurlencode($model), 'streamGenerateContent', urlencode($apiKey));
 
-        $content = ai_generate_blog_draft_content($prompt);
-        $fullBody = $content['body_html'];
-        $words = preg_split('/\s+/', $fullBody) ?: [];
         $draftId = ai_generate_draft_id();
+        $sendEvent('start', ['draftId' => $draftId]);
 
-        $sendEvent('start', [
-            'draftId' => $draftId,
-            'metadata' => [
-                'title' => $content['title'],
-                'topic' => $content['topic'],
-                'excerpt' => $content['excerpt'],
-                'keywords' => $content['keywords'],
-                'image_prompt' => $content['image_prompt'],
-            ]
-        ]);
+        $fullBody = '';
+        $buffer = '';
 
-        $streamAborted = false;
-        $streamedContent = '';
-        $lastSaveTime = microtime(true);
-        $tempPath = ai_temp_path($draftId . '.json');
+        $chunkCallback = function($data) use (&$buffer, &$fullBody, $sendEvent) {
+            $buffer .= $data;
+            while (true) {
+                $startPos = strpos($buffer, '{');
+                if ($startPos === false) break;
 
-        register_shutdown_function(function() use ($tempPath) {
-            if (file_exists($tempPath)) {
-                @unlink($tempPath);
+                $level = 0;
+                $inString = false;
+                $endPos = -1;
+                for ($i = $startPos; $i < strlen($buffer); $i++) {
+                    $char = $buffer[$i];
+                    if ($char === '"' && ($i === 0 || $buffer[$i-1] !== '\\')) {
+                        $inString = !$inString;
+                    } elseif (!$inString) {
+                        if ($char === '{') $level++;
+                        elseif ($char === '}') {
+                            $level--;
+                            if ($level === 0) {
+                                $endPos = $i;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if ($endPos === -1) break;
+
+                $jsonStr = substr($buffer, $startPos, $endPos - $startPos + 1);
+                $buffer = substr($buffer, $endPos + 1);
+
+                $decoded = json_decode($jsonStr, true);
+                if (is_array($decoded)) {
+                    $text = ai_extract_text_from_gemini($decoded);
+                    if ($text !== '') {
+                        $fullBody .= $text;
+                        $sendEvent('chunk', ['text' => $text]);
+                    }
+                }
             }
-        });
+        };
 
-        foreach ($words as $word) {
-            if (connection_aborted()) {
-                $streamAborted = true;
-                // Save one last time before aborting
-                ai_write_json_file($tempPath, ['content' => $streamedContent]);
-                break;
-            }
-            $streamedContent .= $word . ' ';
-            $sendEvent('chunk', ['text' => $word . ' ']);
+        ai_http_post_json_stream($url, $payload, $chunkCallback);
 
-            if (microtime(true) - $lastSaveTime > 15) {
-                ai_write_json_file($tempPath, ['content' => $streamedContent]);
-                $lastSaveTime = microtime(true);
-            }
+        $title = "Draft: " . substr($topic, 0, 50);
+        $excerpt = substr($fullBody, 0, 100);
 
-            usleep(50000); // 50ms delay
-        }
-
-        if (file_exists($tempPath)) {
-            @unlink($tempPath);
-        }
-
-        ai_content_safety_check($streamedContent);
-
-        $payload = [
+        $savePayload = [
             'draft_id' => $draftId,
-            'title' => $title !== '' ? $title : $content['title'],
-            'body' => $streamedContent,
-            'excerpt' => $content['excerpt'],
-            'topic' => $content['topic'],
-            'tone' => $tone,
-            'audience' => $audience,
-            'keywords' => $content['keywords'],
-            'image_prompt' => $content['image_prompt'],
+            'title' => $title,
+            'body' => $fullBody,
+            'excerpt' => $excerpt,
+            'topic' => $topic,
         ];
-
-        $saved = ai_save_blog_draft($payload, $actorId);
+        $saved = ai_save_blog_draft($savePayload, $actorId);
         $sendEvent('saved', ['draft' => $saved]);
 
-        $tokens = (int) ($content['usage']['totalTokens'] ?? 0);
-        ai_update_usage_data($tokens > 0 ? $tokens : (int)(strlen($fullBody) / 4));
-
-        ai_log_activity('stream_generate_draft', [
-            'topic' => $topic,
-            'status' => 'success',
-            'aborted' => $streamAborted,
-            'tokens' => $tokens,
-        ]);
-
-        $sendEvent('complete', ['message' => 'Draft saved successfully.']);
+        $sendEvent('complete', ['message' => 'Draft completed and saved.']);
 
     } catch (Throwable $exception) {
         $sendEvent('error', ['message' => $exception->getMessage()]);
+    } finally {
+        ob_end_flush();
     }
 }
 
@@ -1488,18 +1511,24 @@ function ai_generate_image_for_draft(string $draftId, int $actorId): array
 {
     unset($actorId);
     ai_require_enabled();
+
+    $settings = ai_get_settings();
+    if (empty($settings['image_model'])) {
+        throw new RuntimeException('Set a Gemini image model in AI settings before generating artwork.');
+    }
+
     $draft = ai_load_draft($draftId);
     if (($draft['status'] ?? 'draft') === 'published') {
         throw new RuntimeException('Published drafts already carry a final cover.');
     }
 
     $title = $draft['title'] ?? ($draft['topic'] ?? 'Blog draft');
-    $prompt = $draft['image_prompt'] ?? ($draft['topic'] ?? 'Clean energy insight');
-    $settings = ai_get_settings();
-    $imageModel = $settings['image_model'] ?? '';
-    if ($imageModel === '') {
-        throw new RuntimeException('Set a Gemini image model in AI settings before generating artwork.');
+    $prompt = $draft['image_prompt'] ?? ($draft['topic'] ?? '');
+    if (trim($prompt) === '') {
+        throw new RuntimeException('A prompt is required to generate an image.');
     }
+
+    $imageModel = $settings['image_model'];
 
     $apiKey = ai_resolve_api_key();
     if ($apiKey === null || $apiKey === '') {
@@ -1508,7 +1537,7 @@ function ai_generate_image_for_draft(string $draftId, int $actorId): array
 
     $composedPrompt = sprintf(
         '%s. Photorealistic 16:9 composition, cinematic lighting, advanced solar technology, vibrant India skyline, no text or watermarks.',
-        trim((string) $prompt) !== '' ? trim((string) $prompt) : 'Clean energy insight'
+        $prompt
     );
 
     $imageDataUri = '';
@@ -1914,4 +1943,78 @@ function ai_convert_installation_notes(string $notes): array
     }
 
     return ['message' => $text];
+}
+
+function ai_http_post_json_stream(string $url, array $payload, callable $chunkCallback): void
+{
+    $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($body === false) {
+        throw new RuntimeException('Failed to encode request payload for Gemini API.');
+    }
+
+    $headers = [
+        'Content-Type: application/json',
+        'Accept: application/json',
+    ];
+
+    if (function_exists('curl_init')) {
+        $handle = curl_init($url);
+        if ($handle === false) {
+            throw new RuntimeException('Unable to initialise HTTP client for Gemini request.');
+        }
+        curl_setopt($handle, CURLOPT_RETURNTRANSFER, false);
+        curl_setopt($handle, CURLOPT_POST, true);
+        curl_setopt($handle, CURLOPT_POSTFIELDS, $body);
+        curl_setopt($handle, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($handle, CURLOPT_WRITEFUNCTION, function($curl, $data) use ($chunkCallback) {
+            $chunkCallback($data);
+            return strlen($data);
+        });
+
+        curl_exec($handle);
+
+        $statusCode = (int) curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        if ($statusCode !== 200) {
+            throw new RuntimeException("The model provider returned an unexpected error (HTTP {$statusCode}).");
+        }
+        curl_close($handle);
+    } else {
+        throw new RuntimeException('cURL is required for streaming responses.');
+    }
+}
+
+function ai_gemini_generate_tts(string $model, string $text, string $apiKey): array
+{
+    if (trim($text) === '') {
+        throw new RuntimeException('Text for TTS cannot be empty.');
+    }
+
+    $payload = [
+        'input' => [
+            'text' => $text,
+        ],
+        'voice' => [
+            'languageCode' => 'en-US',
+            'name' => 'en-US-Standard-C',
+        ],
+        'audioConfig' => [
+            'audioEncoding' => 'MP3',
+        ],
+    ];
+
+    $url = sprintf(
+        'https://texttospeech.googleapis.com/v1/text:synthesize?key=%s',
+        urlencode($apiKey)
+    );
+
+    $response = ai_http_post_json($url, $payload);
+
+    if (empty($response['audioContent'])) {
+        throw new RuntimeException('TTS generation failed to return audio content.');
+    }
+
+    return [
+        'audio_content' => base64_decode($response['audioContent']),
+        'mime_type' => 'audio/mpeg',
+    ];
 }

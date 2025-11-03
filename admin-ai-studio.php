@@ -146,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $draftId = '';
                 break;
             default:
-                throw new RuntimeException('Unsupported action.');
+                throw new RuntimeException('The requested action is not supported. Please try again.');
         }
     } catch (Throwable $exception) {
         set_flash('error', $exception->getMessage());
@@ -425,6 +425,47 @@ function ai_tab_class(string $current, string $tab): string
             <span>Tokens/sec: <span id="ai-tokens-sec">0</span></span>
         </div>
       </div>
+    </section>
+
+    <section class="admin-panel ai-panel" aria-labelledby="ai-test-playground-heading">
+        <div class="admin-panel__header ai-panel__header">
+            <div>
+                <h2 id="ai-test-playground-heading">AI Test Playground</h2>
+                <p>Use this space to test the AI's capabilities with different prompts and models.</p>
+            </div>
+        </div>
+        <div class="ai-test-playground">
+            <div class="ai-tabs">
+                <button class="ai-tabs__link is-active" data-tab="live-chat">Live Chat Tester</button>
+                <button class="ai-tabs__link" data-tab="image-generator">Live Image Generator</button>
+                <button class="ai-tabs__link" data-tab="tts-tester">TTS Tester</button>
+            </div>
+            <div id="live-chat" class="ai-test-playground__tab is-active">
+                <div class="ai-chat-window">
+                    <div id="ai-chat-messages" class="ai-chat-messages"></div>
+                    <form id="ai-chat-form" class="ai-chat-form">
+                        <input type="text" id="ai-chat-input" placeholder="Type your message..." />
+                        <button type="submit" class="btn btn-primary">Send</button>
+                    </form>
+                </div>
+            </div>
+            <div id="image-generator" class="ai-test-playground__tab">
+                <form id="ai-image-generator-form" class="admin-form">
+                    <label for="ai-image-prompt">Describe the image:</label>
+                    <input type="text" id="ai-image-prompt" name="prompt" required />
+                    <button type="submit" class="btn btn-primary">Generate Image</button>
+                </form>
+                <div id="ai-image-preview" class="ai-image-preview"></div>
+            </div>
+            <div id="tts-tester" class="ai-test-playground__tab">
+                <form id="ai-tts-form" class="admin-form">
+                    <label for="ai-tts-text">Text to speak:</label>
+                    <textarea id="ai-tts-text" name="text" rows="3" required></textarea>
+                    <button type="submit" class="btn btn-primary">Generate Audio</button>
+                </form>
+                <div id="ai-tts-audio" class="ai-tts-audio"></div>
+            </div>
+        </div>
     </section>
 
     <section class="admin-panel ai-panel" aria-labelledby="ai-draft-library">
@@ -725,5 +766,240 @@ function ai_tab_class(string $current, string $tab): string
     </section>
     <?php endif; ?>
   </main>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const blogGeneratorForm = document.getElementById('ai-blog-generator-form');
+        const livePreviewContainer = document.getElementById('ai-live-preview-container');
+        const livePreviewContent = document.getElementById('ai-live-preview-content');
+        const liveStatus = document.getElementById('ai-live-status');
+        const pauseResumeBtn = document.getElementById('ai-pause-resume');
+        const stopSaveBtn = document.getElementById('ai-stop-save');
+        const discardBtn = document.getElementById('ai-discard');
+        const elapsedTimeEl = document.getElementById('ai-elapsed-time');
+        const tokensSecEl = document.getElementById('ai-tokens-sec');
+
+        let source;
+        let isPaused = false;
+        let draftId = '';
+        let startTime;
+        let timerInterval;
+
+        if (blogGeneratorForm) {
+            blogGeneratorForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                livePreviewContainer.style.display = 'block';
+                liveStatus.textContent = 'Generating...';
+                isPaused = false;
+                pauseResumeBtn.textContent = 'Pause';
+
+                const formData = new FormData(blogGeneratorForm);
+                const payload = Object.fromEntries(formData.entries());
+
+                source = new EventSource(`api/admin.php?action=stream-generate-draft&payload=${encodeURIComponent(JSON.stringify(payload))}`);
+                startTime = Date.now();
+                timerInterval = setInterval(updateTimer, 1000);
+
+                source.addEventListener('open', () => {
+                    liveStatus.textContent = 'Connection opened...';
+                });
+
+                source.addEventListener('message', (event) => {
+                    const data = JSON.parse(event.data);
+                    if (!isPaused) {
+                        livePreviewContent.innerHTML += data.text;
+                    }
+                });
+
+                source.addEventListener('error', (event) => {
+                    liveStatus.textContent = 'Error occurred';
+                    source.close();
+                    clearInterval(timerInterval);
+                });
+
+                source.addEventListener('start', (event) => {
+                    const data = JSON.parse(event.data);
+                    draftId = data.draftId;
+                });
+
+                source.addEventListener('saved', (event) => {
+                    const data = JSON.parse(event.data);
+                    liveStatus.textContent = 'Draft saved!';
+                });
+
+                source.addEventListener('complete', (event) => {
+                    liveStatus.textContent = 'Generation complete';
+                    source.close();
+                    clearInterval(timerInterval);
+                });
+            });
+        }
+
+        if (pauseResumeBtn) {
+            pauseResumeBtn.addEventListener('click', () => {
+                isPaused = !isPaused;
+                pauseResumeBtn.textContent = isPaused ? 'Resume' : 'Pause';
+            });
+        }
+
+        if (stopSaveBtn) {
+            stopSaveBtn.addEventListener('click', () => {
+                source.close();
+                clearInterval(timerInterval);
+                liveStatus.textContent = 'Stopped and saved.';
+            });
+        }
+
+        if (discardBtn) {
+            discardBtn.addEventListener('click', () => {
+                source.close();
+                clearInterval(timerInterval);
+                livePreviewContainer.style.display = 'none';
+                livePreviewContent.innerHTML = '';
+            });
+        }
+
+        function updateTimer() {
+            const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+            elapsedTimeEl.textContent = `${elapsedSeconds}s`;
+        }
+
+        // Playground tabs
+        const tabs = document.querySelectorAll('.ai-tabs__link[data-tab]');
+        const tabContents = document.querySelectorAll('.ai-test-playground__tab');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                tabs.forEach(t => t.classList.remove('is-active'));
+                tab.classList.add('is-active');
+
+                const target = document.getElementById(tab.dataset.tab);
+                tabContents.forEach(tc => tc.classList.remove('is-active'));
+                target.classList.add('is-active');
+            });
+        });
+
+        const ttsForm = document.getElementById('ai-tts-form');
+        const ttsAudio = document.getElementById('ai-tts-audio');
+
+        if (ttsForm) {
+            ttsForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = new FormData(ttsForm);
+                const text = formData.get('text');
+
+                try {
+                    const response = await fetch('api/admin.php?action=generate-tts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to generate audio.');
+                    }
+
+                    const result = await response.json();
+                    const audioSrc = `data:${result.data.mime_type};base64,${result.data.audio_content}`;
+                    ttsAudio.innerHTML = `<audio controls src="${audioSrc}"></audio>`;
+                } catch (error) {
+                    ttsAudio.innerHTML = `<p class="error">${error.message}</p>`;
+                }
+            });
+        }
+
+        const chatForm = document.getElementById('ai-chat-form');
+        const chatInput = document.getElementById('ai-chat-input');
+        const chatMessages = document.getElementById('ai-chat-messages');
+
+        if (chatForm) {
+            chatForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const message = chatInput.value;
+                chatInput.value = '';
+
+                const userMessage = document.createElement('div');
+                userMessage.classList.add('chat-message', 'user');
+                userMessage.textContent = message;
+                chatMessages.appendChild(userMessage);
+
+                try {
+                    const response = await fetch('api/admin.php?action=live-chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt: message }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to get response from AI.');
+                    }
+
+                    const result = await response.json();
+                    const aiMessage = document.createElement('div');
+                    aiMessage.classList.add('chat-message', 'ai');
+                    aiMessage.textContent = result.data.text;
+                    chatMessages.appendChild(aiMessage);
+                } catch (error) {
+                    const errorMessage = document.createElement('div');
+                    errorMessage.classList.add('chat-message', 'ai', 'error');
+                    errorMessage.textContent = error.message;
+                    chatMessages.appendChild(errorMessage);
+                }
+            });
+        }
+
+        const imageGeneratorForm = document.getElementById('ai-image-generator-form');
+        const imagePreview = document.getElementById('ai-image-preview');
+
+        if (imageGeneratorForm) {
+            imageGeneratorForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = new FormData(imageGeneratorForm);
+                const prompt = formData.get('prompt');
+
+                try {
+                    const response = await fetch('api/admin.php?action=generate-image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to generate image.');
+                    }
+
+                    const result = await response.json();
+                    const imageSrc = `data:image/png;base64,${result.data.image}`;
+                    imagePreview.innerHTML = `<img src="${imageSrc}" alt="${prompt}" />`;
+                } catch (error) {
+                    imagePreview.innerHTML = `<p class="error">${error.message}</p>`;
+                }
+            });
+        }
+
+        const restoreSnapshotBtn = document.getElementById('restore-snapshot-btn');
+        if (restoreSnapshotBtn) {
+            restoreSnapshotBtn.addEventListener('click', async () => {
+                const draftId = restoreSnapshotBtn.dataset.draftId;
+                try {
+                    const response = await fetch('api/admin.php?action=restore-draft', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ draftId }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to restore draft.');
+                    }
+
+                    const result = await response.json();
+                    const form = document.getElementById('ai-blog-generator-form');
+                    form.querySelector('[name="topic"]').value = result.data.content;
+                } catch (error) {
+                    console.error('Failed to restore snapshot:', error);
+                }
+            });
+        }
+    });
+  </script>
 </body>
 </html>

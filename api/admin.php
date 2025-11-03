@@ -388,12 +388,66 @@ try {
             respond_success(ai_generate_blog_draft(read_json(), $actorId));
             break;
         case 'stream-generate-draft':
-            require_method('POST');
-            ai_stream_generate_blog_draft(read_json(), $actorId);
+            require_method('GET');
+            $payload = json_decode($_GET['payload'] ?? '', true);
+            ai_stream_generate_blog_draft($payload, $actorId);
             break;
         case 'restore-draft':
             require_method('POST');
             respond_success(ai_restore_draft_from_temp(read_json(), $actorId));
+            break;
+        case 'generate-tts':
+            require_method('POST');
+            $payload = read_json();
+            $text = (string) ($payload['text'] ?? '');
+            $settings = ai_get_settings();
+            $ttsModel = $settings['tts_model'] ?? '';
+            if ($ttsModel === '') {
+                throw new RuntimeException('Set a Gemini TTS model in AI settings before generating audio.');
+            }
+            $apiKey = ai_resolve_api_key();
+            if ($apiKey === null || $apiKey === '') {
+                throw new RuntimeException('Configure the Gemini API key to generate audio.');
+            }
+            $audio = ai_gemini_generate_tts($ttsModel, $text, $apiKey);
+            respond_success([
+                'audio_content' => base64_encode($audio['audio_content']),
+                'mime_type' => $audio['mime_type'],
+            ]);
+            break;
+        case 'live-chat':
+            require_method('POST');
+            $payload = read_json();
+            $prompt = (string) ($payload['prompt'] ?? '');
+            $settings = ai_get_settings();
+            $textModel = $settings['text_model'] ?? '';
+            if ($textModel === '') {
+                throw new RuntimeException('Set a Gemini text model in AI settings before using the chat.');
+            }
+            $apiKey = ai_resolve_api_key();
+            if ($apiKey === null || $apiKey === '') {
+                throw new RuntimeException('Configure the Gemini API key to use the chat.');
+            }
+            $response = ai_gemini_generate_content($textModel, ['contents' => [['parts' => [['text' => $prompt]]]]], $apiKey);
+            $text = ai_extract_text_from_gemini($response);
+            respond_success(['text' => $text]);
+            break;
+        case 'generate-image':
+            require_method('POST');
+            $payload = read_json();
+            $prompt = (string) ($payload['prompt'] ?? '');
+            $settings = ai_get_settings();
+            $imageModel = $settings['image_model'] ?? '';
+            if ($imageModel === '') {
+                throw new RuntimeException('Set a Gemini image model in AI settings before generating images.');
+            }
+            $apiKey = ai_resolve_api_key();
+            if ($apiKey === null || $apiKey === '') {
+                throw new RuntimeException('Configure the Gemini API key to generate images.');
+            }
+            $response = ai_gemini_generate_image($imageModel, $prompt, $apiKey);
+            $imageData = ai_extract_image_payload($response);
+            respond_success(['image' => base64_encode($imageData['binary'])]);
             break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
