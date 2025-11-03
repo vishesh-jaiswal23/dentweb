@@ -657,6 +657,27 @@ function appendAdminActivity(activity) {
       }
     });
   }
+
+  function pollDashboardData() {
+    fetch('api/admin.php?action=dashboard-data')
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          const { counts, highlights } = data.data;
+          updateCustomerStateBadges(counts);
+          if (Array.isArray(highlights)) {
+            const list = document.querySelector('[data-highlight-feed]');
+            if (list) {
+              list.innerHTML = '';
+            }
+            highlights.forEach(appendAdminActivity);
+          }
+        }
+      })
+      .catch(error => console.error('Error polling dashboard data:', error));
+  }
+
+  setInterval(pollDashboardData, 30000);
 })();
 
 

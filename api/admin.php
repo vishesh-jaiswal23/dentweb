@@ -33,6 +33,13 @@ try {
             require_method('GET');
             respond_success(bootstrap_payload($db));
             break;
+        case 'dashboard-data':
+            require_method('GET');
+            respond_success([
+                'counts' => admin_overview_counts($db),
+                'highlights' => admin_today_highlights($db, 20),
+            ]);
+            break;
         case 'list-employees':
             require_method('GET');
             respond_success(admin_list_accounts($db, ['role' => 'employee', 'status' => 'active']));
