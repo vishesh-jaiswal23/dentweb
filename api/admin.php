@@ -37,6 +37,7 @@ try {
             require_method('GET');
             respond_success([
                 'counts' => admin_overview_counts($db),
+                'highlights' => admin_today_highlights($db, 20),
             ]);
             break;
         case 'list-employees':
