@@ -136,103 +136,12 @@ function computeRelativeTimeParts(isoString) {
     };
 }
 
-function appendAdminActivity(activity) {
-    if (!activity || typeof activity !== 'object') {
-        return;
-    }
-
-    let list = document.querySelector('[data-highlight-feed]');
-    const emptyState = document.querySelector('[data-highlight-empty]');
-
-    if (!list && !emptyState) {
-        return;
-    }
-
-    if (!list) {
-        list = document.createElement('ol');
-        list.className = 'highlight-list';
-        list.setAttribute('data-highlight-feed', '');
-        if (emptyState) {
-            emptyState.replaceWith(list);
-        } else {
-            document.body.appendChild(list);
-        }
-    } else if (emptyState) {
-        emptyState.remove();
-    }
-
-    const moduleKey = activity.moduleKey ? String(activity.moduleKey) : 'system';
-    const icon = activity.icon ? String(activity.icon) : 'fa-circle-info';
-    const moduleLabel = activity.moduleLabel ? String(activity.moduleLabel) : 'Activity';
-    const summary = activity.summary ? String(activity.summary) : '';
-
-    const item = document.createElement('li');
-    item.className = `highlight-list__item highlight-list__item--${moduleKey}`;
-
-    const iconWrapper = document.createElement('div');
-    iconWrapper.className = 'highlight-list__icon';
-    iconWrapper.setAttribute('aria-hidden', 'true');
-    const iconElement = document.createElement('i');
-    iconElement.className = `fa-solid ${icon}`;
-    iconElement.setAttribute('aria-hidden', 'true');
-    iconWrapper.appendChild(iconElement);
-    item.appendChild(iconWrapper);
-
-    const content = document.createElement('div');
-    content.className = 'highlight-list__content';
-
-    const moduleNode = document.createElement('p');
-    moduleNode.className = 'highlight-list__module';
-    moduleNode.textContent = moduleLabel;
-    content.appendChild(moduleNode);
-
-    const summaryNode = document.createElement('p');
-    summaryNode.className = 'highlight-list__summary';
-    summaryNode.textContent = summary;
-    content.appendChild(summaryNode);
-
-    item.appendChild(content);
-
-    const timeNode = document.createElement('time');
-    timeNode.className = 'highlight-list__time';
-
-    const isoTime = activity.isoTime || activity.timestamp || '';
-    const display = activity.timeDisplay ? String(activity.timeDisplay) : '';
-    if (isoTime) {
-        timeNode.setAttribute('datetime', isoTime);
-        timeNode.setAttribute('data-highlight-time', isoTime);
-        const relative = computeRelativeTimeParts(isoTime);
-        if (relative.text !== '') {
-            timeNode.textContent = relative.text;
-            if (relative.title !== '') {
-                timeNode.setAttribute('title', relative.title);
-            }
-        } else if (display !== '') {
-            timeNode.textContent = display;
-        }
-    } else if (display !== '') {
-        timeNode.textContent = display;
-    }
-
-    item.appendChild(timeNode);
-
-    list.prepend(item);
-
-    const maxItems = 20;
-    const items = list.querySelectorAll('.highlight-list__item');
-    if (items.length > maxItems) {
-        for (let index = maxItems; index < items.length; index += 1) {
-            items[index].remove();
-        }
-    }
-}
 
 (function () {
   'use strict';
 
   const storageKey = 'dakshayani-admin-theme';
   const toggleButton = document.querySelector('[data-theme-toggle]');
-  const highlightTimes = document.querySelectorAll('[data-highlight-time]');
   const root = document.body;
 
   function applyTheme(theme, { persist = true } = {}) {
@@ -289,7 +198,6 @@ function appendAdminActivity(activity) {
     node.setAttribute('title', target.toLocaleString());
   }
 
-  highlightTimes.forEach(formatRelativeTime);
   initTheme();
 
   function showModal(title, content, onConfirm) {
@@ -428,15 +336,8 @@ function appendAdminActivity(activity) {
       .then(response => response.json())
       .then(data => {
         if (data.success) {
-          const { counts, highlights } = data.data;
+          const { counts } = data.data;
           updateCustomerStateBadges(counts);
-          if (Array.isArray(highlights)) {
-            const list = document.querySelector('[data-highlight-feed]');
-            if (list) {
-              list.innerHTML = '';
-            }
-            highlights.forEach(appendAdminActivity);
-          }
         }
       })
       .catch(error => console.error('Error polling dashboard data:', error));

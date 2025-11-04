@@ -33,7 +33,6 @@ if (is_array($flashData)) {
 }
 
 $counts = admin_overview_counts($db);
-$highlights = admin_today_highlights($db, 20);
 $reminderDueCounts = reminder_due_counts($db);
 
 $todayIst = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
@@ -106,24 +105,6 @@ $moduleMeta = [
 ];
 
 $indiaTz = new DateTimeZone('Asia/Kolkata');
-$highlightItems = array_map(static function (array $item) use ($moduleMeta, $indiaTz): array {
-    $module = $moduleMeta[$item['module']] ?? ['label' => ucfirst($item['module']), 'icon' => 'fa-circle-info'];
-    try {
-        $timestamp = new DateTimeImmutable($item['timestamp']);
-    } catch (Throwable $exception) {
-        $timestamp = new DateTimeImmutable('now', new DateTimeZone('UTC'));
-    }
-    $localTime = $timestamp->setTimezone($indiaTz);
-
-    return [
-        'moduleKey' => $item['module'],
-        'moduleLabel' => $module['label'],
-        'icon' => $module['icon'],
-        'summary' => $item['summary'],
-        'timeDisplay' => $localTime->format('d M · h:i A'),
-        'isoTime' => $localTime->format(DateTimeInterface::ATOM),
-    ];
-}, $highlights);
 
 ?><!DOCTYPE html>
 <html lang="en">
@@ -240,28 +221,6 @@ $highlightItems = array_map(static function (array $item) use ($moduleMeta, $ind
       <?php endforeach; ?>
     </section>
 
-    <section class="admin-overview__highlights" aria-labelledby="highlights-title">
-      <div class="admin-overview__highlights-header">
-        <h2 id="highlights-title">Today's Highlights</h2>
-        <p class="admin-overview__highlights-sub">Recent changes across leads, installations, complaints, subsidy, and reminders.</p>
-      </div>
-      <?php if (count($highlightItems) === 0): ?>
-      <p class="admin-overview__empty" data-highlight-empty>No activity recorded yet today. Updates from leads, installations, complaints, subsidy, and reminders will appear here.</p>
-      <?php else: ?>
-      <ol class="highlight-list" data-highlight-feed>
-        <?php foreach ($highlightItems as $item): ?>
-        <li class="highlight-list__item highlight-list__item--<?= htmlspecialchars($item['moduleKey'], ENT_QUOTES) ?>">
-          <div class="highlight-list__icon" aria-hidden="true"><i class="fa-solid <?= htmlspecialchars($item['icon'], ENT_QUOTES) ?>"></i></div>
-          <div class="highlight-list__content">
-            <p class="highlight-list__module"><?= htmlspecialchars($item['moduleLabel'], ENT_QUOTES) ?></p>
-            <p class="highlight-list__summary"><?= htmlspecialchars($item['summary'], ENT_QUOTES) ?></p>
-          </div>
-          <time class="highlight-list__time" datetime="<?= htmlspecialchars($item['isoTime'], ENT_QUOTES) ?>" data-highlight-time><?= htmlspecialchars($item['timeDisplay'], ENT_QUOTES) ?></time>
-        </li>
-        <?php endforeach; ?>
-      </ol>
-      <?php endif; ?>
-    </section>
   </main>
 
   <script src="<?= htmlspecialchars($pathFor('admin-dashboard.js'), ENT_QUOTES) ?>" defer></script>
