@@ -803,7 +803,7 @@ function ai_tab_class(string $current, string $tab): string
                     liveStatus.textContent = 'Connection opened...';
                 });
 
-                source.addEventListener('message', (event) => {
+                source.addEventListener('chunk', (event) => {
                     const data = JSON.parse(event.data);
                     if (!isPaused) {
                         livePreviewContent.innerHTML += data.text;

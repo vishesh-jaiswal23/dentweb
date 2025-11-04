@@ -265,6 +265,47 @@ function ai_http_post_json(string $url, array $payload, array $headers = []): ar
     return $decoded;
 }
 
+function ai_gemini_generate_content_non_streaming(string $model, array $payload, string $apiKey): array
+{
+    $url = sprintf(
+        'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s',
+        rawurlencode($model),
+        urlencode($apiKey)
+    );
+    $maxRetries = 3;
+    $lastException = null;
+
+    for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+        try {
+            $response = ai_http_post_json($url, $payload);
+            $text = ai_extract_text_from_gemini($response);
+
+            if ($text !== '') {
+                return $response;
+            }
+
+            $lastException = new RuntimeException('Gemini API returned a successful but empty non-streaming response.');
+        } catch (Throwable $exception) {
+            $lastException = $exception;
+            ai_log_activity('gemini_api_attempt_failed', [
+                'model' => $model,
+                'endpoint' => 'generateContent',
+                'attempt' => $attempt,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+        if ($attempt < $maxRetries) {
+            usleep(500000 * $attempt);
+        }
+    }
+
+    throw new RuntimeException(
+        'The AI model did not respond. Please retry or check your API key.',
+        0,
+        $lastException
+    );
+}
+
 function ai_gemini_generate_content(string $model, array $payload, string $apiKey): array
 {
     $urlTemplate = 'https://generativelanguage.googleapis.com/v1beta/models/%s:%s?key=%s';
@@ -1419,45 +1460,25 @@ function ai_stream_generate_blog_draft(array $options, int $actorId): void
         $fullBody = '';
         $buffer = '';
 
-        $chunkCallback = function($data) use (&$buffer, &$fullBody, $sendEvent) {
+        $chunkCallback = function ($curl, $data) use (&$buffer, &$fullBody, $sendEvent) {
             $buffer .= $data;
-            while (true) {
-                $startPos = strpos($buffer, '{');
-                if ($startPos === false) break;
+            while (($pos = strpos($buffer, "\n")) !== false) {
+                $line = substr($buffer, 0, $pos);
+                $buffer = substr($buffer, $pos + 1);
 
-                $level = 0;
-                $inString = false;
-                $endPos = -1;
-                for ($i = $startPos; $i < strlen($buffer); $i++) {
-                    $char = $buffer[$i];
-                    if ($char === '"' && ($i === 0 || $buffer[$i-1] !== '\\')) {
-                        $inString = !$inString;
-                    } elseif (!$inString) {
-                        if ($char === '{') $level++;
-                        elseif ($char === '}') {
-                            $level--;
-                            if ($level === 0) {
-                                $endPos = $i;
-                                break;
-                            }
+                if (strpos($line, 'data: ') === 0) {
+                    $jsonStr = substr($line, 6);
+                    $decoded = json_decode($jsonStr, true);
+                    if (is_array($decoded)) {
+                        $text = ai_extract_text_from_gemini($decoded);
+                        if ($text !== '') {
+                            $fullBody .= $text;
+                            $sendEvent('message', ['text' => $text]);
                         }
                     }
                 }
-
-                if ($endPos === -1) break;
-
-                $jsonStr = substr($buffer, $startPos, $endPos - $startPos + 1);
-                $buffer = substr($buffer, $endPos + 1);
-
-                $decoded = json_decode($jsonStr, true);
-                if (is_array($decoded)) {
-                    $text = ai_extract_text_from_gemini($decoded);
-                    if ($text !== '') {
-                        $fullBody .= $text;
-                        $sendEvent('chunk', ['text' => $text]);
-                    }
-                }
             }
+            return strlen($data);
         };
 
         ai_http_post_json_stream($url, $payload, $chunkCallback);
@@ -1990,20 +2011,12 @@ function ai_gemini_generate_tts(string $model, string $text, string $apiKey): ar
     }
 
     $payload = [
-        'input' => [
-            'text' => $text,
-        ],
-        'voice' => [
-            'languageCode' => 'en-US',
-            'name' => 'en-US-Standard-C',
-        ],
-        'audioConfig' => [
-            'audioEncoding' => 'MP3',
-        ],
+        'text' => $text,
     ];
 
     $url = sprintf(
-        'https://texttospeech.googleapis.com/v1/text:synthesize?key=%s',
+        'https://generativelanguage.googleapis.com/v1beta/models/%s:synthesizeText?key=%s',
+        rawurlencode($model),
         urlencode($apiKey)
     );
 
