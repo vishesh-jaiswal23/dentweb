@@ -61,6 +61,11 @@ function updateCustomerStateBadges(summary) {
         active: Number(summary.active ?? 0),
         inactive: Number(summary.inactive ?? 0),
         total: Number(summary.total ?? 0),
+        employees: Number(summary.employees ?? summary.activeEmployees ?? 0),
+        requests: Number(summary.requests ?? summary.pendingRequests ?? 0),
+        complaints: Number(summary.complaints ?? 0),
+        subsidy: Number(summary.subsidy ?? 0),
+        reminders: Number(summary.reminders ?? 0),
     };
 
     document.querySelectorAll('[data-customer-state-count]').forEach((node) => {
@@ -91,6 +96,21 @@ function updateCustomerStateBadges(summary) {
             case 'customers_total':
             case 'total':
                 value = normalized.total;
+                break;
+            case 'employees':
+                value = normalized.employees;
+                break;
+            case 'requests':
+                value = normalized.requests;
+                break;
+            case 'complaints':
+                value = normalized.complaints;
+                break;
+            case 'subsidy':
+                value = normalized.subsidy;
+                break;
+            case 'reminders':
+                value = normalized.reminders;
                 break;
             default:
                 return;
