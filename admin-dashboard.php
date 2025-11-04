@@ -61,9 +61,25 @@ $portalTimeLabel = (string) ($portalClock['label'] ?? 'IST');
 
 $cardConfigs = [
     [
+        'key' => 'employees',
+        'label' => 'Active Users',
+        'value' => $counts['employees'] ?? 0,
+        'icon' => 'fa-users-gear',
+        'description' => 'Employees with active portal access.',
+        'link' => $pathFor('admin-users.php'),
+    ],
+    [
+        'key' => 'requests',
+        'label' => 'Pending Requests',
+        'value' => $counts['requests'] ?? 0,
+        'icon' => 'fa-inbox',
+        'description' => 'Approvals awaiting admin review.',
+        'link' => $pathFor('admin-requests.php'),
+    ],
+    [
         'key' => 'installations',
         'label' => 'Ongoing Installations',
-        'value' => $counts['installations'],
+        'value' => $counts['installations'] ?? 0,
         'icon' => 'fa-solar-panel',
         'description' => 'Projects that are live on-site and awaiting closure.',
         'link' => $pathFor('admin-records.php') . '?module=installations&filter=ongoing',
@@ -72,7 +88,7 @@ $cardConfigs = [
     [
         'key' => 'complaints',
         'label' => 'Open Complaints',
-        'value' => $counts['complaints'],
+        'value' => $counts['complaints'] ?? 0,
         'icon' => 'fa-headset',
         'description' => 'Active complaints pending field work or admin approval.',
         'link' => $pathFor('admin-complaints.php') . '?filter=open',
@@ -80,7 +96,7 @@ $cardConfigs = [
     [
         'key' => 'subsidy',
         'label' => 'Subsidy Pending',
-        'value' => $counts['subsidy'],
+        'value' => $counts['subsidy'] ?? 0,
         'icon' => 'fa-indian-rupee-sign',
         'description' => 'Applications awaiting approval or disbursal.',
         'link' => $pathFor('admin-subsidy-tracker.php') . '?stage=pending',
@@ -88,7 +104,7 @@ $cardConfigs = [
     [
         'key' => 'reminders',
         'label' => 'Active Reminders',
-        'value' => $counts['reminders'],
+        'value' => $counts['reminders'] ?? 0,
         'icon' => 'fa-bell',
         'description' => 'Follow-ups awaiting admin attention.',
         'link' => $pathFor('admin-reminders.php'),
@@ -156,14 +172,6 @@ $indiaTz = new DateTimeZone('Asia/Kolkata');
             </time>
           </div>
         </div>
-        <a href="<?= htmlspecialchars($pathFor('admin-users.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
-          <i class="fa-solid fa-users-gear" aria-hidden="true"></i>
-          Users
-        </a>
-        <a href="<?= htmlspecialchars($pathFor('admin-requests.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
-          <i class="fa-solid fa-inbox" aria-hidden="true"></i>
-          Requests
-        </a>
         <a href="<?= htmlspecialchars($pathFor('admin-ai-studio.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
           <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
           AI Studio

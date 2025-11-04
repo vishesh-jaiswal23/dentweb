@@ -4461,6 +4461,7 @@ function admin_overview_counts(PDO $db): array
     $openComplaints = (int) $db->query("SELECT COUNT(*) FROM complaints WHERE status != 'closed'")->fetchColumn();
     $activeReminders = (int) $db->query("SELECT COUNT(*) FROM reminders WHERE status IN ('proposed','active') AND deleted_at IS NULL")->fetchColumn();
     $activeReferrers = (int) $db->query("SELECT COUNT(*) FROM referrers WHERE status = 'active'")->fetchColumn();
+    $pendingRequests = (int) $db->query("SELECT COUNT(*) FROM approval_requests WHERE status = 'pending'")->fetchColumn();
 
     $pendingStmt = $db->query(<<<'SQL'
 WITH ranked AS (
@@ -4486,6 +4487,7 @@ SQL
         'subsidy' => $pendingSubsidy,
         'reminders' => $activeReminders,
         'referrers' => $activeReferrers,
+        'requests' => $pendingRequests,
     ];
 }
 
