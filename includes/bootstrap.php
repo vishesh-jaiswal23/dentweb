@@ -2,7 +2,6 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/blog.php';
-require_once __DIR__ . '/ai.php';
 require_once __DIR__ . '/user_storage.php';
 require_once __DIR__ . '/customer_records.php';
 require_once __DIR__ . '/portal_file_storage.php';
