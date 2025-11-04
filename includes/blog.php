@@ -219,9 +219,6 @@ SQL
 
 function blog_fetch_published(PDO $db, array $filters, int $limit, int $offset): array
 {
-    if (function_exists('ai_publish_due_posts')) {
-        ai_publish_due_posts($db);
-    }
 
     $conditions = ["blog_posts.status = 'published'"];
     $params = [];
@@ -315,9 +312,6 @@ function blog_get_latest_update(PDO $db): ?string
 
 function blog_get_post_by_slug(PDO $db, string $slug, bool $includeDrafts = false): ?array
 {
-    if (function_exists('ai_publish_due_posts') && !$includeDrafts) {
-        ai_publish_due_posts($db);
-    }
 
     $condition = $includeDrafts ? '1=1' : "blog_posts.status = 'published'";
     $stmt = $db->prepare(<<<SQL
@@ -436,9 +430,6 @@ SQL
 
 function blog_admin_list(PDO $db): array
 {
-    if (function_exists('ai_publish_due_posts')) {
-        ai_publish_due_posts($db);
-    }
 
     $stmt = $db->query(<<<'SQL'
 SELECT
@@ -670,9 +661,6 @@ SQL
 
 function blog_get_post_by_id(PDO $db, int $postId): array
 {
-    if (function_exists('ai_publish_due_posts')) {
-        ai_publish_due_posts($db);
-    }
 
     $stmt = $db->prepare(<<<'SQL'
 SELECT blog_posts.*, GROUP_CONCAT(blog_tags.name, '\u0001') AS tag_names

@@ -173,27 +173,6 @@ try {
             $request = employee_submit_request($db, $actorId, $type, $payload);
             respond_success(['request' => $request]);
             break;
-        case 'generate-blog-draft':
-            require_method('POST');
-            $payload = read_json();
-            $prompt = (string) ($payload['prompt'] ?? '');
-            $draft = ai_generate_blog_draft_from_prompt($prompt, $actorId);
-            respond_success($draft);
-            break;
-        case 'generate-sms-template':
-            require_method('POST');
-            $payload = read_json();
-            $prompt = (string) ($payload['prompt'] ?? '');
-            $template = ai_generate_sms_template($prompt);
-            respond_success($template);
-            break;
-        case 'convert-installation-notes':
-            require_method('POST');
-            $payload = read_json();
-            $notes = (string) ($payload['notes'] ?? '');
-            $message = ai_convert_installation_notes($notes);
-            respond_success($message);
-            break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
     }
