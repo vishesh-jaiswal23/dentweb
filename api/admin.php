@@ -435,7 +435,7 @@ try {
             if ($apiKey === null || $apiKey === '') {
                 throw new RuntimeException('Configure the Gemini API key to use the chat.');
             }
-            $response = ai_gemini_generate_content($textModel, ['contents' => [['parts' => [['text' => $prompt]]]]], $apiKey);
+            $response = ai_gemini_generate_content_non_streaming($textModel, ['contents' => [['parts' => [['text' => $prompt]]]]], $apiKey);
             $text = ai_extract_text_from_gemini($response);
             respond_success(['text' => $text]);
             break;
