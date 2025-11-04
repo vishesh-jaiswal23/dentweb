@@ -65,31 +65,6 @@ $portalTimeLabel = (string) ($portalClock['label'] ?? 'IST');
 
 $cardConfigs = [
     [
-        'key' => 'employees',
-        'label' => 'Active Employees',
-        'value' => $counts['employees'],
-        'icon' => 'fa-user-check',
-        'description' => 'Staff with Dentweb access who are currently enabled.',
-        'link' => $pathFor('admin-records.php') . '?module=employees&filter=active',
-    ],
-    [
-        'key' => 'leads',
-        'label' => 'New Leads',
-        'value' => $counts['leads'],
-        'icon' => 'fa-user-plus',
-        'description' => 'Enquiries that still require qualification or hand-off.',
-        'link' => $pathFor('admin-leads.php'),
-        'state_key' => 'lead',
-    ],
-    [
-        'key' => 'referrers',
-        'label' => 'Active Referrers',
-        'value' => $counts['referrers'],
-        'icon' => 'fa-handshake-angle',
-        'description' => 'Channel partners enabled to submit and track leads.',
-        'link' => $pathFor('admin-referrers.php'),
-    ],
-    [
         'key' => 'installations',
         'label' => 'Ongoing Installations',
         'value' => $counts['installations'],
