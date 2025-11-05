@@ -386,8 +386,38 @@ try {
             audit('import_customers', 'system', 0, 'Customer CSV imported.');
             respond_success($result);
             break;
+        case 'update-ai-settings':
+            require_method('POST');
+            $settings = read_json();
+            validate_gemini_api_key($settings['api_key']);
+            $settings_file = __DIR__ . '/../storage/ai/settings.json';
+            file_put_contents($settings_file, json_encode($settings, JSON_PRETTY_PRINT));
+            audit('update_ai_settings', 'system', 0, 'AI settings updated.');
+            respond_success(['message' => 'Settings saved successfully. Connected.']);
+            break;
+        case 'test-gemini-connection':
+            require_method('POST');
+            $settings = read_json();
+            validate_gemini_api_key($settings['api_key']);
+            respond_success(['message' => 'Connection successful.']);
+            break;
+        case 'ai-chat':
+            require_method('POST');
+            $payload = read_json();
+            $message = $payload['message'] ?? '';
+            if (empty($message)) {
+                throw new RuntimeException('Message is required.');
+            }
+            $settings = get_ai_settings();
+            if (!$settings['enabled']) {
+                throw new RuntimeException('AI is disabled.');
+            }
+            $response = stream_gemini_response($settings, $message);
+            save_chat_history($message, $response);
+            respond_success(['response' => $response]);
+            break;
         default:
-            throw new RuntimeException('Unknown action: ' . $action);
+            throw new RuntimeException('Unknown action: '. $action);
     }
 } catch (Throwable $exception) {
     http_response_code(400);
@@ -888,4 +918,75 @@ function audit(string $action, string $entityType, int $entityId, string $descri
         ':entity_id' => $entityId,
         ':description' => $description,
     ]);
+}
+
+function validate_gemini_api_key(string $apiKey): void
+{
+    if (empty($apiKey)) {
+        throw new RuntimeException('API key is required.');
+    }
+
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models?key=' . $apiKey;
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    $response = curl_exec($ch);
+    $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpcode !== 200) {
+        throw new RuntimeException('Invalid Gemini API key.');
+    }
+}
+
+function get_ai_settings(): array
+{
+    $settings_file = __DIR__ . '/../storage/ai/settings.json';
+    if (!file_exists($settings_file)) {
+        throw new RuntimeException('AI settings not found.');
+    }
+    return json_decode(file_get_contents($settings_file), true);
+}
+
+function stream_gemini_response(array $settings, string $message): string
+{
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . $settings['model_text'] . ':streamGenerateContent?key=' . $settings['api_key'];
+    $data = [
+        'contents' => [
+            [
+                'parts' => [
+                    [
+                        'text' => $message
+                    ]
+                ]
+            ]
+        ]
+    ];
+    $options = [
+        'http' => [
+            'header'  => "Content-type: application/json\r\n",
+            'method'  => 'POST',
+            'content' => json_encode($data)
+        ]
+    ];
+    $context  = stream_context_create($options);
+    $result = file_get_contents($url, false, $context);
+    if ($result === FALSE) {
+        throw new RuntimeException('Failed to get response from Gemini API.');
+    }
+    return $result;
+}
+
+function save_chat_history(string $message, string $response): void
+{
+    $history_file = __DIR__ . '/../storage/ai/chat_history.json';
+    $history = [];
+    if (file_exists($history_file)) {
+        $history = json_decode(file_get_contents($history_file), true);
+    }
+    $history[] = [
+        'user' => $message,
+        'model' => $response,
+        'timestamp' => date('Y-m-d H:i:s')
+    ];
+    file_put_contents($history_file, json_encode($history, JSON_PRETTY_PRINT));
 }
