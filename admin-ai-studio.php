@@ -7,13 +7,6 @@ require_once __DIR__ . '/includes/bootstrap.php';
 require_admin();
 $admin = current_user();
 
-// Load AI settings
-$settings_file = __DIR__ . '/storage/ai/settings.json';
-$ai_settings = [];
-if (file_exists($settings_file)) {
-    $ai_settings = json_decode(file_get_contents($settings_file), true);
-}
-
 ?><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -35,76 +28,77 @@ if (file_exists($settings_file)) {
         <div class="admin-overview__identity">
             <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
             <div>
+                <p class="admin-overview__subtitle">Welcome to the</p>
                 <h1 class="admin-overview__title">AI Studio</h1>
                 <p class="admin-overview__user">Signed in as <strong><?= htmlspecialchars($admin['full_name'] ?? 'Administrator', ENT_QUOTES) ?></strong></p>
             </div>
         </div>
     </header>
 
-    <div class="admin-records__grid">
-        <section class="admin-records__card">
-            <h2 class="admin-records__card-title">AI Settings (Gemini-Only)</h2>
-            <form id="ai-settings-form">
-                <div class="form-group">
-                    <label for="api-key">Gemini API Key</label>
-                    <div class="input-group">
-                        <input type="password" id="api-key" name="api_key" value="<?= htmlspecialchars($ai_settings['api_key'] ?? '', ENT_QUOTES) ?>" class="form-control">
-                        <button type="button" id="reveal-api-key" class="btn btn-secondary">Reveal</button>
+    <div class="admin-records__body">
+        <div class="admin-records__content">
+            <section class="admin-form-container">
+                <h2 class="admin-form-container__title">AI Settings (Gemini-Only)</h2>
+                <form id="ai-settings-form" class="admin-form">
+                    <div class="admin-form__group">
+                        <label for="gemini-text-model">Gemini Text Model Code</label>
+                        <input type="text" id="gemini-text-model" name="gemini_text_model" value="gemini-2.5-flash" required>
+                    </div>
+                    <div class="admin-form__group">
+                        <label for="gemini-image-model">Gemini Image Model Code</label>
+                        <input type="text" id="gemini-image-model" name="gemini_image_model" value="gemini-2.5-flash-image" required>
+                    </div>
+                    <div class="admin-form__group">
+                        <label for="gemini-tts-model">Gemini TTS Model Code</label>
+                        <input type="text" id="gemini-tts-model" name="gemini_tts_model" value="gemini-2.5-flash-preview-tts" required>
+                    </div>
+                    <div class="admin-form__group">
+                        <label for="api-key">API Key</label>
+                        <div class="admin-form__input-group">
+                            <input type="password" id="api-key" name="api_key" placeholder="Enter your Gemini API Key" required>
+                            <button type="button" id="reveal-api-key" class="btn btn-secondary"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                    </div>
+                    <div class="admin-form__group">
+                        <label for="temperature">Temperature</label>
+                        <input type="range" id="temperature" name="temperature" min="0" max="1" step="0.1" value="0.7">
+                    </div>
+                    <div class="admin-form__group">
+                        <label for="max-tokens">Max Tokens</label>
+                        <input type="number" id="max-tokens" name="max_tokens" min="1" value="2048">
+                    </div>
+                    <div class="admin-form__group admin-form__group--inline">
+                        <label for="ai-enabled">AI On/Off</label>
+                        <input type="checkbox" id="ai-enabled" name="ai_enabled" class="admin-form__toggle" checked>
+                    </div>
+                    <div class="admin-form__actions">
+                        <button type="submit" class="btn btn-primary">Update Settings</button>
+                        <button type="button" id="test-connection-btn" class="btn btn-secondary">Test Gemini Connection</button>
+                    </div>
+                </form>
+            </section>
+            <section class="admin-form-container">
+                <h2 class="admin-form-container__title">AI Chat</h2>
+                <div class="ai-chat__container">
+                    <div id="ai-chat-log" class="ai-chat__log"></div>
+                    <div class="ai-chat__input-container">
+                        <textarea id="ai-chat-input" class="ai-chat__input" placeholder="Type your message..."></textarea>
+                        <button id="ai-chat-send-btn" class="btn btn-primary"><i class="fa-solid fa-paper-plane"></i></button>
+                    </div>
+                    <div class="ai-chat__quick-prompts">
+                        <button class="btn btn-secondary" data-prompt="Summarize the following text: ">Summarize</button>
+                        <button class="btn btn-secondary" data-prompt="Write a professional email about ">Write Email</button>
+                        <button class="btn btn-secondary" data-prompt="Generate a project proposal for ">Project Proposal</button>
+                    </div>
+                     <div class="ai-chat__actions">
+                        <button id="ai-chat-clear-btn" class="btn btn-danger">Clear History</button>
+                        <button id="ai-chat-export-pdf-btn" class="btn btn-secondary">Export as PDF</button>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label for="model-text">Gemini Text Model Code</label>
-                    <input type="text" id="model-text" name="model_text" value="<?= htmlspecialchars($ai_settings['model_text'] ?? 'gemini-2.5-flash', ENT_QUOTES) ?>" class="form-control">
-                </div>
-                <div class="form-group">
-                    <label for="model-image">Gemini Image Model Code</label>
-                    <input type="text" id="model-image" name="model_image" value="<?= htmlspecialchars($ai_settings['model_image'] ?? 'gemini-2.5-flash-image', ENT_QUOTES) ?>" class="form-control">
-                </div>
-                <div class="form-group">
-                    <label for="model-tts">Gemini TTS Model Code</label>
-                    <input type="text" id="model-tts" name="model_tts" value="<?= htmlspecialchars($ai_settings['model_tts'] ?? 'gemini-2.5-flash-preview-tts', ENT_QUOTES) ?>" class="form-control">
-                </div>
-                <div class="form-group">
-                    <label for="temperature">Temperature</label>
-                    <input type="range" id="temperature" name="temperature" min="0" max="1" step="0.1" value="<?= htmlspecialchars((string)($ai_settings['temperature'] ?? 0.7), ENT_QUOTES) ?>" class="form-range">
-                    <span id="temperature-value"><?= htmlspecialchars((string)($ai_settings['temperature'] ?? 0.7), ENT_QUOTES) ?></span>
-                </div>
-                <div class="form-group">
-                    <label for="max-tokens">Max Tokens</label>
-                    <input type="number" id="max-tokens" name="max_tokens" value="<?= htmlspecialchars((string)($ai_settings['max_tokens'] ?? 1024), ENT_QUOTES) ?>" class="form-control">
-                </div>
-                <div class="form-group">
-                    <label for="ai-enabled">AI Enabled</label>
-                    <input type="checkbox" id="ai-enabled" name="enabled" <?= ($ai_settings['enabled'] ?? true) ? 'checked' : '' ?>>
-                </div>
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Update Settings</button>
-                    <button type="button" id="test-connection" class="btn btn-secondary">Test Gemini Connection</button>
-                </div>
-            </form>
-        </section>
-
-        <section class="admin-records__card">
-            <h2 class="admin-records__card-title">AI Chat (Gemini Text Model Only)</h2>
-            <div class="chat-console">
-                <div class="chat-history"></div>
-                <div class="chat-input">
-                    <input type="text" id="chat-message" placeholder="Type your message...">
-                    <button id="send-chat-message" class="btn btn-primary">Send</button>
-                </div>
-                <div class="quick-prompts">
-                    <button class="btn btn-secondary" data-prompt="Summarize the following text: ">Summarize</button>
-                    <button class="btn btn-secondary" data-prompt="Draft a proposal for a new solar installation.">Proposal</button>
-                    <button class="btn btn-secondary" data-prompt="Write a follow-up email to a customer.">Email</button>
-                </div>
-                <div class="chat-actions">
-                    <button id="clear-history" class="btn btn-danger">Clear History</button>
-                    <button id="export-pdf" class="btn btn-secondary">Export as PDF</button>
-                </div>
-            </div>
-        </section>
+            </section>
+        </div>
     </div>
   </main>
-  <script src="admin-dashboard.js" defer></script>
+  <script src="admin-ai-studio.js" defer></script>
 </body>
 </html>
