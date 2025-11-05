@@ -77,7 +77,6 @@ $settings = ai_studio_settings()->getSettings();
               <button type="submit" class="btn btn-primary">Save Settings</button>
               <button type="button" id="test-connection-btn" class="btn btn-secondary">Test Gemini Connection</button>
             </div>
-            <div id="save-result" class="alert" style="display:none;"></div>
             <div id="test-connection-result" class="alert" style="display:none;"></div>
           </form>
         </section>

@@ -70,23 +70,7 @@ final class AiStudioSettings
 
     private function write(array $data): void
     {
-        $payload = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if ($payload === false) {
-            throw new RuntimeException('Failed to encode AI settings to JSON.');
-        }
-
-        $tempPath = $this->storagePath . '.' . bin2hex(random_bytes(4)) . '.tmp';
-
-        if (file_put_contents($tempPath, $payload, LOCK_EX) === false) {
-            throw new RuntimeException('Failed to write settings to temporary file.');
-        }
-
-        if (rename($tempPath, $this->storagePath) === false) {
-            @unlink($tempPath);
-            throw new RuntimeException('Failed to move temporary file to final destination.');
-        }
-
-        @chmod($this->storagePath, 0664);
+        file_put_contents($this->storagePath, json_encode($data, JSON_PRETTY_PRINT));
     }
 
     private function acquireLock(): void
