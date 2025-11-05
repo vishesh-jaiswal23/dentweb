@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/bootstrap.php';
-require_once __DIR__ . '/../includes/ai_studio_settings.php';
-require_once __DIR__ . '/../includes/chat_history_store.php';
 
 header('Content-Type: application/json');
 
@@ -387,124 +385,6 @@ try {
             $result = $store->importLeadCsv($csvContent);
             audit('import_customers', 'system', 0, 'Customer CSV imported.');
             respond_success($result);
-            break;
-        case 'get-ai-settings':
-            require_method('GET');
-            respond_success(ai_studio_settings()->getSettings());
-            break;
-
-        case 'save-ai-settings':
-            require_method('POST');
-            $payload = read_json();
-            $settings = ai_studio_settings()->saveSettings($payload);
-            audit('save_ai_settings', 'system', 0, 'AI Studio settings updated.');
-            respond_success($settings);
-            break;
-        case 'test-gemini-connection':
-            require_method('POST');
-            $settings = ai_studio_settings()->getSettings();
-            $apiKey = $settings['api_key'];
-            $textModel = $settings['text_model'];
-
-            if (empty($apiKey)) {
-                throw new RuntimeException('API key is not set.');
-            }
-
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$textModel}:generateContent?key={$apiKey}";
-            $payload = json_encode(['contents' => [['parts' => [['text' => 'Hello']]]]]);
-
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-
-            $response = curl_exec($ch);
-            $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-
-            if ($httpcode >= 200 && $httpcode < 300) {
-                respond_success(['message' => 'Connection successful.']);
-            } else {
-                $errorDetails = json_decode($response, true);
-                $errorMessage = $errorDetails['error']['message'] ?? 'Connection failed with status code ' . $httpcode;
-                throw new RuntimeException($errorMessage);
-            }
-            break;
-        case 'handle-chat':
-            require_method('GET');
-            $message = $_GET['message'] ?? '';
-            if (empty($message)) {
-                throw new RuntimeException('Message is empty.');
-            }
-
-            $settings = ai_studio_settings()->getSettings();
-            $apiKey = $settings['api_key'];
-            $textModel = $settings['text_model'];
-
-            if (empty($apiKey)) {
-                throw new RuntimeException('API key is not set.');
-            }
-
-            header('Content-Type: text/event-stream');
-            header('Cache-Control: no-cache');
-            header('Connection: keep-alive');
-
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$textModel}:streamGenerateContent?key={$apiKey}";
-            $payload = json_encode([
-                'contents' => [['parts' => [['text' => $message]]]],
-                'generationConfig' => [
-                    'temperature' => (float)$settings['temperature'],
-                    'maxOutputTokens' => (int)$settings['max_tokens'],
-                ],
-            ]);
-
-            $fullResponse = '';
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($ch, $data) use (&$fullResponse) {
-                $fullResponse .= $data;
-                echo "data: " . $data . "\n\n";
-                flush();
-                return strlen($data);
-            });
-
-            curl_exec($ch);
-            curl_close($ch);
-
-            chat_history_store()->addMessage(['sender' => 'user', 'message' => $message]);
-
-            // Extract text from the streamed response
-            $aiResponseText = '';
-            $lines = explode("\n", $fullResponse);
-            foreach ($lines as $line) {
-                if (strpos($line, '"text":') !== false) {
-                    $jsonLine = json_decode(trim(substr($line, 5)), true);
-                    if (isset($jsonLine['candidates'][0]['content']['parts'][0]['text'])) {
-                        $aiResponseText .= $jsonLine['candidates'][0]['content']['parts'][0]['text'];
-                    }
-                }
-            }
-
-            if (!empty($aiResponseText)) {
-                chat_history_store()->addMessage(['sender' => 'ai', 'message' => $aiResponseText]);
-            }
-            break;
-        case 'get-chat-history':
-            require_method('GET');
-            respond_success(chat_history_store()->getHistory());
-            break;
-
-        case 'clear-chat-history':
-            require_method('POST');
-            chat_history_store()->clearHistory();
-            audit('clear_chat_history', 'system', 0, 'AI chat history cleared.');
-            respond_success(['status' => 'ok']);
             break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
