@@ -467,10 +467,25 @@ try {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($ch, $data) use (&$fullResponse) {
+
+            $buffer = '';
+            curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($ch, $data) use (&$fullResponse, &$buffer) {
                 $fullResponse .= $data;
-                echo "data: " . $data . "\n\n";
-                flush();
+                $buffer .= $data;
+
+                while (($pos = strpos($buffer, "\n")) !== false) {
+                    $line = substr($buffer, 0, $pos);
+                    $buffer = substr($buffer, $pos + 1);
+
+                    if (empty(trim($line))) {
+                        continue;
+                    }
+
+                    // Each line should be a JSON object from Gemini.
+                    // We wrap it in the SSE format.
+                    echo "data: " . $line . "\n\n";
+                    flush();
+                }
                 return strlen($data);
             });
 
