@@ -386,6 +386,20 @@ try {
             audit('import_customers', 'system', 0, 'Customer CSV imported.');
             respond_success($result);
             break;
+        case 'save-ai-settings':
+            require_method('POST');
+            $settings = read_json();
+            validate_and_save_ai_settings($settings, $db);
+            respond_success(['message' => 'AI settings saved successfully.']);
+            break;
+        case 'ai-chat':
+            require_method('GET');
+            $prompt = (string) ($_GET['prompt'] ?? '');
+            if ($prompt === '') {
+                throw new RuntimeException('Prompt is required.');
+            }
+            stream_gemini_response($prompt, $db);
+            exit;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
     }
