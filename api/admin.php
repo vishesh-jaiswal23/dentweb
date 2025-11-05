@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/../includes/ai_studio_settings.php';
+require_once __DIR__ . '/../includes/chat_history_store.php';
 
 header('Content-Type: application/json');
 
@@ -32,6 +34,17 @@ try {
         case 'bootstrap':
             require_method('GET');
             respond_success(bootstrap_payload($db));
+            break;
+        case 'dashboard-data':
+            require_method('GET');
+            respond_success([
+                'counts' => admin_overview_counts($db),
+                'highlights' => admin_today_highlights($db, 20),
+            ]);
+            break;
+        case 'list-employees':
+            require_method('GET');
+            respond_success(admin_list_accounts($db, ['role' => 'employee', 'status' => 'active']));
             break;
         case 'create-user':
             require_method('POST');
@@ -241,10 +254,91 @@ try {
                 throw new RuntimeException('Customer ID is required.');
             }
             $targetState = (string) ($payload['state'] ?? '');
+
             $store = customer_record_store();
+            $existing = $store->find($customerId);
+            $previousState = is_array($existing) ? (string) ($existing['state'] ?? '') : '';
+
+            // The CustomerRecordStore::changeState method handles the full payload,
+            // including state-specific fields like assigned_employee_id, system_type,
+            // system_kwp, and handover_date. It also contains validation logic.
             $customer = $store->changeState($customerId, $targetState, $payload);
-            audit('change_customer_state', 'customer', $customerId, 'Customer state changed to ' . $targetState);
-            respond_success(['customer' => $customer]);
+
+            $currentState = (string) ($customer['state'] ?? $targetState);
+            $stateLabel = ucfirst($currentState);
+            $customerName = trim((string) ($customer['full_name'] ?? 'Customer #' . $customerId));
+            if ($customerName === '') {
+                $customerName = 'Customer #' . $customerId;
+            }
+
+            $message = sprintf('%s state updated to %s.', $customerName, strtolower($stateLabel));
+            if ($currentState === CustomerRecordStore::STATE_ONGOING) {
+                $message = sprintf('%s moved to ongoing. Assigned details saved.', $customerName);
+            } elseif ($currentState === CustomerRecordStore::STATE_INSTALLED) {
+                $message = sprintf('%s marked as installed. Complaints enabled.', $customerName);
+            }
+
+            $summary = $store->stateSummary();
+
+            $assignmentNote = '';
+            if ($currentState === CustomerRecordStore::STATE_ONGOING) {
+                $employeeId = isset($customer['assigned_employee_id']) ? (int) $customer['assigned_employee_id'] : 0;
+                if ($employeeId > 0) {
+                    $assignmentNote = sprintf('Employee #%d assigned', $employeeId);
+                }
+            }
+
+            $handoverNote = '';
+            if ($currentState === CustomerRecordStore::STATE_INSTALLED) {
+                $handover = (string) ($customer['handover_date'] ?? '');
+                if ($handover !== '') {
+                    $handoverNote = 'Handover on ' . $handover;
+                }
+            }
+
+            $auditParts = [];
+            $auditParts[] = sprintf('State changed from %s to %s',
+                $previousState !== '' ? ucfirst($previousState) : 'Unknown',
+                $stateLabel
+            );
+            if ($assignmentNote !== '') {
+                $auditParts[] = $assignmentNote;
+            }
+            if ($handoverNote !== '') {
+                $auditParts[] = $handoverNote;
+            }
+
+            $auditDescription = implode('; ', array_filter($auditParts));
+            audit('change_customer_state', 'customer', $customerId, $auditDescription);
+
+            $activityTimeRaw = (string) ($customer['last_state_change_at'] ?? '');
+            try {
+                $activityTime = new DateTimeImmutable($activityTimeRaw !== '' ? $activityTimeRaw : 'now', new DateTimeZone('Asia/Kolkata'));
+            } catch (Throwable $exception) {
+                $activityTime = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+            }
+
+            $activity = [
+                'moduleKey' => $currentState === CustomerRecordStore::STATE_ONGOING ? 'installations' : 'installations',
+                'moduleLabel' => 'Installations',
+                'icon' => $currentState === CustomerRecordStore::STATE_INSTALLED ? 'fa-circle-check' : 'fa-solar-panel',
+                'summary' => $currentState === CustomerRecordStore::STATE_INSTALLED
+                    ? sprintf('%s marked as installed', $customerName)
+                    : sprintf('%s moved to ongoing', $customerName),
+                'isoTime' => $activityTime->format(DateTimeInterface::ATOM),
+                'timeDisplay' => $activityTime->format('d M · h:i A'),
+            ];
+
+            respond_success([
+                'customer' => $customer,
+                'message' => $message,
+                'summary' => [
+                    'states' => $summary,
+                    'previous_state' => $previousState,
+                    'current_state' => $currentState,
+                ],
+                'activity' => $activity,
+            ]);
             break;
         case 'bulk-update-customers':
             require_method('POST');
@@ -294,13 +388,123 @@ try {
             audit('import_customers', 'system', 0, 'Customer CSV imported.');
             respond_success($result);
             break;
-        case 'test-connection':
-            require_method('POST');
-            respond_success(ai_test_connection());
+        case 'get-ai-settings':
+            require_method('GET');
+            respond_success(ai_studio_settings()->getSettings());
             break;
-        case 'generate-draft':
+
+        case 'save-ai-settings':
             require_method('POST');
-            respond_success(ai_generate_blog_draft(read_json(), $actorId));
+            $payload = read_json();
+            $settings = ai_studio_settings()->saveSettings($payload);
+            audit('save_ai_settings', 'system', 0, 'AI Studio settings updated.');
+            respond_success($settings);
+            break;
+        case 'test-gemini-connection':
+            require_method('POST');
+            $settings = ai_studio_settings()->getSettings();
+            $apiKey = $settings['api_key'];
+            $textModel = $settings['text_model'];
+
+            if (empty($apiKey)) {
+                throw new RuntimeException('API key is not set.');
+            }
+
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$textModel}:generateContent?key={$apiKey}";
+            $payload = json_encode(['contents' => [['parts' => [['text' => 'Hello']]]]]);
+
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+
+            $response = curl_exec($ch);
+            $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpcode >= 200 && $httpcode < 300) {
+                respond_success(['message' => 'Connection successful.']);
+            } else {
+                $errorDetails = json_decode($response, true);
+                $errorMessage = $errorDetails['error']['message'] ?? 'Connection failed with status code ' . $httpcode;
+                throw new RuntimeException($errorMessage);
+            }
+            break;
+        case 'handle-chat':
+            require_method('GET');
+            $message = $_GET['message'] ?? '';
+            if (empty($message)) {
+                throw new RuntimeException('Message is empty.');
+            }
+
+            $settings = ai_studio_settings()->getSettings();
+            $apiKey = $settings['api_key'];
+            $textModel = $settings['text_model'];
+
+            if (empty($apiKey)) {
+                throw new RuntimeException('API key is not set.');
+            }
+
+            header('Content-Type: text/event-stream');
+            header('Cache-Control: no-cache');
+            header('Connection: keep-alive');
+
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$textModel}:streamGenerateContent?key={$apiKey}";
+            $payload = json_encode([
+                'contents' => [['parts' => [['text' => $message]]]],
+                'generationConfig' => [
+                    'temperature' => (float)$settings['temperature'],
+                    'maxOutputTokens' => (int)$settings['max_tokens'],
+                ],
+            ]);
+
+            $fullResponse = '';
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($ch, $data) use (&$fullResponse) {
+                $fullResponse .= $data;
+                echo "data: " . $data . "\n\n";
+                flush();
+                return strlen($data);
+            });
+
+            curl_exec($ch);
+            curl_close($ch);
+
+            chat_history_store()->addMessage(['sender' => 'user', 'message' => $message]);
+
+            // Extract text from the streamed response
+            $aiResponseText = '';
+            $lines = explode("\n", $fullResponse);
+            foreach ($lines as $line) {
+                if (strpos($line, '"text":') !== false) {
+                    $jsonLine = json_decode(trim(substr($line, 5)), true);
+                    if (isset($jsonLine['candidates'][0]['content']['parts'][0]['text'])) {
+                        $aiResponseText .= $jsonLine['candidates'][0]['content']['parts'][0]['text'];
+                    }
+                }
+            }
+
+            if (!empty($aiResponseText)) {
+                chat_history_store()->addMessage(['sender' => 'ai', 'message' => $aiResponseText]);
+            }
+            break;
+        case 'get-chat-history':
+            require_method('GET');
+            respond_success(chat_history_store()->getHistory());
+            break;
+
+        case 'clear-chat-history':
+            require_method('POST');
+            chat_history_store()->clearHistory();
+            audit('clear_chat_history', 'system', 0, 'AI chat history cleared.');
+            respond_success(['status' => 'ok']);
             break;
         default:
             throw new RuntimeException('Unknown action: ' . $action);
@@ -348,6 +552,7 @@ function bootstrap_payload(PDO $db): array
     $blogPosts = blog_admin_list($db);
 
     return [
+        'employees' => admin_list_accounts($db, ['role' => 'employee', 'status' => 'active']),
         'users' => list_users($db),
         'invitations' => list_invitations($db),
         'complaints' => portal_all_complaints($db),

@@ -291,6 +291,47 @@ final class CustomerRecordStore
         return $this->list(['state' => 'all', 'per_page' => 2000])['items'];
     }
 
+    public function stateSummary(): array
+    {
+        $data = $this->readData();
+
+        $counts = [
+            self::STATE_LEAD => 0,
+            self::STATE_ONGOING => 0,
+            self::STATE_INSTALLED => 0,
+            'active' => 0,
+            'inactive' => 0,
+            'total' => 0,
+        ];
+
+        foreach ($data['records'] as $record) {
+            if (!is_array($record)) {
+                continue;
+            }
+
+            try {
+                $state = $this->normaliseState((string) ($record['state'] ?? self::STATE_LEAD));
+            } catch (Throwable $exception) {
+                $state = self::STATE_LEAD;
+            }
+
+            if (isset($counts[$state])) {
+                $counts[$state]++;
+            }
+
+            $isActive = (bool) ($record['active'] ?? true);
+            if ($isActive) {
+                $counts['active']++;
+            } else {
+                $counts['inactive']++;
+            }
+
+            $counts['total']++;
+        }
+
+        return $counts;
+    }
+
     public function find(int $id): ?array
     {
         $data = $this->readData();
