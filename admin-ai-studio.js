@@ -7,20 +7,57 @@ document.addEventListener('DOMContentLoaded', () => {
     const temperatureValue = document.getElementById('temperature-value');
     const testConnectionBtn = document.getElementById('test-connection-btn');
     const testConnectionResult = document.getElementById('test-connection-result');
+    const saveResult = document.getElementById('save-result');
 
     if (settingsForm) {
         settingsForm.addEventListener('submit', async (e) => {
             e.preventDefault();
+            const saveButton = settingsForm.querySelector('button[type="submit"]');
+            saveButton.disabled = true;
+            saveButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+            saveResult.style.display = 'none';
+            saveResult.className = 'alert';
+
             const formData = new FormData(settingsForm);
             const settings = Object.fromEntries(formData.entries());
             settings.enabled = formData.has('enabled');
 
-            await fetch('api/admin.php?action=save-ai-settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings)
-            });
-            // You can add a success message here
+            try {
+                const response = await fetch('api/admin.php?action=save-ai-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                const result = await response.json();
+
+                if (result.success) {
+                    saveResult.textContent = 'Settings saved successfully.';
+                    saveResult.classList.add('alert-success');
+
+                    // Update the form with the new settings
+                    const newSettings = result.data;
+                    for (const key in newSettings) {
+                        const input = settingsForm.querySelector(`[name="${key}"]`);
+                        if (input) {
+                            if (input.type === 'checkbox') {
+                                input.checked = newSettings[key];
+                            } else {
+                                input.value = newSettings[key];
+                            }
+                        }
+                    }
+                } else {
+                    saveResult.textContent = result.error || 'An unknown error occurred.';
+                    saveResult.classList.add('alert-danger');
+                }
+            } catch (error) {
+                saveResult.textContent = 'Failed to connect to the server.';
+                saveResult.classList.add('alert-danger');
+            } finally {
+                saveResult.style.display = 'block';
+                saveButton.disabled = false;
+                saveButton.innerHTML = 'Save Settings';
+            }
         });
     }
 
@@ -103,25 +140,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const eventSource = new EventSource(`api/admin.php?action=handle-chat&message=${encodeURIComponent(message)}`);
 
         eventSource.onmessage = (event) => {
-            // Check for the DONE signal or handle data
-            if (event.data === '[DONE]') {
-                eventSource.close();
-                sendChatBtn.disabled = false;
-                return;
-            }
-
-            // The Gemini stream sends multiple JSON objects, they need to be parsed carefully.
-            // This is a simplified parser.
             try {
-                const jsonString = event.data.trim();
-                const data = JSON.parse(jsonString);
+                // The backend now sends well-formed JSON objects
+                const data = JSON.parse(event.data);
                 if (data.candidates && data.candidates[0].content.parts[0].text) {
                     const textChunk = data.candidates[0].content.parts[0].text;
                     fullResponse += textChunk;
                     aiMessageElement.textContent = fullResponse;
                 }
             } catch (e) {
-                // Ignore parsing errors, as the stream may send partial data
+                // This can happen if the stream sends a DONE signal or an error
+                if (event.data.includes('[DONE]')) {
+                    eventSource.close();
+                    sendChatBtn.disabled = false;
+                } else {
+                    console.error('Error parsing streaming data:', event.data);
+                }
             }
         };
 
