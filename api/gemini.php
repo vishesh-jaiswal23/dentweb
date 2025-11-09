@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/bootstrap.php';
 require_once __DIR__ . '/../includes/ai_gemini.php';
+require_once __DIR__ . '/../includes/blog.php';
 
 header('X-Content-Type-Options: nosniff');
 
@@ -34,6 +35,27 @@ switch ($action) {
         break;
     case 'export-pdf':
         handle_export_pdf($adminId, (string) ($admin['full_name'] ?? 'Administrator'));
+        break;
+    case 'blog-generate':
+        handle_blog_generate($adminId);
+        break;
+    case 'blog-autosave':
+        handle_blog_autosave($adminId);
+        break;
+    case 'blog-load-draft':
+        handle_blog_load_draft($adminId);
+        break;
+    case 'blog-publish':
+        handle_blog_publish($adminId);
+        break;
+    case 'blog-regenerate-paragraph':
+        handle_blog_regenerate_paragraph($adminId);
+        break;
+    case 'image-generate':
+        handle_image_generate($adminId);
+        break;
+    case 'tts-generate':
+        handle_tts_generate($adminId);
         break;
     default:
         header('Content-Type: application/json');
@@ -150,4 +172,515 @@ function handle_export_pdf(int $adminId, string $adminName): void
     header('Content-Disposition: attachment; filename="ai-chat-transcript.pdf"');
     header('Content-Length: ' . strlen($pdf));
     echo $pdf;
+}
+
+function handle_blog_generate(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to generate blogs.']);
+        return;
+    }
+
+    $body = file_get_contents('php://input');
+    $payload = [];
+    if (is_string($body) && trim($body) !== '') {
+        try {
+            $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        } catch (Throwable $exception) {
+            $payload = [];
+        }
+    }
+
+    $title = trim((string) ($payload['title'] ?? ''));
+    $brief = trim((string) ($payload['brief'] ?? ''));
+    $keywords = trim((string) ($payload['keywords'] ?? ''));
+    $tone = trim((string) ($payload['tone'] ?? ''));
+
+    if ($title === '' || $brief === '') {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Title and brief are required to generate a blog.']);
+        return;
+    }
+
+    $settings = ai_settings_load();
+    if (!($settings['enabled'] ?? false)) {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'AI is disabled. Enable Gemini in settings.']);
+        return;
+    }
+
+    if (($settings['api_key'] ?? '') === '') {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'Gemini API key is missing.']);
+        return;
+    }
+
+    ignore_user_abort(true);
+    @set_time_limit(0);
+    header('Content-Type: text/event-stream');
+    header('Cache-Control: no-cache');
+    header('Connection: keep-alive');
+
+    while (ob_get_level() > 0) {
+        ob_end_flush();
+    }
+
+    $promptPieces = [];
+    $promptPieces[] = 'Write a structured, SEO-friendly blog post for Dakshayani Energy.';
+    $promptPieces[] = 'Title: ' . $title;
+    $promptPieces[] = 'Brief: ' . $brief;
+    if ($keywords !== '') {
+        $promptPieces[] = 'Incorporate these keywords naturally: ' . $keywords . '.';
+    }
+    if ($tone !== '') {
+        $promptPieces[] = 'Adopt a ' . $tone . ' tone.';
+    }
+    $promptPieces[] = 'Return plain paragraphs with headings using Markdown style (#, ##) where appropriate.';
+    $promptPieces[] = 'Avoid preambles about being an AI.';
+
+    try {
+        $blogText = ai_gemini_generate_text($settings, implode("\n", $promptPieces));
+    } catch (Throwable $exception) {
+        sse_emit('error', ['message' => $exception->getMessage()]);
+        return;
+    }
+
+    $paragraphs = ai_normalize_paragraphs_from_text($blogText);
+    if (empty($paragraphs)) {
+        sse_emit('error', ['message' => 'Gemini returned empty content.']);
+        return;
+    }
+
+    foreach ($paragraphs as $paragraph) {
+        sse_emit('chunk', ['paragraph' => $paragraph]);
+    }
+
+    $imageInfo = null;
+    try {
+        $imagePromptParts = [$title];
+        if ($keywords !== '') {
+            $imagePromptParts[] = $keywords;
+        }
+        $imagePromptParts[] = 'High-quality editorial illustration for renewable energy blog.';
+        $imageInfo = ai_gemini_generate_image($settings, implode(' · ', $imagePromptParts));
+    } catch (Throwable $exception) {
+        $imageInfo = null;
+    }
+
+    $draft = ai_blog_draft_load($adminId);
+    $draft['title'] = $title;
+    $draft['brief'] = $brief;
+    $draft['keywords'] = $keywords;
+    $draft['tone'] = $tone;
+    $draft['paragraphs'] = $paragraphs;
+    if ($imageInfo) {
+        $draft['coverImage'] = $imageInfo['path'];
+        $draft['coverImageAlt'] = 'AI generated illustration for ' . $title;
+    }
+    $draft['updatedAt'] = ai_timestamp();
+    try {
+        ai_blog_draft_save($adminId, $draft);
+    } catch (Throwable $exception) {
+        // Silent failure to avoid interrupting streaming.
+    }
+
+    $payload = [
+        'success' => true,
+        'paragraphs' => $paragraphs,
+        'excerpt' => ai_build_excerpt_from_paragraphs($paragraphs, $brief),
+    ];
+    if ($imageInfo) {
+        $payload['image'] = $imageInfo;
+        $payload['image']['alt'] = 'AI generated illustration for ' . $title;
+    }
+
+    sse_emit('done', $payload);
+}
+
+function handle_blog_autosave(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to save drafts.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $draft = [
+        'title' => trim((string) ($payload['title'] ?? '')),
+        'brief' => trim((string) ($payload['brief'] ?? '')),
+        'keywords' => trim((string) ($payload['keywords'] ?? '')),
+        'tone' => trim((string) ($payload['tone'] ?? '')),
+        'paragraphs' => ai_normalize_paragraphs($payload['paragraphs'] ?? []),
+        'coverImage' => trim((string) ($payload['coverImage'] ?? '')),
+        'coverImageAlt' => trim((string) ($payload['coverImageAlt'] ?? '')),
+        'coverPrompt' => trim((string) ($payload['coverPrompt'] ?? '')),
+    ];
+
+    if (isset($payload['postId']) && (int) $payload['postId'] > 0) {
+        $draft['postId'] = (int) $payload['postId'];
+    }
+
+    $draft['updatedAt'] = ai_timestamp();
+
+    try {
+        ai_blog_draft_save($adminId, $draft);
+    } catch (Throwable $exception) {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        return;
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode(['success' => true, 'savedAt' => $draft['updatedAt']]);
+}
+
+function handle_blog_load_draft(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use GET to load drafts.']);
+        return;
+    }
+
+    $draft = ai_blog_draft_load($adminId);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => true, 'draft' => $draft]);
+}
+
+function handle_blog_publish(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to publish blogs.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $title = trim((string) ($payload['title'] ?? ''));
+    $brief = trim((string) ($payload['brief'] ?? ''));
+    $keywords = trim((string) ($payload['keywords'] ?? ''));
+    $tone = trim((string) ($payload['tone'] ?? ''));
+    $paragraphs = ai_normalize_paragraphs($payload['paragraphs'] ?? []);
+    $coverImage = trim((string) ($payload['coverImage'] ?? ''));
+    $coverImageAlt = trim((string) ($payload['coverImageAlt'] ?? ''));
+    $postId = isset($payload['postId']) ? (int) $payload['postId'] : 0;
+
+    if ($title === '' || empty($paragraphs)) {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Title and generated content are required before publishing.']);
+        return;
+    }
+
+    $settings = ai_settings_load();
+    if (!($settings['enabled'] ?? false)) {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'AI is disabled. Enable Gemini in settings.']);
+        return;
+    }
+
+    $db = get_db();
+
+    $bodyHtml = ai_paragraphs_to_html($paragraphs);
+    $excerpt = ai_build_excerpt_from_paragraphs($paragraphs, $brief);
+    $tags = ai_keywords_to_tags($keywords);
+
+    try {
+        $saved = blog_save_post($db, [
+            'id' => $postId > 0 ? $postId : null,
+            'title' => $title,
+            'excerpt' => $brief !== '' ? $brief : $excerpt,
+            'body' => $bodyHtml,
+            'coverImage' => $coverImage,
+            'coverImageAlt' => $coverImageAlt,
+            'coverPrompt' => $brief,
+            'authorName' => '',
+            'status' => 'published',
+            'tags' => $tags,
+            'slug' => $payload['slug'] ?? '',
+        ], $adminId);
+    } catch (Throwable $exception) {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        return;
+    }
+
+    ai_blog_draft_clear($adminId);
+
+    header('Content-Type: application/json');
+    echo json_encode([
+        'success' => true,
+        'postId' => (int) ($saved['id'] ?? 0),
+        'slug' => $saved['slug'] ?? '',
+    ]);
+}
+
+function handle_blog_regenerate_paragraph(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to regenerate paragraphs.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $paragraph = trim((string) ($payload['paragraph'] ?? ''));
+    $context = trim((string) ($payload['context'] ?? ''));
+    $title = trim((string) ($payload['title'] ?? ''));
+    $tone = trim((string) ($payload['tone'] ?? ''));
+
+    if ($paragraph === '') {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Paragraph content is required.']);
+        return;
+    }
+
+    $settings = ai_settings_load();
+    if (!($settings['enabled'] ?? false)) {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'AI is disabled. Enable Gemini in settings.']);
+        return;
+    }
+
+    $prompt = 'Rewrite the following paragraph for a Dakshayani Energy blog post.';
+    if ($title !== '') {
+        $prompt .= "\nBlog title: " . $title;
+    }
+    if ($tone !== '') {
+        $prompt .= "\nTone: " . $tone;
+    }
+    if ($context !== '') {
+        $prompt .= "\nArticle context: " . $context;
+    }
+    $prompt .= "\nParagraph:\n" . $paragraph;
+    $prompt .= "\nReturn a refined paragraph only.";
+
+    try {
+        $text = ai_gemini_generate_text($settings, $prompt);
+    } catch (Throwable $exception) {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        return;
+    }
+
+    $clean = trim($text);
+    header('Content-Type: application/json');
+    echo json_encode(['success' => true, 'paragraph' => $clean]);
+}
+
+function handle_image_generate(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to generate images.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $prompt = trim((string) ($payload['prompt'] ?? ''));
+
+    if ($prompt === '') {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Prompt is required to generate an image.']);
+        return;
+    }
+
+    $settings = ai_settings_load();
+    if (!($settings['enabled'] ?? false)) {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'AI is disabled. Enable Gemini in settings.']);
+        return;
+    }
+
+    try {
+        $image = ai_gemini_generate_image($settings, $prompt);
+    } catch (Throwable $exception) {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        return;
+    }
+
+    $draft = ai_blog_draft_load($adminId);
+    $draft['coverImage'] = $image['path'];
+    $draft['coverImageAlt'] = $payload['alt'] ?? ('AI generated visual for ' . ($draft['title'] ?? 'blog post'));
+    $draft['updatedAt'] = ai_timestamp();
+    try {
+        ai_blog_draft_save($adminId, $draft);
+    } catch (Throwable $exception) {
+        // ignore
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode(['success' => true, 'image' => $image]);
+}
+
+function handle_tts_generate(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to generate audio.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $text = trim((string) ($payload['text'] ?? ''));
+    $format = trim((string) ($payload['format'] ?? 'mp3'));
+
+    if ($text === '') {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Text is required to generate audio.']);
+        return;
+    }
+
+    $settings = ai_settings_load();
+    if (!($settings['enabled'] ?? false)) {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'AI is disabled. Enable Gemini in settings.']);
+        return;
+    }
+
+    try {
+        $audio = ai_gemini_generate_tts($settings, $text, $format);
+    } catch (Throwable $exception) {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        return;
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode(['success' => true, 'audio' => $audio]);
+}
+
+function decode_json_body(): array
+{
+    $body = file_get_contents('php://input');
+    if (!is_string($body) || trim($body) === '') {
+        return [];
+    }
+
+    try {
+        $decoded = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        return [];
+    }
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function ai_normalize_paragraphs($value): array
+{
+    $paragraphs = [];
+    if (is_array($value)) {
+        foreach ($value as $item) {
+            $paragraph = trim((string) $item);
+            if ($paragraph !== '') {
+                $paragraphs[] = $paragraph;
+            }
+        }
+    }
+
+    return $paragraphs;
+}
+
+function ai_normalize_paragraphs_from_text(string $text): array
+{
+    $parts = preg_split('/\n{2,}/', trim($text)) ?: [];
+    $result = [];
+    foreach ($parts as $part) {
+        $clean = trim(preg_replace('/\s+/', ' ', $part) ?? '');
+        if ($clean !== '') {
+            $result[] = $clean;
+        }
+    }
+
+    return $result;
+}
+
+function ai_build_excerpt_from_paragraphs(array $paragraphs, string $fallback = ''): string
+{
+    $source = $fallback !== '' ? $fallback : implode(' ', $paragraphs);
+    $source = preg_replace('/\s+/', ' ', trim($source) ?? '');
+    if ($source === '') {
+        return '';
+    }
+
+    $limit = 220;
+    if (mb_strlen($source) <= $limit) {
+        return $source;
+    }
+
+    $truncated = mb_substr($source, 0, $limit);
+    $lastSpace = mb_strrpos($truncated, ' ');
+    if ($lastSpace !== false) {
+        $truncated = mb_substr($truncated, 0, $lastSpace);
+    }
+
+    return rtrim($truncated) . '…';
+}
+
+function ai_paragraphs_to_html(array $paragraphs): string
+{
+    $htmlParts = [];
+    foreach ($paragraphs as $paragraph) {
+        if (preg_match('/^(#{1,6})\s+(.+)$/', $paragraph, $matches)) {
+            $level = min(6, max(1, strlen($matches[1])));
+            $text = trim($matches[2]);
+            $htmlParts[] = sprintf('<h%d>%s</h%d>', $level, htmlspecialchars($text, ENT_QUOTES, 'UTF-8'), $level);
+        } else {
+            $htmlParts[] = '<p>' . nl2br(htmlspecialchars($paragraph, ENT_QUOTES, 'UTF-8')) . '</p>';
+        }
+    }
+
+    return implode("\n", $htmlParts);
+}
+
+function ai_keywords_to_tags(string $keywords): array
+{
+    $parts = preg_split('/[\n,]+/', $keywords) ?: [];
+    $tags = [];
+    foreach ($parts as $part) {
+        $tag = trim($part);
+        if ($tag !== '') {
+            $tags[] = $tag;
+        }
+    }
+
+    return $tags;
+}
+
+function sse_emit(string $event, array $data): void
+{
+    $encoded = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($encoded === false) {
+        $encoded = '{}';
+    }
+
+    echo 'event: ' . $event . "\n";
+    echo 'data: ' . $encoded . "\n\n";
+    @ob_flush();
+    flush();
 }

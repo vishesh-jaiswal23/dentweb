@@ -289,6 +289,151 @@ if ($flashMessage !== '') {
         </div>
       </div>
     </section>
+
+    <section class="admin-panel" aria-labelledby="ai-blog-generator">
+      <div class="admin-panel__header">
+        <div>
+          <h2 id="ai-blog-generator">Blog Generator (Gemini text)</h2>
+          <p>Generate long-form blog drafts with the saved Gemini text model and publish directly to the blog system.</p>
+        </div>
+        <div class="ai-blog-generator__status" data-blog-status aria-live="polite">Idle</div>
+      </div>
+
+      <div class="ai-blog-generator" data-blog-generator>
+        <form class="ai-blog-generator__form" data-blog-form novalidate>
+          <div class="ai-form-grid">
+            <label>
+              Title
+              <input type="text" name="blog_title" data-blog-title required placeholder="Enter working title" />
+            </label>
+            <label>
+              Brief
+              <textarea name="blog_brief" data-blog-brief rows="3" placeholder="Summarise the article goals"></textarea>
+            </label>
+            <label>
+              Keywords
+              <input type="text" name="blog_keywords" data-blog-keywords placeholder="Comma separated keywords" />
+            </label>
+            <label>
+              Tone
+              <input type="text" name="blog_tone" data-blog-tone placeholder="e.g. confident, friendly" />
+            </label>
+          </div>
+          <div class="ai-blog-generator__controls">
+            <div class="ai-blog-generator__progress" data-blog-progress role="status"></div>
+            <div class="ai-blog-generator__actions">
+              <button type="button" class="btn btn-primary" data-blog-generate>
+                <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                Generate blog
+              </button>
+              <button type="button" class="btn btn-ghost" data-blog-save>
+                <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+                Save draft
+              </button>
+              <button type="button" class="btn btn-ghost" data-blog-preview-scroll>
+                <i class="fa-solid fa-eye" aria-hidden="true"></i>
+                Preview
+              </button>
+              <button type="button" class="btn btn-primary" data-blog-publish>
+                <i class="fa-solid fa-cloud-upload" aria-hidden="true"></i>
+                Publish
+              </button>
+            </div>
+            <p class="ai-blog-generator__autosave" data-blog-autosave-status aria-live="polite">Draft not saved</p>
+          </div>
+        </form>
+
+        <aside class="ai-blog-preview">
+          <div class="ai-blog-preview__cover" data-blog-cover hidden></div>
+          <h3>Live preview</h3>
+          <div class="ai-blog-preview__content" data-blog-preview aria-live="polite">
+            <p class="ai-blog-preview__placeholder">Generated blog content will appear here.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="admin-panel" aria-labelledby="ai-image-generator">
+      <div class="admin-panel__header">
+        <div>
+          <h2 id="ai-image-generator">AI Image Generator (Gemini image)</h2>
+          <p>Create supporting visuals with the saved Gemini image model and attach them to your blog draft.</p>
+        </div>
+        <div class="ai-image-generator__status" data-image-status aria-live="polite">Idle</div>
+      </div>
+
+      <div class="ai-image-generator" data-image-generator>
+        <div class="ai-image-generator__inputs">
+          <label>
+            Prompt
+            <textarea rows="2" data-image-prompt placeholder="Describe the illustration you need"></textarea>
+          </label>
+          <div class="ai-image-generator__actions">
+            <button type="button" class="btn btn-ghost btn-sm" data-image-autofill>
+              <i class="fa-solid fa-lightbulb" aria-hidden="true"></i>
+              Use blog context
+            </button>
+            <button type="button" class="btn btn-primary" data-image-generate>
+              <i class="fa-solid fa-palette" aria-hidden="true"></i>
+              Generate image
+            </button>
+          </div>
+        </div>
+        <div class="ai-image-generator__preview" data-image-preview hidden>
+          <figure>
+            <img src="" alt="Generated visual" data-image-output />
+            <figcaption data-image-caption></figcaption>
+          </figure>
+          <div class="ai-image-generator__preview-actions">
+            <a href="#" class="btn btn-ghost btn-sm" data-image-download download>
+              <i class="fa-solid fa-download" aria-hidden="true"></i>
+              Download
+            </a>
+            <button type="button" class="btn btn-primary btn-sm" data-image-attach>
+              <i class="fa-solid fa-paperclip" aria-hidden="true"></i>
+              Attach to draft
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-panel" aria-labelledby="ai-tts-generator">
+      <div class="admin-panel__header">
+        <div>
+          <h2 id="ai-tts-generator">TTS Generator (Gemini voice)</h2>
+          <p>Voice your copy using the saved Gemini TTS model and download it for distribution.</p>
+        </div>
+        <div class="ai-tts-generator__status" data-tts-status aria-live="polite">Idle</div>
+      </div>
+
+      <div class="ai-tts-generator" data-tts-generator>
+        <label>
+          Text to narrate
+          <textarea rows="3" data-tts-text placeholder="Paste the text you want to voice"></textarea>
+        </label>
+        <div class="ai-tts-generator__controls">
+          <label>
+            Format
+            <select data-tts-format>
+              <option value="mp3">MP3</option>
+              <option value="wav">WAV</option>
+            </select>
+          </label>
+          <button type="button" class="btn btn-primary" data-tts-generate>
+            <i class="fa-solid fa-volume-high" aria-hidden="true"></i>
+            Generate audio
+          </button>
+        </div>
+        <div class="ai-tts-generator__player" data-tts-output hidden>
+          <audio controls data-tts-audio></audio>
+          <a href="#" class="btn btn-ghost btn-sm" data-tts-download download>
+            <i class="fa-solid fa-download" aria-hidden="true"></i>
+            Download audio
+          </a>
+        </div>
+      </div>
+    </section>
   </main>
 
   <div class="dashboard-toast-container" data-ai-toast-container hidden></div>
@@ -632,6 +777,695 @@ if ($flashMessage !== '') {
             showToast('Chat exported as PDF.', 'success');
           } catch (error) {
             showToast(error.message || 'Failed to export chat.', 'error');
+          }
+        });
+      }
+
+      // Blog generator, image, and TTS logic
+      const blogShell = document.querySelector('[data-blog-generator]');
+      const blogForm = document.querySelector('[data-blog-form]');
+      const blogStatus = document.querySelector('[data-blog-status]');
+      const blogProgress = document.querySelector('[data-blog-progress]');
+      const blogAutosave = document.querySelector('[data-blog-autosave-status]');
+      const blogPreview = document.querySelector('[data-blog-preview]');
+      const blogCover = document.querySelector('[data-blog-cover]');
+      const blogTitleInput = document.querySelector('[data-blog-title]');
+      const blogBriefInput = document.querySelector('[data-blog-brief]');
+      const blogKeywordsInput = document.querySelector('[data-blog-keywords]');
+      const blogToneInput = document.querySelector('[data-blog-tone]');
+      const blogGenerateButton = document.querySelector('[data-blog-generate]');
+      const blogSaveButton = document.querySelector('[data-blog-save]');
+      const blogPublishButton = document.querySelector('[data-blog-publish]');
+      const blogPreviewButton = document.querySelector('[data-blog-preview-scroll]');
+
+      const blogState = {
+        paragraphs: [],
+        coverImage: '',
+        coverImageAlt: '',
+        title: '',
+        brief: '',
+        keywords: '',
+        tone: '',
+        postId: null,
+        dirty: false,
+        saving: false,
+        generating: false,
+        regenerating: false,
+      };
+
+      function updateBlogStatus(message) {
+        if (blogStatus) {
+          blogStatus.textContent = message;
+        }
+      }
+
+      function updateBlogAutosave(message, tone = 'muted') {
+        if (!blogAutosave) {
+          return;
+        }
+        blogAutosave.textContent = message;
+        blogAutosave.dataset.tone = tone;
+      }
+
+      function syncBlogStateFromInputs() {
+        blogState.title = blogTitleInput ? blogTitleInput.value.trim() : '';
+        blogState.brief = blogBriefInput ? blogBriefInput.value.trim() : '';
+        blogState.keywords = blogKeywordsInput ? blogKeywordsInput.value.trim() : '';
+        blogState.tone = blogToneInput ? blogToneInput.value.trim() : '';
+      }
+
+      function markBlogDirty() {
+        blogState.dirty = true;
+        updateBlogAutosave('Unsaved changes', 'warning');
+      }
+
+      function renderBlogCover() {
+        if (!blogCover) {
+          return;
+        }
+        blogCover.innerHTML = '';
+        if (!blogState.coverImage) {
+          blogCover.hidden = true;
+          return;
+        }
+        const figure = document.createElement('figure');
+        const img = document.createElement('img');
+        const url = blogState.coverImage.startsWith('/') ? blogState.coverImage : `/${blogState.coverImage}`;
+        img.src = url;
+        img.alt = blogState.coverImageAlt || 'AI generated cover';
+        const caption = document.createElement('figcaption');
+        caption.textContent = blogState.coverImageAlt || 'AI generated cover image';
+        figure.appendChild(img);
+        figure.appendChild(caption);
+        blogCover.appendChild(figure);
+        blogCover.hidden = false;
+      }
+
+      function renderBlogPreview() {
+        if (!blogPreview) {
+          return;
+        }
+        blogPreview.innerHTML = '';
+        if (!blogState.paragraphs.length) {
+          const placeholder = document.createElement('p');
+          placeholder.className = 'ai-blog-preview__placeholder';
+          placeholder.textContent = 'Generated blog content will appear here.';
+          blogPreview.appendChild(placeholder);
+          return;
+        }
+
+        blogState.paragraphs.forEach((paragraph, index) => {
+          const block = document.createElement('article');
+          block.className = 'ai-blog-preview__block';
+          if (/^#{1,6}\s+/.test(paragraph)) {
+            const heading = document.createElement('h3');
+            heading.textContent = paragraph.replace(/^#{1,6}\s+/, '').trim();
+            block.appendChild(heading);
+          } else {
+            const text = document.createElement('p');
+            text.textContent = paragraph;
+            block.appendChild(text);
+          }
+          const actions = document.createElement('div');
+          actions.className = 'ai-blog-preview__block-actions';
+          const regen = document.createElement('button');
+          regen.type = 'button';
+          regen.className = 'btn btn-ghost btn-sm';
+          regen.textContent = 'Regenerate';
+          regen.addEventListener('click', () => {
+            regenerateParagraph(index, regen);
+          });
+          actions.appendChild(regen);
+          block.appendChild(actions);
+          blogPreview.appendChild(block);
+        });
+      }
+
+      async function regenerateParagraph(index, triggerButton) {
+        if (blogState.regenerating) {
+          return;
+        }
+        const paragraph = blogState.paragraphs[index];
+        if (!paragraph) {
+          return;
+        }
+        syncBlogStateFromInputs();
+        blogState.regenerating = true;
+        if (triggerButton) {
+          triggerButton.disabled = true;
+        }
+        updateBlogStatus('Regenerating paragraph…');
+        try {
+          const response = await fetch('api/gemini.php?action=blog-regenerate-paragraph', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              paragraph,
+              context: blogState.paragraphs.join(' '),
+              title: blogState.title,
+              tone: blogState.tone,
+            }),
+          });
+          if (!response.ok) {
+            throw new Error('Unable to regenerate paragraph.');
+          }
+          const payload = await response.json();
+          if (!payload || !payload.success || !payload.paragraph) {
+            throw new Error(payload && payload.error ? payload.error : 'Gemini did not return a revision.');
+          }
+          blogState.paragraphs[index] = payload.paragraph.trim();
+          renderBlogPreview();
+          markBlogDirty();
+          showToast('Paragraph refreshed.', 'success');
+        } catch (error) {
+          showToast(error.message || 'Unable to regenerate paragraph.', 'error');
+        } finally {
+          blogState.regenerating = false;
+          if (triggerButton) {
+            triggerButton.disabled = false;
+          }
+          updateBlogStatus('Ready');
+        }
+      }
+
+      async function saveBlogDraft(manual = false) {
+        if (!blogShell || blogState.saving) {
+          return;
+        }
+        if (!blogState.dirty && !manual) {
+          return;
+        }
+        syncBlogStateFromInputs();
+        blogState.saving = true;
+        updateBlogAutosave(manual ? 'Saving draft…' : 'Auto-saving…', 'info');
+        try {
+          const response = await fetch('api/gemini.php?action=blog-autosave', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              title: blogState.title,
+              brief: blogState.brief,
+              keywords: blogState.keywords,
+              tone: blogState.tone,
+              paragraphs: blogState.paragraphs,
+              coverImage: blogState.coverImage,
+              coverImageAlt: blogState.coverImageAlt,
+              postId: blogState.postId,
+            }),
+          });
+          if (!response.ok) {
+            throw new Error('Unable to save draft.');
+          }
+          const payload = await response.json();
+          blogState.dirty = false;
+          if (payload && payload.savedAt) {
+            const saved = new Date(payload.savedAt);
+            updateBlogAutosave(`Draft saved ${saved.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`, 'success');
+          } else {
+            updateBlogAutosave('Draft saved', 'success');
+          }
+          if (manual) {
+            showToast('Draft saved successfully.', 'success');
+          }
+        } catch (error) {
+          updateBlogAutosave('Failed to save draft', 'error');
+          if (manual) {
+            showToast(error.message || 'Failed to save draft.', 'error');
+          }
+        } finally {
+          blogState.saving = false;
+        }
+      }
+
+      async function publishBlog() {
+        if (!blogShell || !blogPublishButton) {
+          return;
+        }
+        syncBlogStateFromInputs();
+        if (!blogState.title || blogState.paragraphs.length === 0) {
+          showToast('Generate the blog content before publishing.', 'warning');
+          return;
+        }
+        blogPublishButton.disabled = true;
+        updateBlogStatus('Publishing…');
+        if (blogProgress) {
+          blogProgress.textContent = 'Publishing blog post…';
+        }
+        try {
+          const response = await fetch('api/gemini.php?action=blog-publish', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              title: blogState.title,
+              brief: blogState.brief,
+              keywords: blogState.keywords,
+              tone: blogState.tone,
+              paragraphs: blogState.paragraphs,
+              coverImage: blogState.coverImage,
+              coverImageAlt: blogState.coverImageAlt,
+              postId: blogState.postId,
+            }),
+          });
+          if (!response.ok) {
+            throw new Error('Unable to publish blog.');
+          }
+          const payload = await response.json();
+          if (!payload || !payload.success) {
+            throw new Error(payload && payload.error ? payload.error : 'Gemini could not publish the blog.');
+          }
+          blogState.postId = payload.postId || null;
+          blogState.dirty = false;
+          updateBlogAutosave('Published just now', 'success');
+          updateBlogStatus('Published successfully');
+          showToast('Blog published to the site. Review it in Blog publishing.', 'success');
+          if (blogProgress) {
+            blogProgress.textContent = '';
+          }
+        } catch (error) {
+          showToast(error.message || 'Failed to publish blog.', 'error');
+          updateBlogStatus('Publish failed');
+        } finally {
+          blogPublishButton.disabled = false;
+          if (blogProgress && blogProgress.textContent === 'Publishing blog post…') {
+            blogProgress.textContent = '';
+          }
+        }
+      }
+
+      function startBlogGeneration() {
+        if (!blogShell || blogState.generating) {
+          return;
+        }
+        syncBlogStateFromInputs();
+        if (!blogState.title || !blogState.brief) {
+          showToast('Add a title and brief before generating.', 'warning');
+          return;
+        }
+        blogState.generating = true;
+        blogState.paragraphs = [];
+        renderBlogPreview();
+        updateBlogStatus('Generating blog…');
+        if (blogProgress) {
+          blogProgress.textContent = 'Generating blog draft…';
+        }
+        if (blogGenerateButton) {
+          blogGenerateButton.disabled = true;
+        }
+
+        (async () => {
+          try {
+            const response = await fetch('api/gemini.php?action=blog-generate', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken || '',
+              },
+              credentials: 'same-origin',
+              body: JSON.stringify({
+                title: blogState.title,
+                brief: blogState.brief,
+                keywords: blogState.keywords,
+                tone: blogState.tone,
+              }),
+            });
+            if (!response.ok || !response.body) {
+              throw new Error('Gemini could not stream the blog.');
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            const handleEvent = (eventName, payload) => {
+              if (eventName === 'chunk' && payload.paragraph) {
+                blogState.paragraphs.push(payload.paragraph);
+                renderBlogPreview();
+              }
+              if (eventName === 'done') {
+                if (Array.isArray(payload.paragraphs)) {
+                  blogState.paragraphs = payload.paragraphs;
+                  renderBlogPreview();
+                }
+                if (payload.image && payload.image.path) {
+                  blogState.coverImage = payload.image.path;
+                  blogState.coverImageAlt = payload.image.alt || '';
+                  renderBlogCover();
+                  showToast('AI illustration attached to the draft.', 'success');
+                }
+                blogState.dirty = true;
+                updateBlogStatus('Draft ready');
+                updateBlogAutosave('Draft updated · remember to save', 'info');
+              }
+              if (eventName === 'error') {
+                const message = payload && payload.message ? payload.message : 'Gemini was unable to complete the blog.';
+                showToast(message, 'error');
+                updateBlogStatus('Generation failed');
+              }
+            };
+
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) {
+                break;
+              }
+              buffer += decoder.decode(value, { stream: true });
+              let boundary;
+              while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+                const rawEvent = buffer.slice(0, boundary).trim();
+                buffer = buffer.slice(boundary + 2);
+                if (!rawEvent) {
+                  continue;
+                }
+                const lines = rawEvent.split('\n');
+                let eventName = 'message';
+                let dataString = '';
+                lines.forEach((line) => {
+                  if (line.startsWith('event:')) {
+                    eventName = line.replace('event:', '').trim();
+                  }
+                  if (line.startsWith('data:')) {
+                    dataString += line.replace('data:', '').trim();
+                  }
+                });
+                let parsed = {};
+                try {
+                  parsed = dataString ? JSON.parse(dataString) : {};
+                } catch (parseError) {
+                  parsed = {};
+                }
+                handleEvent(eventName, parsed);
+              }
+            }
+          } catch (error) {
+            showToast(error.message || 'Unable to generate blog.', 'error');
+            updateBlogStatus('Generation failed');
+          } finally {
+            blogState.generating = false;
+            if (blogGenerateButton) {
+              blogGenerateButton.disabled = false;
+            }
+            if (blogProgress) {
+              blogProgress.textContent = '';
+            }
+          }
+        })();
+      }
+
+      async function loadBlogDraft() {
+        if (!blogShell) {
+          return;
+        }
+        try {
+          const response = await fetch('api/gemini.php?action=blog-load-draft', {
+            method: 'GET',
+            headers: {
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+          });
+          if (!response.ok) {
+            throw new Error('Unable to load saved draft.');
+          }
+          const payload = await response.json();
+          const draft = payload && payload.draft ? payload.draft : {};
+          if (draft && Object.keys(draft).length > 0) {
+            if (blogTitleInput) {
+              blogTitleInput.value = draft.title || '';
+            }
+            if (blogBriefInput) {
+              blogBriefInput.value = draft.brief || '';
+            }
+            if (blogKeywordsInput) {
+              blogKeywordsInput.value = draft.keywords || '';
+            }
+            if (blogToneInput) {
+              blogToneInput.value = draft.tone || '';
+            }
+            blogState.title = draft.title || '';
+            blogState.brief = draft.brief || '';
+            blogState.keywords = draft.keywords || '';
+            blogState.tone = draft.tone || '';
+            blogState.paragraphs = Array.isArray(draft.paragraphs) ? draft.paragraphs : [];
+            blogState.coverImage = draft.coverImage || '';
+            blogState.coverImageAlt = draft.coverImageAlt || '';
+            blogState.postId = draft.postId || null;
+            blogState.dirty = false;
+            renderBlogPreview();
+            renderBlogCover();
+            if (draft.updatedAt) {
+              const loaded = new Date(draft.updatedAt);
+              updateBlogAutosave(`Draft loaded · saved ${loaded.toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit' })}`, 'success');
+            } else {
+              updateBlogAutosave('Draft loaded', 'info');
+            }
+            updateBlogStatus('Draft loaded');
+          } else {
+            updateBlogAutosave('No saved draft yet', 'muted');
+            updateBlogStatus('Idle');
+          }
+        } catch (error) {
+          updateBlogAutosave('Unable to load draft', 'error');
+        }
+      }
+
+      if (blogShell) {
+        updateBlogStatus('Idle');
+        loadBlogDraft();
+        const inputs = [blogTitleInput, blogBriefInput, blogKeywordsInput, blogToneInput];
+        inputs.forEach((input) => {
+          if (!input) {
+            return;
+          }
+          input.addEventListener('input', () => {
+            markBlogDirty();
+          });
+        });
+        if (blogGenerateButton) {
+          blogGenerateButton.addEventListener('click', startBlogGeneration);
+        }
+        if (blogSaveButton) {
+          blogSaveButton.addEventListener('click', () => {
+            saveBlogDraft(true);
+          });
+        }
+        if (blogPublishButton) {
+          blogPublishButton.addEventListener('click', publishBlog);
+        }
+        if (blogPreviewButton && blogPreview) {
+          blogPreviewButton.addEventListener('click', () => {
+            blogPreview.scrollIntoView({ behavior: 'smooth' });
+          });
+        }
+
+        window.setInterval(() => {
+          saveBlogDraft(false);
+        }, 10000);
+      }
+
+      const imageShell = document.querySelector('[data-image-generator]');
+      const imageStatus = document.querySelector('[data-image-status]');
+      const imagePrompt = document.querySelector('[data-image-prompt]');
+      const imageAutofill = document.querySelector('[data-image-autofill]');
+      const imageGenerate = document.querySelector('[data-image-generate]');
+      const imagePreview = document.querySelector('[data-image-preview]');
+      const imageOutput = document.querySelector('[data-image-output]');
+      const imageCaption = document.querySelector('[data-image-caption]');
+      const imageDownload = document.querySelector('[data-image-download]');
+      const imageAttach = document.querySelector('[data-image-attach]');
+
+      function updateImageStatus(message) {
+        if (imageStatus) {
+          imageStatus.textContent = message;
+        }
+      }
+
+      async function generateImage() {
+        if (!imageShell || !imagePrompt) {
+          return;
+        }
+        const prompt = imagePrompt.value.trim();
+        if (!prompt) {
+          showToast('Write a short prompt for the illustration.', 'warning');
+          return;
+        }
+        if (imageGenerate) {
+          imageGenerate.disabled = true;
+        }
+        updateImageStatus('Generating image…');
+        try {
+          const response = await fetch('api/gemini.php?action=image-generate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({ prompt }),
+          });
+          if (!response.ok) {
+            throw new Error('Unable to generate image.');
+          }
+          const payload = await response.json();
+          if (!payload || !payload.success || !payload.image) {
+            throw new Error(payload && payload.error ? payload.error : 'Gemini image output missing.');
+          }
+          const path = payload.image.path;
+          const url = path.startsWith('/') ? path : `/${path}`;
+          if (imageOutput) {
+            imageOutput.src = url;
+          }
+          if (imageDownload) {
+            imageDownload.href = url;
+          }
+          if (imageCaption) {
+            imageCaption.textContent = `Generated via Gemini image model · ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+          }
+          if (imagePreview) {
+            imagePreview.hidden = false;
+          }
+          blogState.coverImage = path;
+          blogState.coverImageAlt = blogState.title ? `AI illustration for ${blogState.title}` : 'AI generated illustration';
+          renderBlogCover();
+          markBlogDirty();
+          updateImageStatus('Image ready and attached');
+          showToast('Image attached to the draft.', 'success');
+        } catch (error) {
+          updateImageStatus('Image generation failed');
+          showToast(error.message || 'Unable to generate image.', 'error');
+        } finally {
+          if (imageGenerate) {
+            imageGenerate.disabled = false;
+          }
+        }
+      }
+
+      if (imageShell) {
+        updateImageStatus('Idle');
+        if (imageGenerate) {
+          imageGenerate.addEventListener('click', generateImage);
+        }
+        if (imageAutofill) {
+          imageAutofill.addEventListener('click', () => {
+            syncBlogStateFromInputs();
+            const segments = [];
+            if (blogState.title) {
+              segments.push(`Hero illustration for "${blogState.title}"`);
+            }
+            if (blogState.keywords) {
+              segments.push(`Keywords: ${blogState.keywords}`);
+            }
+            if (blogState.brief) {
+              segments.push(blogState.brief);
+            }
+            if (!segments.length) {
+              showToast('Add blog details to build an image prompt.', 'info');
+              return;
+            }
+            if (imagePrompt) {
+              imagePrompt.value = `${segments.join('. ')}.`;
+              imagePrompt.focus();
+            }
+            updateImageStatus('Prompt filled using blog context');
+          });
+        }
+        if (imageAttach && imageOutput) {
+          imageAttach.addEventListener('click', () => {
+            if (!imageOutput.src) {
+              showToast('Generate an image first.', 'warning');
+              return;
+            }
+            const currentPath = imageOutput.src.replace(window.location.origin, '');
+            blogState.coverImage = currentPath.startsWith('/') ? currentPath.substring(1) : currentPath;
+            blogState.coverImageAlt = blogState.title ? `AI illustration for ${blogState.title}` : 'AI generated illustration';
+            renderBlogCover();
+            markBlogDirty();
+            showToast('Image attached to draft.', 'success');
+          });
+        }
+        if (imageDownload) {
+          imageDownload.addEventListener('click', () => {
+            if (!imageDownload.href || imageDownload.href === '#') {
+              showToast('Generate an image before downloading.', 'info');
+            }
+          });
+        }
+      }
+
+      const ttsShell = document.querySelector('[data-tts-generator]');
+      const ttsStatus = document.querySelector('[data-tts-status]');
+      const ttsText = document.querySelector('[data-tts-text]');
+      const ttsFormat = document.querySelector('[data-tts-format]');
+      const ttsGenerate = document.querySelector('[data-tts-generate]');
+      const ttsOutput = document.querySelector('[data-tts-output]');
+      const ttsAudio = document.querySelector('[data-tts-audio]');
+      const ttsDownload = document.querySelector('[data-tts-download]');
+
+      function updateTtsStatus(message) {
+        if (ttsStatus) {
+          ttsStatus.textContent = message;
+        }
+      }
+
+      if (ttsShell && ttsGenerate) {
+        updateTtsStatus('Idle');
+        ttsGenerate.addEventListener('click', async () => {
+          if (!ttsText) {
+            return;
+          }
+          const text = ttsText.value.trim();
+          if (!text) {
+            showToast('Enter the text that should be voiced.', 'warning');
+            return;
+          }
+          const format = ttsFormat ? ttsFormat.value : 'mp3';
+          ttsGenerate.disabled = true;
+          updateTtsStatus('Generating audio…');
+          try {
+            const response = await fetch('api/gemini.php?action=tts-generate', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken || '',
+              },
+              credentials: 'same-origin',
+              body: JSON.stringify({ text, format }),
+            });
+            if (!response.ok) {
+              throw new Error('Unable to generate audio.');
+            }
+            const payload = await response.json();
+            if (!payload || !payload.success || !payload.audio) {
+              throw new Error(payload && payload.error ? payload.error : 'Gemini TTS failed.');
+            }
+            const path = payload.audio.path;
+            const url = path.startsWith('/') ? path : `/${path}`;
+            if (ttsAudio) {
+              ttsAudio.src = url;
+              ttsAudio.load();
+            }
+            if (ttsDownload) {
+              ttsDownload.href = url;
+            }
+            if (ttsOutput) {
+              ttsOutput.hidden = false;
+            }
+            updateTtsStatus('Audio ready');
+            showToast('Audio file generated.', 'success');
+          } catch (error) {
+            updateTtsStatus('Audio generation failed');
+            showToast(error.message || 'Unable to generate audio.', 'error');
+          } finally {
+            ttsGenerate.disabled = false;
           }
         });
       }

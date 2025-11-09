@@ -37,6 +37,64 @@ function ai_settings_defaults(): array
     ];
 }
 
+function ai_blog_draft_dir(): string
+{
+    $path = ai_storage_dir() . '/blog_drafts';
+    if (!is_dir($path)) {
+        mkdir($path, 0775, true);
+    }
+
+    return $path;
+}
+
+function ai_blog_draft_path(int $adminId): string
+{
+    $file = $adminId > 0 ? 'draft_' . $adminId . '.json' : 'draft_default.json';
+    return ai_blog_draft_dir() . '/' . $file;
+}
+
+function ai_blog_draft_load(int $adminId): array
+{
+    $path = ai_blog_draft_path($adminId);
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $contents = file_get_contents($path);
+    if ($contents === false || trim($contents) === '') {
+        return [];
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('ai_blog_draft_load: failed to decode draft: ' . $exception->getMessage());
+        return [];
+    }
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function ai_blog_draft_save(int $adminId, array $draft): void
+{
+    $payload = json_encode($draft, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode blog draft payload.');
+    }
+
+    if (file_put_contents(ai_blog_draft_path($adminId), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist blog draft.');
+    }
+}
+
+function ai_blog_draft_clear(int $adminId): void
+{
+    $path = ai_blog_draft_path($adminId);
+    if (is_file($path)) {
+        unlink($path);
+    }
+}
+
 function ai_settings_masked_key(string $value): string
 {
     if ($value === '') {
@@ -260,6 +318,192 @@ function ai_gemini_generate(array $settings, array $contents): array
     }
 
     return $result['body'];
+}
+
+function ai_gemini_generate_text(array $settings, string $prompt): string
+{
+    $contents = [[
+        'role' => 'user',
+        'parts' => [['text' => $prompt]],
+    ]];
+
+    $response = ai_gemini_generate($settings, $contents);
+    $text = ai_gemini_extract_text($response);
+    if ($text === '') {
+        throw new RuntimeException('Gemini returned an empty response.');
+    }
+
+    return $text;
+}
+
+function ai_gemini_generate_image(array $settings, string $prompt): array
+{
+    $apiKey = trim((string) ($settings['api_key'] ?? ''));
+    if ($apiKey === '') {
+        throw new RuntimeException('Gemini API key is missing.');
+    }
+
+    $model = ai_normalize_model_code($settings['models']['image'] ?? '', 'gemini-2.5-flash-image');
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent?key=' . rawurlencode($apiKey);
+
+    $payload = [
+        'contents' => [[
+            'role' => 'user',
+            'parts' => [[
+                'text' => $prompt,
+            ]],
+        ]],
+        'generationConfig' => [
+            'temperature' => 0.8,
+        ],
+    ];
+
+    $response = ai_http_json_post($url, $payload, ['Content-Type: application/json']);
+    if ($response['http_code'] < 200 || $response['http_code'] >= 300) {
+        $message = 'Gemini image generation failed (' . $response['http_code'] . ')';
+        if (is_array($response['body']) && isset($response['body']['error']['message'])) {
+            $message .= ': ' . (string) $response['body']['error']['message'];
+        }
+        throw new RuntimeException($message);
+    }
+
+    if (!is_array($response['body'])) {
+        throw new RuntimeException('Unexpected Gemini image response.');
+    }
+
+    $media = ai_gemini_extract_inline_data($response['body'], 'image/');
+    if ($media === null) {
+        throw new RuntimeException('Gemini did not return an image.');
+    }
+
+    $path = ai_gemini_store_binary($media['data'], $media['mimeType'], 'generated_images');
+
+    return [
+        'path' => $path,
+        'mimeType' => $media['mimeType'],
+    ];
+}
+
+function ai_gemini_generate_tts(array $settings, string $text, string $format = 'mp3'): array
+{
+    $apiKey = trim((string) ($settings['api_key'] ?? ''));
+    if ($apiKey === '') {
+        throw new RuntimeException('Gemini API key is missing.');
+    }
+
+    $model = ai_normalize_model_code($settings['models']['tts'] ?? '', 'gemini-2.5-flash-preview-tts');
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode($model) . ':generateContent?key=' . rawurlencode($apiKey);
+
+    $responseMime = strtolower($format) === 'wav' ? 'audio/wav' : 'audio/mpeg';
+
+    $payload = [
+        'contents' => [[
+            'role' => 'user',
+            'parts' => [[
+                'text' => $text,
+            ]],
+        ]],
+        'generationConfig' => [
+            'responseMimeType' => $responseMime,
+        ],
+    ];
+
+    $response = ai_http_json_post($url, $payload, ['Content-Type: application/json']);
+    if ($response['http_code'] < 200 || $response['http_code'] >= 300) {
+        $message = 'Gemini TTS failed (' . $response['http_code'] . ')';
+        if (is_array($response['body']) && isset($response['body']['error']['message'])) {
+            $message .= ': ' . (string) $response['body']['error']['message'];
+        }
+        throw new RuntimeException($message);
+    }
+
+    if (!is_array($response['body'])) {
+        throw new RuntimeException('Unexpected Gemini TTS response.');
+    }
+
+    $media = ai_gemini_extract_inline_data($response['body'], 'audio/');
+    if ($media === null) {
+        throw new RuntimeException('Gemini did not return audio.');
+    }
+
+    $path = ai_gemini_store_binary($media['data'], $media['mimeType'], 'generated_audio');
+
+    return [
+        'path' => $path,
+        'mimeType' => $media['mimeType'],
+    ];
+}
+
+function ai_gemini_extract_inline_data(array $response, string $expectedPrefix): ?array
+{
+    if (isset($response['candidates']) && is_array($response['candidates'])) {
+        foreach ($response['candidates'] as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+
+            $content = $candidate['content'] ?? null;
+            if (!is_array($content) || !isset($content['parts']) || !is_array($content['parts'])) {
+                continue;
+            }
+
+            foreach ($content['parts'] as $part) {
+                if (!is_array($part)) {
+                    continue;
+                }
+
+                $inlineData = $part['inlineData'] ?? null;
+                if (!is_array($inlineData)) {
+                    continue;
+                }
+
+                $mimeType = (string) ($inlineData['mimeType'] ?? '');
+                $data = (string) ($inlineData['data'] ?? '');
+
+                if ($mimeType !== '' && $data !== '' && str_starts_with($mimeType, $expectedPrefix)) {
+                    return [
+                        'mimeType' => $mimeType,
+                        'data' => $data,
+                    ];
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+function ai_gemini_store_binary(string $base64, string $mimeType, string $folder): string
+{
+    $binary = base64_decode($base64, true);
+    if ($binary === false) {
+        throw new RuntimeException('Failed to decode Gemini media payload.');
+    }
+
+    $extensions = [
+        'image/png' => 'png',
+        'image/jpeg' => 'jpg',
+        'image/webp' => 'webp',
+        'audio/mpeg' => 'mp3',
+        'audio/wav' => 'wav',
+        'audio/mp3' => 'mp3',
+    ];
+    $extension = $extensions[strtolower($mimeType)] ?? 'bin';
+
+    $dir = ai_storage_dir() . '/' . $folder;
+    if (!is_dir($dir)) {
+        mkdir($dir, 0775, true);
+    }
+
+    $fileName = uniqid('gemini_', true) . '.' . $extension;
+    $path = $dir . '/' . $fileName;
+
+    if (file_put_contents($path, $binary) === false) {
+        throw new RuntimeException('Unable to store Gemini media output.');
+    }
+
+    $relative = 'storage/ai/' . $folder . '/' . $fileName;
+    return $relative;
 }
 
 function ai_http_json_post(string $url, array $payload, array $headers = []): array
