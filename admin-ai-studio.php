@@ -104,6 +104,8 @@ $settingsForClient = [
     'maxTokens' => ai_normalize_max_tokens($settings['max_tokens'] ?? 1024),
     'models' => [
         'text' => $settings['models']['text'] ?? 'gemini-2.5-flash',
+        'image' => $settings['models']['image'] ?? 'gemini-2.5-flash-image',
+        'tts' => $settings['models']['tts'] ?? 'gemini-2.5-flash-preview-tts',
     ],
 ];
 $settingsJson = json_encode($settingsForClient, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -431,6 +433,216 @@ if ($flashMessage !== '') {
             <i class="fa-solid fa-download" aria-hidden="true"></i>
             Download audio
           </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-panel" aria-labelledby="ai-sandbox">
+      <div class="admin-panel__header">
+        <div>
+          <h2 id="ai-sandbox">AI Sandbox (Gemini only)</h2>
+          <p>Experiment with text, image, and voice outputs using the configured Gemini models without affecting chat or blog workflows.</p>
+        </div>
+      </div>
+
+      <div class="ai-sandbox" data-sandbox>
+        <div class="ai-sandbox__tabs" role="tablist">
+          <button type="button" role="tab" aria-selected="true" data-sandbox-tab="text">Text Sandbox</button>
+          <button type="button" role="tab" aria-selected="false" data-sandbox-tab="image">Image Sandbox</button>
+          <button type="button" role="tab" aria-selected="false" data-sandbox-tab="tts">TTS Sandbox</button>
+        </div>
+
+        <div class="ai-sandbox__panels">
+          <section class="ai-sandbox__panel" data-sandbox-panel="text" role="tabpanel">
+            <header>
+              <h3>Gemini Text Model</h3>
+              <p class="ai-sandbox__meta">Model: <span data-sandbox-text-model><?= htmlspecialchars($settings['models']['text'] ?? 'gemini-2.5-flash', ENT_QUOTES) ?></span></p>
+            </header>
+            <form class="ai-sandbox__form" data-sandbox-text-form novalidate>
+              <label>
+                Prompt
+                <textarea rows="3" data-sandbox-text-input placeholder="Ask Gemini for a quick experiment"></textarea>
+              </label>
+              <div class="ai-sandbox__actions">
+                <button type="submit" class="btn btn-primary" data-sandbox-text-run>
+                  <i class="fa-solid fa-play" aria-hidden="true"></i>
+                  Run prompt
+                </button>
+                <span class="ai-sandbox__status" data-sandbox-text-status aria-live="polite">Idle</span>
+              </div>
+            </form>
+            <div class="ai-sandbox__output" data-sandbox-text-output>
+              <p class="ai-sandbox__placeholder">Responses stream here.</p>
+            </div>
+          </section>
+
+          <section class="ai-sandbox__panel" data-sandbox-panel="image" role="tabpanel" hidden>
+            <header>
+              <h3>Gemini Image Model</h3>
+              <p class="ai-sandbox__meta">Model: <span data-sandbox-image-model><?= htmlspecialchars($settings['models']['image'] ?? 'gemini-2.5-flash-image', ENT_QUOTES) ?></span></p>
+            </header>
+            <form class="ai-sandbox__form" data-sandbox-image-form novalidate>
+              <label>
+                Prompt
+                <textarea rows="2" data-sandbox-image-input placeholder="Describe the visual you want to explore"></textarea>
+              </label>
+              <div class="ai-sandbox__actions">
+                <button type="submit" class="btn btn-primary" data-sandbox-image-run>
+                  <i class="fa-solid fa-palette" aria-hidden="true"></i>
+                  Generate visual
+                </button>
+                <span class="ai-sandbox__status" data-sandbox-image-status aria-live="polite">Idle</span>
+              </div>
+            </form>
+            <div class="ai-sandbox__media" data-sandbox-image-output hidden>
+              <figure>
+                <img src="" alt="Sandbox visual" data-sandbox-image-preview />
+                <figcaption data-sandbox-image-caption></figcaption>
+              </figure>
+              <a href="#" class="btn btn-ghost btn-sm" data-sandbox-image-download download>
+                <i class="fa-solid fa-download" aria-hidden="true"></i>
+                Download
+              </a>
+            </div>
+          </section>
+
+          <section class="ai-sandbox__panel" data-sandbox-panel="tts" role="tabpanel" hidden>
+            <header>
+              <h3>Gemini TTS Model</h3>
+              <p class="ai-sandbox__meta">Model: <span data-sandbox-tts-model><?= htmlspecialchars($settings['models']['tts'] ?? 'gemini-2.5-flash-preview-tts', ENT_QUOTES) ?></span></p>
+            </header>
+            <form class="ai-sandbox__form" data-sandbox-tts-form novalidate>
+              <label>
+                Text
+                <textarea rows="3" data-sandbox-tts-input placeholder="Paste text to voice instantly"></textarea>
+              </label>
+              <div class="ai-sandbox__form-row">
+                <label>
+                  Format
+                  <select data-sandbox-tts-format>
+                    <option value="mp3">MP3</option>
+                    <option value="wav">WAV</option>
+                  </select>
+                </label>
+              </div>
+              <div class="ai-sandbox__actions">
+                <button type="submit" class="btn btn-primary" data-sandbox-tts-run>
+                  <i class="fa-solid fa-volume-high" aria-hidden="true"></i>
+                  Generate audio
+                </button>
+                <span class="ai-sandbox__status" data-sandbox-tts-status aria-live="polite">Idle</span>
+              </div>
+            </form>
+            <div class="ai-sandbox__media" data-sandbox-tts-output hidden>
+              <audio controls data-sandbox-tts-audio></audio>
+              <a href="#" class="btn btn-ghost btn-sm" data-sandbox-tts-download download>
+                <i class="fa-solid fa-download" aria-hidden="true"></i>
+                Download
+              </a>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="admin-panel" aria-labelledby="automation-scheduler">
+      <div class="admin-panel__header">
+        <div>
+          <h2 id="automation-scheduler">Automation Scheduler</h2>
+          <p>Automatically draft blogs with Gemini text, visuals, and audio on a recurring cadence. Drafts are stored without publishing.</p>
+        </div>
+        <div class="automation-scheduler__next" data-scheduler-next aria-live="polite">Next run: —</div>
+      </div>
+
+      <form class="automation-scheduler" data-scheduler-form novalidate>
+        <div class="automation-scheduler__grid">
+          <label>
+            Topic
+            <input type="text" data-scheduler-topic placeholder="e.g. Rooftop solar incentives" />
+          </label>
+          <label>
+            Frequency
+            <select data-scheduler-frequency>
+              <option value="daily">Daily</option>
+              <option value="weekly" selected>Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </label>
+          <label class="dashboard-toggle">
+            <input type="checkbox" data-scheduler-enabled />
+            <span>Scheduler enabled</span>
+          </label>
+        </div>
+        <div class="automation-scheduler__actions">
+          <button type="button" class="btn btn-primary" data-scheduler-save>
+            <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i>
+            Save schedule
+          </button>
+          <button type="button" class="btn btn-ghost" data-scheduler-run>
+            <i class="fa-solid fa-rocket" aria-hidden="true"></i>
+            Run now
+          </button>
+          <span class="automation-scheduler__status" data-scheduler-status aria-live="polite">Idle</span>
+        </div>
+      </form>
+
+      <div class="automation-scheduler__log" data-scheduler-logs>
+        <header>
+          <h3>Automation log</h3>
+          <p>Latest auto-generated drafts with associated assets.</p>
+        </header>
+        <ul></ul>
+      </div>
+    </section>
+
+    <section class="admin-panel" aria-labelledby="usage-logs">
+      <div class="admin-panel__header">
+        <div>
+          <h2 id="usage-logs">Usage &amp; Logs</h2>
+          <p>Track Gemini token usage, approximate spend, and any API issues across the studio.</p>
+        </div>
+      </div>
+
+      <div class="usage-logs" data-usage-shell>
+        <div class="usage-logs__grid">
+          <article>
+            <h3>Daily usage</h3>
+            <p class="usage-logs__metric" data-usage-daily-tokens>0 tokens</p>
+            <p class="usage-logs__cost" data-usage-daily-cost>₹0.00</p>
+          </article>
+          <article>
+            <h3>Monthly usage</h3>
+            <p class="usage-logs__metric" data-usage-monthly-tokens>0 tokens</p>
+            <p class="usage-logs__cost" data-usage-monthly-cost>₹0.00</p>
+          </article>
+          <article>
+            <h3>Aggregate</h3>
+            <p class="usage-logs__metric" data-usage-aggregate-tokens>0 tokens</p>
+            <p class="usage-logs__cost" data-usage-aggregate-cost>₹0.00</p>
+          </article>
+        </div>
+
+        <div class="usage-logs__pricing">
+          <h3>Pricing reference</h3>
+          <ul data-usage-pricing></ul>
+        </div>
+
+        <div class="usage-logs__errors">
+          <header>
+            <h3>Error logs</h3>
+            <p>Recent Gemini issues across text, image, and audio calls.</p>
+          </header>
+          <ul data-error-log></ul>
+          <div class="usage-logs__error-actions">
+            <button type="button" class="btn btn-primary btn-sm" data-error-retry>
+              <i class="fa-solid fa-rotate-right" aria-hidden="true"></i>
+              Retry last action
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" data-error-copy>
+              <i class="fa-solid fa-copy" aria-hidden="true"></i>
+              Copy error details
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -1468,6 +1680,728 @@ if ($flashMessage !== '') {
             ttsGenerate.disabled = false;
           }
         });
+      }
+
+      const sandboxShell = document.querySelector('[data-sandbox]');
+      if (sandboxShell) {
+        const sandboxTabs = sandboxShell.querySelectorAll('[data-sandbox-tab]');
+        const sandboxPanels = sandboxShell.querySelectorAll('[data-sandbox-panel]');
+        const sandboxTextForm = sandboxShell.querySelector('[data-sandbox-text-form]');
+        const sandboxTextInput = sandboxShell.querySelector('[data-sandbox-text-input]');
+        const sandboxTextOutput = sandboxShell.querySelector('[data-sandbox-text-output]');
+        const sandboxImageForm = sandboxShell.querySelector('[data-sandbox-image-form]');
+        const sandboxImageInput = sandboxShell.querySelector('[data-sandbox-image-input]');
+        const sandboxImageOutput = sandboxShell.querySelector('[data-sandbox-image-output]');
+        const sandboxImagePreview = sandboxShell.querySelector('[data-sandbox-image-preview]');
+        const sandboxImageCaption = sandboxShell.querySelector('[data-sandbox-image-caption]');
+        const sandboxImageDownload = sandboxShell.querySelector('[data-sandbox-image-download]');
+        const sandboxTtsForm = sandboxShell.querySelector('[data-sandbox-tts-form]');
+        const sandboxTtsInput = sandboxShell.querySelector('[data-sandbox-tts-input]');
+        const sandboxTtsFormat = sandboxShell.querySelector('[data-sandbox-tts-format]');
+        const sandboxTtsOutput = sandboxShell.querySelector('[data-sandbox-tts-output]');
+        const sandboxTtsAudio = sandboxShell.querySelector('[data-sandbox-tts-audio]');
+        const sandboxTtsDownload = sandboxShell.querySelector('[data-sandbox-tts-download]');
+        let sandboxTextTimer = null;
+
+        function activateSandboxTab(name) {
+          sandboxTabs.forEach((tab) => {
+            const isActive = tab.getAttribute('data-sandbox-tab') === name;
+            tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          });
+          sandboxPanels.forEach((panel) => {
+            const isActive = panel.getAttribute('data-sandbox-panel') === name;
+            panel.hidden = !isActive;
+          });
+        }
+
+        function updateSandboxStatus(kind, message) {
+          const status = sandboxShell.querySelector(`[data-sandbox-${kind}-status]`);
+          if (status) {
+            status.textContent = message;
+          }
+        }
+
+        function streamSandboxText(target, text) {
+          if (!target) {
+            return;
+          }
+          if (sandboxTextTimer !== null) {
+            window.clearTimeout(sandboxTextTimer);
+            sandboxTextTimer = null;
+          }
+          target.innerHTML = '';
+          const article = document.createElement('article');
+          article.className = 'ai-sandbox__text';
+          target.appendChild(article);
+          const tokens = text.split(/(\s+)/);
+          let index = 0;
+          function step() {
+            if (index >= tokens.length) {
+              sandboxTextTimer = null;
+              return;
+            }
+            article.innerHTML += escapeHtml(tokens[index]).replace(/\n/g, '<br />');
+            target.scrollTop = target.scrollHeight;
+            index += 1;
+            sandboxTextTimer = window.setTimeout(step, 35);
+          }
+          step();
+        }
+
+        sandboxTabs.forEach((tab) => {
+          tab.addEventListener('click', () => {
+            const target = tab.getAttribute('data-sandbox-tab');
+            if (target) {
+              activateSandboxTab(target);
+            }
+          });
+        });
+
+        if (sandboxTextForm && sandboxTextInput) {
+          sandboxTextForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const prompt = sandboxTextInput.value.trim();
+            if (!prompt) {
+              showToast('Enter a prompt for Gemini.', 'info');
+              return;
+            }
+            const runButton = sandboxTextForm.querySelector('[data-sandbox-text-run]');
+            if (runButton) {
+              runButton.disabled = true;
+            }
+            updateSandboxStatus('text', 'Generating…');
+            try {
+              const response = await fetch('api/gemini.php?action=sandbox-text', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-CSRF-Token': window.csrfToken || '',
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ prompt }),
+              });
+              if (!response.ok) {
+                throw new Error('Unable to reach Gemini text sandbox.');
+              }
+              const payload = await response.json();
+              if (!payload || !payload.success || !payload.text) {
+                throw new Error(payload && payload.error ? payload.error : 'Gemini returned no text.');
+              }
+              updateSandboxStatus('text', 'Streaming response…');
+              streamSandboxText(sandboxTextOutput, payload.text);
+            } catch (error) {
+              updateSandboxStatus('text', 'Text generation failed');
+              showToast(error.message || 'Gemini text sandbox failed.', 'error');
+            } finally {
+              if (runButton) {
+                runButton.disabled = false;
+              }
+            }
+          });
+        }
+
+        if (sandboxImageForm && sandboxImageInput) {
+          sandboxImageForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const prompt = sandboxImageInput.value.trim();
+            if (!prompt) {
+              showToast('Add a description for the visual.', 'info');
+              return;
+            }
+            const runButton = sandboxImageForm.querySelector('[data-sandbox-image-run]');
+            if (runButton) {
+              runButton.disabled = true;
+            }
+            updateSandboxStatus('image', 'Generating image…');
+            try {
+              const response = await fetch('api/gemini.php?action=sandbox-image', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-CSRF-Token': window.csrfToken || '',
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ prompt }),
+              });
+              if (!response.ok) {
+                throw new Error('Unable to reach Gemini image sandbox.');
+              }
+              const payload = await response.json();
+              if (!payload || !payload.success || !payload.image || !payload.image.path) {
+                throw new Error(payload && payload.error ? payload.error : 'Gemini did not return an image.');
+              }
+              const path = payload.image.path;
+              const url = path.startsWith('/') ? path : `/${path}`;
+              if (sandboxImagePreview) {
+                sandboxImagePreview.src = url;
+              }
+              if (sandboxImageCaption) {
+                sandboxImageCaption.textContent = `Generated ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+              }
+              if (sandboxImageDownload) {
+                sandboxImageDownload.href = url;
+              }
+              if (sandboxImageOutput) {
+                sandboxImageOutput.hidden = false;
+              }
+              updateSandboxStatus('image', 'Image ready');
+              showToast('Sandbox image ready.', 'success');
+            } catch (error) {
+              updateSandboxStatus('image', 'Image generation failed');
+              showToast(error.message || 'Gemini image sandbox failed.', 'error');
+            } finally {
+              if (runButton) {
+                runButton.disabled = false;
+              }
+            }
+          });
+        }
+
+        if (sandboxTtsForm && sandboxTtsInput) {
+          sandboxTtsForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const text = sandboxTtsInput.value.trim();
+            if (!text) {
+              showToast('Provide text for the TTS sandbox.', 'info');
+              return;
+            }
+            const format = sandboxTtsFormat ? sandboxTtsFormat.value : 'mp3';
+            const runButton = sandboxTtsForm.querySelector('[data-sandbox-tts-run]');
+            if (runButton) {
+              runButton.disabled = true;
+            }
+            updateSandboxStatus('tts', 'Generating audio…');
+            try {
+              const response = await fetch('api/gemini.php?action=sandbox-tts', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-CSRF-Token': window.csrfToken || '',
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ text, format }),
+              });
+              if (!response.ok) {
+                throw new Error('Unable to reach Gemini TTS sandbox.');
+              }
+              const payload = await response.json();
+              if (!payload || !payload.success || !payload.audio || !payload.audio.path) {
+                throw new Error(payload && payload.error ? payload.error : 'Gemini did not return audio.');
+              }
+              const path = payload.audio.path;
+              const url = path.startsWith('/') ? path : `/${path}`;
+              if (sandboxTtsAudio) {
+                sandboxTtsAudio.src = url;
+                sandboxTtsAudio.load();
+              }
+              if (sandboxTtsDownload) {
+                sandboxTtsDownload.href = url;
+              }
+              if (sandboxTtsOutput) {
+                sandboxTtsOutput.hidden = false;
+              }
+              updateSandboxStatus('tts', 'Audio ready');
+              showToast('Sandbox audio ready.', 'success');
+            } catch (error) {
+              updateSandboxStatus('tts', 'Audio generation failed');
+              showToast(error.message || 'Gemini TTS sandbox failed.', 'error');
+            } finally {
+              if (runButton) {
+                runButton.disabled = false;
+              }
+            }
+          });
+        }
+      }
+
+      const schedulerForm = document.querySelector('[data-scheduler-form]');
+      const schedulerTopic = schedulerForm ? schedulerForm.querySelector('[data-scheduler-topic]') : null;
+      const schedulerFrequency = schedulerForm ? schedulerForm.querySelector('[data-scheduler-frequency]') : null;
+      const schedulerEnabled = schedulerForm ? schedulerForm.querySelector('[data-scheduler-enabled]') : null;
+      const schedulerSaveButton = schedulerForm ? schedulerForm.querySelector('[data-scheduler-save]') : null;
+      const schedulerRunButton = schedulerForm ? schedulerForm.querySelector('[data-scheduler-run]') : null;
+      const schedulerStatus = document.querySelector('[data-scheduler-status]');
+      const schedulerNext = document.querySelector('[data-scheduler-next]');
+      const schedulerLogs = document.querySelector('[data-scheduler-logs]');
+      const schedulerState = { autoRunning: false, lastSettings: null };
+
+      function setSchedulerStatus(message) {
+        if (schedulerStatus) {
+          schedulerStatus.textContent = message;
+        }
+      }
+
+      function formatSchedulerDate(value) {
+        if (!value) {
+          return '—';
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return '—';
+        }
+        return date.toLocaleString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      }
+
+      function renderSchedulerLogs(logs) {
+        if (!schedulerLogs) {
+          return;
+        }
+        const list = schedulerLogs.querySelector('ul');
+        if (!list) {
+          return;
+        }
+        list.innerHTML = '';
+        if (!Array.isArray(logs) || logs.length === 0) {
+          const empty = document.createElement('li');
+          empty.className = 'automation-scheduler__empty';
+          empty.textContent = 'No automated drafts generated yet.';
+          list.appendChild(empty);
+          return;
+        }
+        logs.forEach((entry) => {
+          const item = document.createElement('li');
+          item.className = 'automation-scheduler__item';
+          const title = document.createElement('h4');
+          title.textContent = entry.title || entry.topic || 'Automated draft';
+          item.appendChild(title);
+          const meta = document.createElement('p');
+          meta.className = 'automation-scheduler__item-meta';
+          const when = entry.created_at ? formatSchedulerDate(entry.created_at) : '—';
+          meta.textContent = `${entry.topic || 'Scheduled topic'} · ${when}`;
+          item.appendChild(meta);
+          if (entry.summary) {
+            const summary = document.createElement('p');
+            summary.className = 'automation-scheduler__item-summary';
+            summary.textContent = entry.summary;
+            item.appendChild(summary);
+          }
+          const assets = document.createElement('div');
+          assets.className = 'automation-scheduler__item-assets';
+          if (entry.draft) {
+            const draftLink = document.createElement('a');
+            const draftUrl = entry.draft.startsWith('/') ? entry.draft : `/${entry.draft}`;
+            draftLink.href = draftUrl;
+            draftLink.className = 'btn btn-ghost btn-sm';
+            draftLink.textContent = 'Download draft';
+            draftLink.download = '';
+            assets.appendChild(draftLink);
+          }
+          if (Array.isArray(entry.images)) {
+            entry.images.forEach((image, index) => {
+              if (!image || !image.path) {
+                return;
+              }
+              const url = image.path.startsWith('/') ? image.path : `/${image.path}`;
+              const link = document.createElement('a');
+              link.href = url;
+              link.className = 'btn btn-ghost btn-sm';
+              link.textContent = `Image ${index + 1}`;
+              link.download = '';
+              assets.appendChild(link);
+            });
+          }
+          if (entry.audio && entry.audio.path) {
+            const audioUrl = entry.audio.path.startsWith('/') ? entry.audio.path : `/${entry.audio.path}`;
+            const audioLink = document.createElement('a');
+            audioLink.href = audioUrl;
+            audioLink.className = 'btn btn-ghost btn-sm';
+            audioLink.textContent = 'Audio';
+            audioLink.download = '';
+            assets.appendChild(audioLink);
+          }
+          if (assets.childNodes.length > 0) {
+            item.appendChild(assets);
+          }
+          list.appendChild(item);
+        });
+      }
+
+      function maybeTriggerAutoRun(settings) {
+        if (!settings || !settings.enabled) {
+          return;
+        }
+        if (!settings.next_run) {
+          return;
+        }
+        const next = new Date(settings.next_run);
+        if (Number.isNaN(next.getTime())) {
+          return;
+        }
+        const now = new Date();
+        if (next <= now && !schedulerState.autoRunning) {
+          schedulerState.autoRunning = true;
+          runScheduler(true).finally(() => {
+            schedulerState.autoRunning = false;
+          });
+        }
+      }
+
+      async function loadScheduler() {
+        if (!schedulerForm) {
+          return;
+        }
+        try {
+          const response = await fetch('api/gemini.php?action=scheduler-status', {
+            method: 'GET',
+            headers: {
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+          });
+          if (!response.ok) {
+            throw new Error('Unable to load scheduler status.');
+          }
+          const payload = await response.json();
+          if (!payload || !payload.success) {
+            throw new Error(payload && payload.error ? payload.error : 'Scheduler status unavailable.');
+          }
+          const settings = payload.settings || {};
+          schedulerState.lastSettings = settings;
+          if (schedulerTopic) {
+            schedulerTopic.value = settings.topic || '';
+          }
+          if (schedulerFrequency) {
+            schedulerFrequency.value = settings.frequency || 'weekly';
+          }
+          if (schedulerEnabled) {
+            schedulerEnabled.checked = !!settings.enabled;
+          }
+          if (schedulerNext) {
+            const label = settings.enabled && settings.next_run
+              ? `Next run: ${formatSchedulerDate(settings.next_run)}`
+              : 'Next run: paused';
+            schedulerNext.textContent = label;
+          }
+          renderSchedulerLogs(payload.logs || []);
+          setSchedulerStatus('Idle');
+          maybeTriggerAutoRun(settings);
+        } catch (error) {
+          setSchedulerStatus('Status unavailable');
+          showToast(error.message || 'Unable to load scheduler status.', 'error');
+        }
+      }
+
+      async function saveSchedulerSettings() {
+        if (!schedulerForm) {
+          return;
+        }
+        const topic = schedulerTopic ? schedulerTopic.value.trim() : '';
+        const frequency = schedulerFrequency ? schedulerFrequency.value : 'weekly';
+        const enabled = schedulerEnabled ? schedulerEnabled.checked : false;
+        if (!topic && enabled) {
+          showToast('Add a topic before enabling the scheduler.', 'warning');
+          return;
+        }
+        if (schedulerSaveButton) {
+          schedulerSaveButton.disabled = true;
+        }
+        if (schedulerRunButton) {
+          schedulerRunButton.disabled = true;
+        }
+        setSchedulerStatus('Saving…');
+        try {
+          const response = await fetch('api/gemini.php?action=scheduler-save', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({ topic, frequency, enabled }),
+          });
+          if (!response.ok) {
+            throw new Error('Unable to save scheduler settings.');
+          }
+          const payload = await response.json();
+          if (!payload || !payload.success) {
+            throw new Error(payload && payload.error ? payload.error : 'Scheduler save failed.');
+          }
+          showToast('Scheduler updated.', 'success');
+          await loadScheduler();
+        } catch (error) {
+          setSchedulerStatus('Save failed');
+          showToast(error.message || 'Failed to save scheduler settings.', 'error');
+        } finally {
+          if (schedulerSaveButton) {
+            schedulerSaveButton.disabled = false;
+          }
+          if (schedulerRunButton) {
+            schedulerRunButton.disabled = false;
+          }
+        }
+      }
+
+      async function runScheduler(auto = false) {
+        if (!schedulerForm) {
+          return;
+        }
+        if (schedulerRunButton && !auto) {
+          schedulerRunButton.disabled = true;
+        }
+        if (schedulerSaveButton) {
+          schedulerSaveButton.disabled = true;
+        }
+        setSchedulerStatus(auto ? 'Auto generating…' : 'Running…');
+        try {
+          const response = await fetch('api/gemini.php?action=scheduler-run', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({}),
+          });
+          if (!response.ok) {
+            throw new Error('Automation run failed.');
+          }
+          const payload = await response.json();
+          if (!payload || !payload.success) {
+            throw new Error(payload && payload.error ? payload.error : 'Scheduler did not finish.');
+          }
+          showToast(auto ? 'Automation executed automatically.' : 'Automation draft is ready.', 'success');
+          await loadScheduler();
+          await loadUsage();
+        } catch (error) {
+          setSchedulerStatus('Run failed');
+          if (!auto) {
+            showToast(error.message || 'Automation run failed.', 'error');
+          }
+        } finally {
+          if (schedulerRunButton) {
+            schedulerRunButton.disabled = false;
+          }
+          if (schedulerSaveButton) {
+            schedulerSaveButton.disabled = false;
+          }
+        }
+      }
+
+      if (schedulerSaveButton) {
+        schedulerSaveButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          saveSchedulerSettings();
+        });
+      }
+
+      if (schedulerRunButton) {
+        schedulerRunButton.addEventListener('click', (event) => {
+          event.preventDefault();
+          runScheduler(false);
+        });
+      }
+
+      if (schedulerForm) {
+        loadScheduler();
+        window.setInterval(loadScheduler, 60000);
+      }
+
+      const usageShell = document.querySelector('[data-usage-shell]');
+      const usageDailyTokens = usageShell ? usageShell.querySelector('[data-usage-daily-tokens]') : null;
+      const usageDailyCost = usageShell ? usageShell.querySelector('[data-usage-daily-cost]') : null;
+      const usageMonthlyTokens = usageShell ? usageShell.querySelector('[data-usage-monthly-tokens]') : null;
+      const usageMonthlyCost = usageShell ? usageShell.querySelector('[data-usage-monthly-cost]') : null;
+      const usageAggregateTokens = usageShell ? usageShell.querySelector('[data-usage-aggregate-tokens]') : null;
+      const usageAggregateCost = usageShell ? usageShell.querySelector('[data-usage-aggregate-cost]') : null;
+      const usagePricingList = usageShell ? usageShell.querySelector('[data-usage-pricing]') : null;
+      const errorLogList = usageShell ? usageShell.querySelector('[data-error-log]') : null;
+      const errorRetryButton = usageShell ? usageShell.querySelector('[data-error-retry]') : null;
+      const errorCopyButton = usageShell ? usageShell.querySelector('[data-error-copy]') : null;
+      const usageState = { lastError: null };
+      const numberFormat = typeof Intl !== 'undefined' ? new Intl.NumberFormat('en-IN') : null;
+      const currencyFormat = typeof Intl !== 'undefined' ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }) : null;
+
+      function formatTokens(value) {
+        const total = Math.max(0, Math.round(value));
+        return numberFormat ? numberFormat.format(total) : String(total);
+      }
+
+      function formatCurrency(value) {
+        const amount = Number.isFinite(value) ? value : 0;
+        return currencyFormat ? currencyFormat.format(amount) : `₹${amount.toFixed(2)}`;
+      }
+
+      function renderUsageErrors(errors) {
+        usageState.lastError = null;
+        if (!errorLogList) {
+          return;
+        }
+        errorLogList.innerHTML = '';
+        if (!Array.isArray(errors) || errors.length === 0) {
+          const empty = document.createElement('li');
+          empty.className = 'usage-logs__empty';
+          empty.textContent = 'No errors logged.';
+          errorLogList.appendChild(empty);
+          return;
+        }
+        errors.forEach((entry, index) => {
+          const item = document.createElement('li');
+          item.className = 'usage-logs__error';
+          const title = document.createElement('strong');
+          title.textContent = entry.type || 'API failure';
+          item.appendChild(title);
+          const message = document.createElement('p');
+          message.textContent = entry.message || 'Gemini error encountered.';
+          item.appendChild(message);
+          if (entry.created_at) {
+            const time = document.createElement('span');
+            time.className = 'usage-logs__error-time';
+            const date = new Date(entry.created_at);
+            time.textContent = Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+            item.appendChild(time);
+          }
+          errorLogList.appendChild(item);
+          if (index === 0) {
+            usageState.lastError = entry;
+          }
+        });
+      }
+
+      async function loadUsage() {
+        if (!usageShell) {
+          return;
+        }
+        try {
+          const response = await fetch('api/gemini.php?action=usage-summary', {
+            method: 'GET',
+            headers: {
+              'X-CSRF-Token': window.csrfToken || '',
+            },
+            credentials: 'same-origin',
+          });
+          if (!response.ok) {
+            throw new Error('Unable to load usage summary.');
+          }
+          const payload = await response.json();
+          if (!payload || !payload.success) {
+            throw new Error(payload && payload.error ? payload.error : 'Usage summary unavailable.');
+          }
+          const usage = payload.usage || {};
+          const dailyTokens = (usage.daily ? (usage.daily.input_tokens || 0) + (usage.daily.output_tokens || 0) : 0);
+          const dailyCost = usage.daily ? usage.daily.cost || 0 : 0;
+          const monthlyTokens = (usage.monthly ? (usage.monthly.input_tokens || 0) + (usage.monthly.output_tokens || 0) : 0);
+          const monthlyCost = usage.monthly ? usage.monthly.cost || 0 : 0;
+          const aggregateTokens = (usage.aggregate ? (usage.aggregate.input_tokens || 0) + (usage.aggregate.output_tokens || 0) : 0);
+          const aggregateCost = usage.aggregate ? usage.aggregate.cost || 0 : 0;
+          if (usageDailyTokens) {
+            usageDailyTokens.textContent = `${formatTokens(dailyTokens)} tokens`;
+          }
+          if (usageDailyCost) {
+            usageDailyCost.textContent = formatCurrency(dailyCost);
+          }
+          if (usageMonthlyTokens) {
+            usageMonthlyTokens.textContent = `${formatTokens(monthlyTokens)} tokens`;
+          }
+          if (usageMonthlyCost) {
+            usageMonthlyCost.textContent = formatCurrency(monthlyCost);
+          }
+          if (usageAggregateTokens) {
+            usageAggregateTokens.textContent = `${formatTokens(aggregateTokens)} tokens`;
+          }
+          if (usageAggregateCost) {
+            usageAggregateCost.textContent = formatCurrency(aggregateCost);
+          }
+          if (usagePricingList) {
+            usagePricingList.innerHTML = '';
+            const pricing = payload.usage ? payload.usage.pricing || {} : {};
+            if (pricing.text) {
+              const item = document.createElement('li');
+              item.textContent = `Text input ₹${Number(pricing.text.input_per_million || 0).toFixed(2)} / 1M tokens · output ₹${Number(pricing.text.output_per_million || 0).toFixed(2)} / 1M tokens`;
+              usagePricingList.appendChild(item);
+            }
+            if (pricing.image) {
+              const item = document.createElement('li');
+              item.textContent = `Image generation ₹${Number(pricing.image.per_call || 0).toFixed(2)} per call`;
+              usagePricingList.appendChild(item);
+            }
+            if (pricing.tts) {
+              const item = document.createElement('li');
+              item.textContent = `TTS ₹${Number(pricing.tts.per_thousand_chars || 0).toFixed(2)} per 1K characters`;
+              usagePricingList.appendChild(item);
+            }
+          }
+          renderUsageErrors(payload.errors || []);
+        } catch (error) {
+          showToast(error.message || 'Unable to load usage summary.', 'error');
+        }
+      }
+
+      if (errorRetryButton) {
+        errorRetryButton.addEventListener('click', async () => {
+          if (!usageState.lastError) {
+            showToast('No error available to retry.', 'info');
+            return;
+          }
+          errorRetryButton.disabled = true;
+          try {
+            const response = await fetch('api/gemini.php?action=error-retry', {
+              method: 'POST',
+              headers: {
+                'X-CSRF-Token': window.csrfToken || '',
+              },
+              credentials: 'same-origin',
+            });
+            if (!response.ok) {
+              throw new Error('Retry failed.');
+            }
+            const payload = await response.json();
+            if (!payload || !payload.success) {
+              throw new Error(payload && payload.error ? payload.error : 'Retry failed.');
+            }
+            showToast('Last action retried successfully.', 'success');
+            await loadUsage();
+            if (payload.payload && payload.payload.type === 'scheduler-run') {
+              await loadScheduler();
+            }
+          } catch (error) {
+            showToast(error.message || 'Unable to retry last action.', 'error');
+          } finally {
+            errorRetryButton.disabled = false;
+          }
+        });
+      }
+
+      if (errorCopyButton) {
+        errorCopyButton.addEventListener('click', () => {
+          if (!usageState.lastError) {
+            showToast('No error available to copy.', 'info');
+            return;
+          }
+          const text = JSON.stringify(usageState.lastError, null, 2);
+          const clipboard = navigator.clipboard;
+          if (clipboard && clipboard.writeText) {
+            clipboard.writeText(text).then(() => {
+              showToast('Error details copied.', 'success');
+            }).catch(() => {
+              showToast('Unable to copy error details.', 'error');
+            });
+            return;
+          }
+          const temp = document.createElement('textarea');
+          temp.value = text;
+          temp.setAttribute('readonly', 'readonly');
+          temp.style.position = 'absolute';
+          temp.style.left = '-9999px';
+          document.body.appendChild(temp);
+          temp.select();
+          try {
+            document.execCommand('copy');
+            showToast('Error details copied.', 'success');
+          } catch (error) {
+            showToast('Unable to copy error details.', 'error');
+          }
+          document.body.removeChild(temp);
+        });
+      }
+
+      if (usageShell) {
+        loadUsage();
+        window.setInterval(loadUsage, 45000);
       }
 
       renderHistory();

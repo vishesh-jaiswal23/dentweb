@@ -57,6 +57,30 @@ switch ($action) {
     case 'tts-generate':
         handle_tts_generate($adminId);
         break;
+    case 'sandbox-text':
+        handle_sandbox_text($adminId);
+        break;
+    case 'sandbox-image':
+        handle_sandbox_image($adminId);
+        break;
+    case 'sandbox-tts':
+        handle_sandbox_tts($adminId);
+        break;
+    case 'scheduler-status':
+        handle_scheduler_status();
+        break;
+    case 'scheduler-save':
+        handle_scheduler_save();
+        break;
+    case 'scheduler-run':
+        handle_scheduler_run($adminId);
+        break;
+    case 'usage-summary':
+        handle_usage_summary();
+        break;
+    case 'error-retry':
+        handle_error_retry($adminId);
+        break;
     default:
         header('Content-Type: application/json');
         http_response_code(400);
@@ -126,6 +150,8 @@ function handle_chat_request(int $adminId): void
         ];
         $history = ai_chat_history_replace($adminId, $history);
 
+        ai_usage_register_text($message, $replyText, $settings['models']['text'] ?? '');
+
         header('Content-Type: application/json');
         echo json_encode([
             'success' => true,
@@ -133,6 +159,10 @@ function handle_chat_request(int $adminId): void
             'history' => $history,
         ]);
     } catch (Throwable $exception) {
+        ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+            'action' => 'chat',
+            'prompt' => $message,
+        ]);
         header('Content-Type: application/json');
         http_response_code(502);
         echo json_encode([
@@ -513,7 +543,12 @@ function handle_image_generate(int $adminId): void
 
     try {
         $image = ai_gemini_generate_image($settings, $prompt);
+        ai_usage_register_image(['action' => 'blog-image']);
     } catch (Throwable $exception) {
+        ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+            'action' => 'blog-image',
+            'prompt' => $prompt,
+        ]);
         header('Content-Type: application/json');
         http_response_code(500);
         echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
@@ -564,7 +599,12 @@ function handle_tts_generate(int $adminId): void
 
     try {
         $audio = ai_gemini_generate_tts($settings, $text, $format);
+        ai_usage_register_tts($text, ['action' => 'blog-tts']);
     } catch (Throwable $exception) {
+        ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+            'action' => 'blog-tts',
+            'text' => $text,
+        ]);
         header('Content-Type: application/json');
         http_response_code(500);
         echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
@@ -683,4 +723,446 @@ function sse_emit(string $event, array $data): void
     echo 'data: ' . $encoded . "\n\n";
     @ob_flush();
     flush();
+}
+
+function handle_sandbox_text(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST for sandbox text requests.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $prompt = trim((string) ($payload['prompt'] ?? ''));
+
+    if ($prompt === '') {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Prompt is required.']);
+        return;
+    }
+
+    $settings = ai_settings_load();
+    if (($settings['api_key'] ?? '') === '') {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'Gemini API key is missing in settings.']);
+        return;
+    }
+
+    try {
+        $text = ai_gemini_generate_text($settings, $prompt);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true, 'text' => $text]);
+    } catch (Throwable $exception) {
+        ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+            'action' => 'sandbox-text',
+            'prompt' => $prompt,
+        ]);
+        header('Content-Type: application/json');
+        http_response_code(502);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+    }
+}
+
+function handle_sandbox_image(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST for sandbox image requests.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $prompt = trim((string) ($payload['prompt'] ?? ''));
+
+    if ($prompt === '') {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Prompt is required.']);
+        return;
+    }
+
+    $settings = ai_settings_load();
+    if (($settings['api_key'] ?? '') === '') {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'Gemini API key is missing in settings.']);
+        return;
+    }
+
+    try {
+        $image = ai_gemini_generate_image($settings, $prompt);
+        ai_usage_register_image(['action' => 'sandbox-image']);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true, 'image' => $image]);
+    } catch (Throwable $exception) {
+        ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+            'action' => 'sandbox-image',
+            'prompt' => $prompt,
+        ]);
+        header('Content-Type: application/json');
+        http_response_code(502);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+    }
+}
+
+function handle_sandbox_tts(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST for sandbox audio requests.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $text = trim((string) ($payload['text'] ?? ''));
+    $format = trim((string) ($payload['format'] ?? 'mp3'));
+
+    if ($text === '') {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Text is required.']);
+        return;
+    }
+
+    $settings = ai_settings_load();
+    if (($settings['api_key'] ?? '') === '') {
+        header('Content-Type: application/json');
+        http_response_code(409);
+        echo json_encode(['success' => false, 'error' => 'Gemini API key is missing in settings.']);
+        return;
+    }
+
+    try {
+        $audio = ai_gemini_generate_tts($settings, $text, $format);
+        ai_usage_register_tts($text, ['action' => 'sandbox-tts']);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true, 'audio' => $audio]);
+    } catch (Throwable $exception) {
+        ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+            'action' => 'sandbox-tts',
+            'text' => $text,
+        ]);
+        header('Content-Type: application/json');
+        http_response_code(502);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+    }
+}
+
+function handle_scheduler_status(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use GET to fetch scheduler status.']);
+        return;
+    }
+
+    $settings = ai_scheduler_settings_load();
+    $logs = array_reverse(ai_scheduler_logs_load());
+
+    header('Content-Type: application/json');
+    echo json_encode([
+        'success' => true,
+        'settings' => $settings,
+        'logs' => $logs,
+    ]);
+}
+
+function handle_scheduler_save(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to update scheduler settings.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $topic = trim((string) ($payload['topic'] ?? ''));
+    $frequency = trim((string) ($payload['frequency'] ?? 'weekly'));
+    $enabled = isset($payload['enabled']) ? (bool) $payload['enabled'] : false;
+
+    try {
+        $settings = ai_scheduler_settings_save([
+            'topic' => $topic,
+            'frequency' => $frequency,
+            'enabled' => $enabled,
+        ]);
+    } catch (Throwable $exception) {
+        ai_error_log_append('API failure', $exception->getMessage(), ['action' => 'scheduler-save']);
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        return;
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode(['success' => true, 'settings' => $settings]);
+}
+
+function handle_scheduler_run(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to trigger the scheduler.']);
+        return;
+    }
+
+    $payload = decode_json_body();
+    $topicOverride = isset($payload['topic']) ? trim((string) $payload['topic']) : null;
+
+    try {
+        $result = perform_scheduler_run($adminId, $topicOverride);
+        header('Content-Type: application/json');
+        echo json_encode(['success' => true] + $result);
+    } catch (Throwable $exception) {
+        ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+            'action' => 'scheduler-run',
+        ]);
+        header('Content-Type: application/json');
+        http_response_code(502);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+    }
+}
+
+function perform_scheduler_run(int $adminId, ?string $topicOverride = null): array
+{
+    $settings = ai_settings_load();
+    if (($settings['api_key'] ?? '') === '') {
+        throw new RuntimeException('Gemini API key is missing.');
+    }
+
+    $scheduler = ai_scheduler_settings_load();
+    $topic = $topicOverride !== null && $topicOverride !== '' ? $topicOverride : ($scheduler['topic'] ?? '');
+    $topic = trim($topic);
+    if ($topic === '') {
+        throw new RuntimeException('Scheduler topic is empty.');
+    }
+
+    $frequency = $scheduler['frequency'] ?? 'weekly';
+
+    $prompt = <<<PROMPT
+You are the editorial voice of Dakshayani Energy. Prepare a complete blog draft focused on "{$topic}".
+Respond using this structure:
+Title: <concise headline>
+Summary: <two sentences>
+Body:
+<5-7 markdown paragraphs with headings where suitable>
+Keep the tone informative, optimistic, and tailored to clean energy professionals in India.
+PROMPT;
+
+    $blogText = ai_gemini_generate_text($settings, $prompt);
+
+    $lines = preg_split('/\r?\n/', trim($blogText)) ?: [];
+    $title = $topic;
+    $summary = '';
+    $bodyLines = [];
+    foreach ($lines as $line) {
+        if ($title === $topic && stripos($line, 'title:') === 0) {
+            $titleCandidate = trim(substr($line, strlen('title:')));
+            if ($titleCandidate !== '') {
+                $title = $titleCandidate;
+                continue;
+            }
+        }
+        if ($summary === '' && stripos($line, 'summary:') === 0) {
+            $summaryCandidate = trim(substr($line, strlen('summary:')));
+            if ($summaryCandidate !== '') {
+                $summary = $summaryCandidate;
+                continue;
+            }
+        }
+        if (stripos($line, 'body:') === 0) {
+            $bodyLines[] = trim(substr($line, strlen('body:')));
+            continue;
+        }
+        $bodyLines[] = $line;
+    }
+
+    $bodyText = trim(implode("\n", $bodyLines));
+    $paragraphs = ai_normalize_paragraphs_from_text($bodyText !== '' ? $bodyText : $blogText);
+    if (empty($paragraphs)) {
+        throw new RuntimeException('Gemini returned empty content.');
+    }
+
+    $images = [];
+    $imageCount = random_int(1, 3);
+    for ($i = 0; $i < $imageCount; $i++) {
+        try {
+            $snippet = $paragraphs[$i % count($paragraphs)] ?? $topic;
+            $imagePrompt = sprintf('%s – editorial illustration %d. %s', $topic, $i + 1, $snippet);
+            $image = ai_gemini_generate_image($settings, $imagePrompt);
+            ai_usage_register_image(['action' => 'scheduler-image']);
+            $images[] = $image;
+        } catch (Throwable $exception) {
+            ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+                'action' => 'scheduler-image',
+                'prompt' => $topic,
+            ]);
+        }
+    }
+
+    $summaryPrompt = "Craft a 45-second spoken summary for Dakshayani Energy on the topic: {$topic}. Highlight the core insights in warm, confident language. Source material: " . implode(' ', array_slice($paragraphs, 0, 5));
+    $summaryText = ai_gemini_generate_text($settings, $summaryPrompt);
+    $summaryText = trim(mb_substr($summaryText, 0, 800));
+    if ($summaryText === '') {
+        throw new RuntimeException('Gemini returned an empty summary.');
+    }
+
+    $audio = ai_gemini_generate_tts($settings, $summaryText, 'mp3');
+    ai_usage_register_tts($summaryText, ['action' => 'scheduler-tts']);
+
+    $draftPath = ai_scheduler_store_generated_post([
+        'topic' => $topic,
+        'title' => $title,
+        'summary' => $summary !== '' ? $summary : ai_build_excerpt_from_paragraphs($paragraphs),
+        'paragraphs' => $paragraphs,
+        'images' => $images,
+        'audio' => $audio,
+        'frequency' => $frequency,
+        'source' => 'automation-scheduler',
+    ]);
+
+    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+    $updatedSettings = ai_scheduler_settings_save([
+        'topic' => $scheduler['topic'] ?? $topic,
+        'frequency' => $frequency,
+        'enabled' => (bool) ($scheduler['enabled'] ?? false),
+        'last_run' => $now->format(DateTimeInterface::ATOM),
+    ]);
+
+    ai_scheduler_logs_append([
+        'topic' => $topic,
+        'frequency' => $frequency,
+        'draft' => $draftPath,
+        'title' => $title,
+        'summary' => $summaryText,
+        'images' => $images,
+        'audio' => $audio,
+    ]);
+
+    return [
+        'draft' => $draftPath,
+        'title' => $title,
+        'summary' => $summaryText,
+        'paragraphs' => $paragraphs,
+        'images' => $images,
+        'audio' => $audio,
+        'scheduler' => $updatedSettings,
+    ];
+}
+
+function handle_usage_summary(): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use GET to fetch usage summary.']);
+        return;
+    }
+
+    $usage = ai_usage_summary();
+    $errors = array_reverse(ai_error_log_load());
+
+    header('Content-Type: application/json');
+    echo json_encode([
+        'success' => true,
+        'usage' => $usage,
+        'errors' => $errors,
+    ]);
+}
+
+function handle_error_retry(int $adminId): void
+{
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        header('Content-Type: application/json');
+        http_response_code(405);
+        echo json_encode(['success' => false, 'error' => 'Use POST to retry actions.']);
+        return;
+    }
+
+    $errors = ai_error_log_load();
+    if (!$errors) {
+        header('Content-Type: application/json');
+        http_response_code(404);
+        echo json_encode(['success' => false, 'error' => 'No errors recorded.']);
+        return;
+    }
+
+    $last = end($errors);
+    $context = is_array($last['context'] ?? null) ? $last['context'] : [];
+    $action = (string) ($context['action'] ?? '');
+
+    try {
+        switch ($action) {
+            case 'sandbox-text':
+                $prompt = trim((string) ($context['prompt'] ?? ''));
+                if ($prompt === '') {
+                    throw new RuntimeException('No prompt captured for retry.');
+                }
+                $settings = ai_settings_load();
+                $text = ai_gemini_generate_text($settings, $prompt);
+                $payload = ['type' => 'sandbox-text', 'text' => $text];
+                break;
+            case 'sandbox-image':
+                $prompt = trim((string) ($context['prompt'] ?? ''));
+                if ($prompt === '') {
+                    throw new RuntimeException('No prompt captured for retry.');
+                }
+                $settings = ai_settings_load();
+                $image = ai_gemini_generate_image($settings, $prompt);
+                ai_usage_register_image(['action' => 'sandbox-image']);
+                $payload = ['type' => 'sandbox-image', 'image' => $image];
+                break;
+            case 'sandbox-tts':
+                $textInput = trim((string) ($context['text'] ?? ''));
+                if ($textInput === '') {
+                    throw new RuntimeException('No text captured for retry.');
+                }
+                $settings = ai_settings_load();
+                $audio = ai_gemini_generate_tts($settings, $textInput, 'mp3');
+                ai_usage_register_tts($textInput, ['action' => 'sandbox-tts']);
+                $payload = ['type' => 'sandbox-tts', 'audio' => $audio];
+                break;
+            case 'scheduler-run':
+                $payload = ['type' => 'scheduler-run'] + perform_scheduler_run($adminId, null);
+                break;
+            default:
+                throw new RuntimeException('Last error cannot be retried automatically.');
+        }
+    } catch (Throwable $exception) {
+        ai_error_log_append(ai_classify_error($exception->getMessage()), $exception->getMessage(), [
+            'action' => 'retry-' . $action,
+        ]);
+        header('Content-Type: application/json');
+        http_response_code(502);
+        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        return;
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode(['success' => true, 'payload' => $payload]);
+}
+
+function ai_classify_error(string $message): string
+{
+    $normalized = strtolower($message);
+    if (str_contains($normalized, 'empty')) {
+        return 'Empty response';
+    }
+    if (str_contains($normalized, 'timeout') || str_contains($normalized, 'timed out')) {
+        return 'Timeout';
+    }
+    if (str_contains($normalized, '429') || str_contains($normalized, 'rate')) {
+        return 'Rate limit';
+    }
+
+    return 'API failure';
 }
