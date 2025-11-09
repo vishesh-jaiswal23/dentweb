@@ -44,7 +44,9 @@ function ai_blog_draft_dir(): string
         mkdir($path, 0775, true);
     }
 
-    return $path;
+    $relative = 'storage/ai/scheduler/generated/' . $fileName;
+
+    return $relative;
 }
 
 function ai_blog_draft_path(int $adminId): string
@@ -332,6 +334,8 @@ function ai_gemini_generate_text(array $settings, string $prompt): string
     if ($text === '') {
         throw new RuntimeException('Gemini returned an empty response.');
     }
+
+    ai_usage_register_text($prompt, $text, $settings['models']['text'] ?? '');
 
     return $text;
 }
@@ -886,5 +890,538 @@ function ai_pdf_wrap_text(string $text, int $maxLength): array
     }
 
     return $lines;
+}
+
+function ai_scheduler_dir(): string
+{
+    $path = ai_storage_dir() . '/scheduler';
+    if (!is_dir($path)) {
+        mkdir($path, 0775, true);
+    }
+
+    return $path;
+}
+
+function ai_scheduler_settings_path(): string
+{
+    return ai_scheduler_dir() . '/settings.json';
+}
+
+function ai_scheduler_logs_path(): string
+{
+    return ai_scheduler_dir() . '/logs.json';
+}
+
+function ai_scheduler_generated_dir(): string
+{
+    $path = ai_scheduler_dir() . '/generated';
+    if (!is_dir($path)) {
+        mkdir($path, 0775, true);
+    }
+
+    return $path;
+}
+
+function ai_scheduler_settings_defaults(): array
+{
+    return [
+        'enabled' => false,
+        'topic' => '',
+        'frequency' => 'weekly',
+        'last_run' => null,
+        'next_run' => null,
+    ];
+}
+
+function ai_scheduler_normalize_frequency(string $value): string
+{
+    $candidate = strtolower(trim($value));
+    $allowed = ['daily', 'weekly', 'monthly'];
+
+    return in_array($candidate, $allowed, true) ? $candidate : 'weekly';
+}
+
+function ai_scheduler_settings_load(): array
+{
+    $defaults = ai_scheduler_settings_defaults();
+    $path = ai_scheduler_settings_path();
+
+    if (!is_file($path)) {
+        return $defaults;
+    }
+
+    $contents = file_get_contents($path);
+    if ($contents === false || trim($contents) === '') {
+        return $defaults;
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('ai_scheduler_settings_load: failed to decode settings: ' . $exception->getMessage());
+        return $defaults;
+    }
+
+    if (!is_array($decoded)) {
+        return $defaults;
+    }
+
+    $settings = array_merge($defaults, $decoded);
+    $settings['enabled'] = (bool) ($settings['enabled'] ?? false);
+    $settings['topic'] = is_string($settings['topic'] ?? null) ? trim((string) $settings['topic']) : '';
+    $settings['frequency'] = ai_scheduler_normalize_frequency($settings['frequency'] ?? 'weekly');
+    $settings['last_run'] = is_string($settings['last_run'] ?? null) ? $settings['last_run'] : null;
+    $settings['next_run'] = is_string($settings['next_run'] ?? null) ? $settings['next_run'] : null;
+
+    return $settings;
+}
+
+function ai_scheduler_calculate_next_run(string $frequency, ?DateTimeImmutable $reference = null): DateTimeImmutable
+{
+    $reference = $reference ?? new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+    $frequency = ai_scheduler_normalize_frequency($frequency);
+
+    switch ($frequency) {
+        case 'daily':
+            return $reference->modify('+1 day');
+        case 'monthly':
+            return $reference->modify('+1 month');
+        case 'weekly':
+        default:
+            return $reference->modify('+7 days');
+    }
+}
+
+function ai_scheduler_settings_save(array $settings): array
+{
+    $current = ai_scheduler_settings_load();
+    $merged = array_merge($current, $settings);
+    $merged['enabled'] = (bool) ($merged['enabled'] ?? false);
+    $merged['topic'] = is_string($merged['topic'] ?? null) ? trim((string) $merged['topic']) : '';
+    $merged['frequency'] = ai_scheduler_normalize_frequency($merged['frequency'] ?? 'weekly');
+
+    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+    $lastRun = null;
+    if (isset($merged['last_run']) && is_string($merged['last_run'])) {
+        try {
+            $lastRun = new DateTimeImmutable($merged['last_run']);
+        } catch (Throwable $exception) {
+            $lastRun = null;
+        }
+    }
+
+    if ($lastRun === null && $merged['last_run'] !== null) {
+        $merged['last_run'] = null;
+    }
+
+    if ($merged['enabled']) {
+        $reference = $lastRun ?? $now;
+        $nextRun = ai_scheduler_calculate_next_run($merged['frequency'], $reference);
+        if ($nextRun <= $now) {
+            $nextRun = ai_scheduler_calculate_next_run($merged['frequency'], $now);
+        }
+        $merged['next_run'] = $nextRun->format(DateTimeInterface::ATOM);
+    } else {
+        $merged['next_run'] = null;
+    }
+
+    $payload = json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode scheduler settings.');
+    }
+
+    if (file_put_contents(ai_scheduler_settings_path(), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist scheduler settings.');
+    }
+
+    return $merged;
+}
+
+function ai_scheduler_logs_load(): array
+{
+    $path = ai_scheduler_logs_path();
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $contents = file_get_contents($path);
+    if ($contents === false || trim($contents) === '') {
+        return [];
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('ai_scheduler_logs_load: failed to decode log file: ' . $exception->getMessage());
+        return [];
+    }
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function ai_scheduler_logs_append(array $entry): void
+{
+    $logs = ai_scheduler_logs_load();
+    $entry['id'] = $entry['id'] ?? bin2hex(random_bytes(6));
+    $entry['created_at'] = $entry['created_at'] ?? (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))->format(DateTimeInterface::ATOM);
+    $logs[] = $entry;
+
+    if (count($logs) > 50) {
+        $logs = array_slice($logs, -50);
+    }
+
+    $payload = json_encode($logs, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode scheduler logs.');
+    }
+
+    if (file_put_contents(ai_scheduler_logs_path(), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist scheduler logs.');
+    }
+}
+
+function ai_scheduler_store_generated_post(array $draft): string
+{
+    $draft['created_at'] = $draft['created_at'] ?? (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))->format(DateTimeInterface::ATOM);
+    $fileName = 'draft_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.json';
+    $path = ai_scheduler_generated_dir() . '/' . $fileName;
+    $payload = json_encode($draft, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode generated draft.');
+    }
+
+    if (file_put_contents($path, $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to store generated draft.');
+    }
+
+    return $path;
+}
+
+function ai_usage_dir(): string
+{
+    $path = ai_storage_dir() . '/usage';
+    if (!is_dir($path)) {
+        mkdir($path, 0775, true);
+    }
+
+    return $path;
+}
+
+function ai_usage_metrics_path(): string
+{
+    return ai_usage_dir() . '/metrics.json';
+}
+
+function ai_usage_pricing_path(): string
+{
+    return ai_usage_dir() . '/pricing.json';
+}
+
+function ai_usage_pricing_defaults(): array
+{
+    return [
+        'text' => [
+            'input_per_million' => 1.25,
+            'output_per_million' => 5.0,
+        ],
+        'image' => [
+            'per_call' => 0.06,
+        ],
+        'tts' => [
+            'per_thousand_chars' => 0.015,
+        ],
+    ];
+}
+
+function ai_usage_pricing_load(): array
+{
+    $defaults = ai_usage_pricing_defaults();
+    $path = ai_usage_pricing_path();
+
+    if (!is_file($path)) {
+        file_put_contents($path, json_encode($defaults, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        return $defaults;
+    }
+
+    $contents = file_get_contents($path);
+    if ($contents === false || trim($contents) === '') {
+        return $defaults;
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('ai_usage_pricing_load: failed to decode pricing: ' . $exception->getMessage());
+        return $defaults;
+    }
+
+    if (!is_array($decoded)) {
+        return $defaults;
+    }
+
+    return array_replace_recursive($defaults, $decoded);
+}
+
+function ai_usage_metrics_defaults(): array
+{
+    return [
+        'daily' => [
+            'date' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))->format('Y-m-d'),
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ],
+        'monthly' => [
+            'month' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))->format('Y-m'),
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ],
+        'aggregate' => [
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ],
+    ];
+}
+
+function ai_usage_metrics_load(): array
+{
+    $defaults = ai_usage_metrics_defaults();
+    $path = ai_usage_metrics_path();
+
+    if (!is_file($path)) {
+        file_put_contents($path, json_encode($defaults, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        return $defaults;
+    }
+
+    $contents = file_get_contents($path);
+    if ($contents === false || trim($contents) === '') {
+        return $defaults;
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('ai_usage_metrics_load: failed to decode metrics: ' . $exception->getMessage());
+        return $defaults;
+    }
+
+    if (!is_array($decoded)) {
+        return $defaults;
+    }
+
+    return array_replace_recursive($defaults, $decoded);
+}
+
+function ai_usage_metrics_save(array $metrics): void
+{
+    $payload = json_encode($metrics, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode usage metrics.');
+    }
+
+    if (file_put_contents(ai_usage_metrics_path(), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist usage metrics.');
+    }
+}
+
+function ai_estimate_tokens(string $text): int
+{
+    $text = trim($text);
+    if ($text === '') {
+        return 0;
+    }
+
+    $length = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+    return max(1, (int) ceil($length / 4));
+}
+
+function ai_usage_register_text(string $inputText, string $outputText, string $model, array $context = []): void
+{
+    $pricing = ai_usage_pricing_load();
+    $metrics = ai_usage_metrics_load();
+    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+    $today = $now->format('Y-m-d');
+    $month = $now->format('Y-m');
+
+    $inputTokens = ai_estimate_tokens($inputText);
+    $outputTokens = ai_estimate_tokens($outputText);
+    $cost = 0.0;
+    $textPricing = $pricing['text'];
+    $cost += ($inputTokens / 1_000_000) * (float) ($textPricing['input_per_million'] ?? 0);
+    $cost += ($outputTokens / 1_000_000) * (float) ($textPricing['output_per_million'] ?? 0);
+
+    if (($metrics['daily']['date'] ?? '') !== $today) {
+        $metrics['daily'] = [
+            'date' => $today,
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ];
+    }
+
+    if (($metrics['monthly']['month'] ?? '') !== $month) {
+        $metrics['monthly'] = [
+            'month' => $month,
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ];
+    }
+
+    $metrics['daily']['input_tokens'] += $inputTokens;
+    $metrics['daily']['output_tokens'] += $outputTokens;
+    $metrics['daily']['cost'] += $cost;
+
+    $metrics['monthly']['input_tokens'] += $inputTokens;
+    $metrics['monthly']['output_tokens'] += $outputTokens;
+    $metrics['monthly']['cost'] += $cost;
+
+    $metrics['aggregate']['input_tokens'] += $inputTokens;
+    $metrics['aggregate']['output_tokens'] += $outputTokens;
+    $metrics['aggregate']['cost'] += $cost;
+
+    ai_usage_metrics_save($metrics);
+}
+
+function ai_usage_register_image(array $context = []): void
+{
+    $pricing = ai_usage_pricing_load();
+    $metrics = ai_usage_metrics_load();
+    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+    $today = $now->format('Y-m-d');
+    $month = $now->format('Y-m');
+    $cost = (float) ($pricing['image']['per_call'] ?? 0);
+
+    if (($metrics['daily']['date'] ?? '') !== $today) {
+        $metrics['daily'] = [
+            'date' => $today,
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ];
+    }
+
+    if (($metrics['monthly']['month'] ?? '') !== $month) {
+        $metrics['monthly'] = [
+            'month' => $month,
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ];
+    }
+
+    $metrics['daily']['cost'] += $cost;
+    $metrics['monthly']['cost'] += $cost;
+    $metrics['aggregate']['cost'] += $cost;
+
+    ai_usage_metrics_save($metrics);
+}
+
+function ai_usage_register_tts(string $text, array $context = []): void
+{
+    $pricing = ai_usage_pricing_load();
+    $metrics = ai_usage_metrics_load();
+    $now = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+    $today = $now->format('Y-m-d');
+    $month = $now->format('Y-m');
+
+    $length = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+    $thousands = max(1, (int) ceil($length / 1000));
+    $cost = $thousands * (float) ($pricing['tts']['per_thousand_chars'] ?? 0);
+
+    if (($metrics['daily']['date'] ?? '') !== $today) {
+        $metrics['daily'] = [
+            'date' => $today,
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ];
+    }
+
+    if (($metrics['monthly']['month'] ?? '') !== $month) {
+        $metrics['monthly'] = [
+            'month' => $month,
+            'input_tokens' => 0,
+            'output_tokens' => 0,
+            'cost' => 0.0,
+        ];
+    }
+
+    $metrics['daily']['cost'] += $cost;
+    $metrics['monthly']['cost'] += $cost;
+    $metrics['aggregate']['cost'] += $cost;
+
+    ai_usage_metrics_save($metrics);
+}
+
+function ai_usage_summary(): array
+{
+    $metrics = ai_usage_metrics_load();
+
+    return [
+        'daily' => $metrics['daily'],
+        'monthly' => $metrics['monthly'],
+        'aggregate' => $metrics['aggregate'],
+        'pricing' => ai_usage_pricing_load(),
+    ];
+}
+
+function ai_error_log_path(): string
+{
+    return ai_usage_dir() . '/errors.json';
+}
+
+function ai_error_log_load(): array
+{
+    $path = ai_error_log_path();
+    if (!is_file($path)) {
+        return [];
+    }
+
+    $contents = file_get_contents($path);
+    if ($contents === false || trim($contents) === '') {
+        return [];
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('ai_error_log_load: failed to decode errors: ' . $exception->getMessage());
+        return [];
+    }
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function ai_error_log_save(array $entries): void
+{
+    $payload = json_encode($entries, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode error log.');
+    }
+
+    if (file_put_contents(ai_error_log_path(), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist error log.');
+    }
+}
+
+function ai_error_log_append(string $type, string $message, array $context = []): void
+{
+    $entries = ai_error_log_load();
+    $entries[] = [
+        'id' => bin2hex(random_bytes(6)),
+        'type' => $type,
+        'message' => $message,
+        'context' => $context,
+        'created_at' => (new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata')))->format(DateTimeInterface::ATOM),
+    ];
+
+    if (count($entries) > 100) {
+        $entries = array_slice($entries, -100);
+    }
+
+    ai_error_log_save($entries);
 }
 
