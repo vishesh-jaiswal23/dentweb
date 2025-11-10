@@ -12628,6 +12628,211 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   font-size: 1rem;
 }
 
+.smart-marketing__connectors {
+  display: grid;
+  gap: 1rem;
+}
+
+.smart-marketing__connector-card {
+  background: #f7f9fb;
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid #e4e7ec;
+}
+
+.smart-marketing__connector-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.smart-marketing__connector-fields {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.smart-marketing__connector-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.smart-marketing__connector-fields select,
+.smart-marketing__connector-fields input {
+  border-radius: 0.65rem;
+  border: 1px solid #d8dde6;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.95rem;
+}
+
+.smart-marketing__connector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.smart-marketing__connector-meta {
+  font-size: 0.85rem;
+  color: #4a4d52;
+  margin: 0;
+}
+
+.smart-marketing__campaign-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.smart-marketing__campaign-form fieldset {
+  border: 1px solid #e4e7ec;
+  border-radius: 1rem;
+  padding: 0.85rem 1.1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.smart-marketing__campaign-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.smart-marketing__campaign-form select,
+.smart-marketing__campaign-form input {
+  border-radius: 0.7rem;
+  border: 1px solid #d8dde6;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.95rem;
+}
+
+.smart-marketing__campaign-types {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.smart-marketing__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 0.7rem;
+  border: 1px solid #d8dde6;
+  background: #f1f4fa;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.smart-marketing__checkbox input {
+  width: auto;
+}
+
+.smart-marketing__radio {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.smart-marketing__landing-fields {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.smart-marketing__campaigns {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.smart-marketing__campaign {
+  border: 1px solid #e4e7ec;
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  background: #ffffff;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.smart-marketing__campaign header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.smart-marketing__campaign-meta {
+  font-size: 0.85rem;
+  color: #4a4d52;
+}
+
+.smart-marketing__campaign dl {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.smart-marketing__campaign dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.smart-marketing__campaign dl dt {
+  font-weight: 600;
+}
+
+.smart-marketing__campaign dl dd {
+  margin: 0;
+  color: #30323a;
+  text-align: right;
+  flex: 1;
+}
+
+.smart-marketing__automation {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.smart-marketing__automation-entry {
+  border: 1px solid #e4e7ec;
+  border-radius: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f7f9fb;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.smart-marketing__automation-entry header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 600;
+}
+
+.smart-marketing__automation-entry span {
+  font-size: 0.85rem;
+  color: #4a4d52;
+}
+
+.smart-marketing__automation-entry p {
+  margin: 0;
+}
+
+.smart-marketing__automation-meta {
+  font-size: 0.85rem;
+  color: #4a4d52;
+}
+
 .smart-marketing__chip-group {
   display: flex;
   flex-wrap: wrap;
