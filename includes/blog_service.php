@@ -6,31 +6,33 @@ final class BlogService
     private string $root;
     private string $draftDir;
     private string $publishedDir;
+    private string $assetDir;
     private string $cacheDir;
+    private string $tempDir;
     private string $lockDir;
+    private string $projectRoot;
 
     public function __construct(?string $root = null)
     {
-        $this->root = $root ?? __DIR__ . '/../storage/blog';
+        $this->projectRoot = realpath(__DIR__ . '/..') ?: (__DIR__ . '/..');
+        $this->root = $root ?? $this->projectRoot . '/storage/blog';
         $this->draftDir = $this->root . '/drafts';
         $this->publishedDir = $this->root . '/published';
+        $this->assetDir = $this->root . '/assets';
         $this->cacheDir = $this->root . '/cache';
+        $this->tempDir = $this->root . '/tmp';
         $this->lockDir = $this->root . '/locks';
 
-        $this->ensureDirectory($this->root);
-        $this->ensureDirectory($this->draftDir);
-        $this->ensureDirectory($this->publishedDir);
-        $this->ensureDirectory($this->cacheDir);
-        $this->ensureDirectory($this->lockDir);
+        $this->initialiseStorage();
     }
 
     public function createDraft(array $input): array
     {
-        $payload = $this->normaliseDraftPayload($input);
-        $this->assertValidDraft($payload);
+        $payload = $this->normaliseDraftPayload($input, null);
+        $this->assertValidDraftPayload($payload);
 
         $draftId = $this->generateDraftId();
-        $slug = $this->generateSlug($payload['title']);
+        $slug = $payload['slug'] !== '' ? $this->slugify($payload['slug']) : $this->generateSlug($payload['title']);
         $now = $this->now();
 
         $metadata = [
@@ -40,12 +42,12 @@ final class BlogService
             'status' => 'draft',
             'created_at' => $now,
             'updated_at' => $now,
-            'author' => $payload['author'],
             'tags' => $payload['tags'],
             'summary' => $payload['summary'],
             'hero_image' => $payload['hero_image'],
             'hero_image_alt' => $payload['hero_image_alt'],
             'attachments' => $payload['attachments'],
+            'author' => $payload['author'],
             'extra' => $payload['extra'],
         ];
 
@@ -56,18 +58,19 @@ final class BlogService
 
     public function updateDraft(string $draftId, array $input): array
     {
-        $draft = $this->getDraft($draftId);
-        $payload = $this->normaliseDraftPayload($input, $draft);
-        $this->assertValidDraft($payload);
+        $existing = $this->getDraft($draftId);
+        $payload = $this->normaliseDraftPayload($input, $existing);
+        $this->assertValidDraftPayload($payload);
 
-        $metadata = $draft['metadata'];
+        $metadata = $existing['metadata'];
         $metadata['title'] = $payload['title'];
+        $metadata['slug'] = $payload['slug'] !== '' ? $this->slugify($payload['slug']) : $metadata['slug'];
         $metadata['summary'] = $payload['summary'];
-        $metadata['author'] = $payload['author'];
         $metadata['tags'] = $payload['tags'];
         $metadata['hero_image'] = $payload['hero_image'];
         $metadata['hero_image_alt'] = $payload['hero_image_alt'];
         $metadata['attachments'] = $payload['attachments'];
+        $metadata['author'] = $payload['author'];
         $metadata['extra'] = $payload['extra'];
         $metadata['updated_at'] = $this->now();
 
@@ -84,10 +87,30 @@ final class BlogService
         }
 
         $metadata = $this->readJson($path . '/metadata.json');
+        if (!isset($metadata['draft_id'])) {
+            $metadata['draft_id'] = $draftId;
+        }
         $body = $this->readFile($path . '/content.html');
 
         return [
-            'metadata' => $metadata,
+            'metadata' => $this->hydrateMetadataDefaults($metadata),
+            'body_html' => $body,
+        ];
+    }
+
+    public function getPublished(string $slug): array
+    {
+        $slug = $this->slugify($slug);
+        $path = $this->publishedDir . '/' . $slug;
+        if (!is_dir($path)) {
+            throw new RuntimeException('Published post not found.');
+        }
+
+        $metadata = $this->readJson($path . '/metadata.json');
+        $body = $this->readFile($path . '/content.html');
+
+        return [
+            'metadata' => $this->hydrateMetadataDefaults($metadata, false),
             'body_html' => $body,
         ];
     }
@@ -100,12 +123,11 @@ final class BlogService
             if (!is_file($metadataPath)) {
                 continue;
             }
-            $metadata = $this->readJson($metadataPath);
+            $metadata = $this->hydrateMetadataDefaults($this->readJson($metadataPath));
             $body = '';
-            try {
-                $body = $this->readFile($entry . '/content.html');
-            } catch (Throwable $exception) {
-                $body = '';
+            $bodyPath = $entry . '/content.html';
+            if (is_file($bodyPath)) {
+                $body = $this->readFile($bodyPath);
             }
             $drafts[] = $this->formatDraftResponse($metadata, $body);
         }
@@ -126,7 +148,7 @@ final class BlogService
             if (!is_file($metadataPath) || !is_file($contentPath)) {
                 continue;
             }
-            $metadata = $this->readJson($metadataPath);
+            $metadata = $this->hydrateMetadataDefaults($this->readJson($metadataPath), false);
             $body = $this->readFile($contentPath);
             $posts[] = $this->formatPublishedResponse($metadata, $body);
         }
@@ -138,42 +160,87 @@ final class BlogService
         return $posts;
     }
 
+    public function attachAssets(string $draftId, array $assets): array
+    {
+        $draft = $this->getDraft($draftId);
+        $metadata = $draft['metadata'];
+        $added = [];
+
+        foreach ($assets as $asset) {
+            $stored = $this->storeAssetDescriptor($asset);
+            if ($stored === null) {
+                continue;
+            }
+            $metadata['attachments'][] = $stored['internal_path'];
+            $added[] = $stored;
+        }
+
+        if (!empty($added)) {
+            $metadata['attachments'] = array_values(array_unique($metadata['attachments']));
+            $metadata['updated_at'] = $this->now();
+            $this->writeDraft($draftId, $metadata, $draft['body_html']);
+        }
+
+        return $added;
+    }
+
+    public function detachAsset(string $draftId, string $relativePath): array
+    {
+        $draft = $this->getDraft($draftId);
+        $metadata = $draft['metadata'];
+        $normalised = $this->normaliseRelativePath($relativePath);
+        $metadata['attachments'] = array_values(array_filter($metadata['attachments'], function ($candidate) use ($normalised) {
+            return $this->normaliseRelativePath((string) $candidate) !== $normalised;
+        }));
+        $metadata['updated_at'] = $this->now();
+        $this->writeDraft($draftId, $metadata, $draft['body_html']);
+
+        return $this->formatDraftResponse($metadata, $draft['body_html']);
+    }
+
     public function publishPost(string $draftId, array $context = []): array
     {
+        $contextId = $this->newContextId();
+        $this->logTelemetry('blog_publish_attempt', [
+            'draft_id' => $draftId,
+            'context_id' => $contextId,
+        ]);
+
+        $metadata = [];
         $lock = $this->acquireLock('draft_' . $draftId);
         try {
             $draft = $this->getDraft($draftId);
             $metadata = $draft['metadata'];
-            if (($metadata['status'] ?? 'draft') === 'published') {
-                throw new RuntimeException('This draft has already been published.');
-            }
+            $body = $draft['body_html'];
+            $this->assertPublishable($metadata, $body);
 
-            $body = $draft['body_html'] ?? '';
-            $publishedAt = $this->now();
-            $slug = $metadata['slug'];
-            $publishedPath = $this->publishedDir . '/' . $slug;
-            if (is_dir($publishedPath)) {
-                throw new RuntimeException('A published post with this slug already exists.');
-            }
-            $this->ensureDirectory($publishedPath);
-            $assetsDir = $publishedPath . '/assets';
+            $resolvedSlug = $this->resolvePublishSlug($metadata['slug'], $metadata['draft_id']);
+            $publishedDir = $this->publishedDir . '/' . $resolvedSlug;
+            $stagingDir = $this->tempDir . '/publish_' . $resolvedSlug . '_' . bin2hex(random_bytes(4));
+            $this->ensureEmptyDirectory($stagingDir);
+            $assetsDir = $stagingDir . '/assets';
             $this->ensureDirectory($assetsDir);
 
-            $heroImage = $this->moveAssetIfPresent($metadata['hero_image'] ?? '', $assetsDir, 'hero');
-            $attachments = [];
-            foreach ($metadata['attachments'] ?? [] as $index => $attachment) {
-                $attachments[] = $this->moveAssetIfPresent($attachment, $assetsDir, 'asset_' . $index);
+            $heroPath = '';
+            if ($metadata['hero_image'] !== '') {
+                $heroPath = $this->materialiseAsset($metadata['hero_image'], $assetsDir, $resolvedSlug, 'hero');
             }
 
+            $attachments = [];
+            foreach ($metadata['attachments'] as $index => $attachmentPath) {
+                $attachments[] = $this->materialiseAsset($attachmentPath, $assetsDir, $resolvedSlug, 'asset_' . $index);
+            }
+
+            $publishedAt = $this->now();
             $publishedMetadata = [
                 'post_id' => $metadata['draft_id'],
                 'draft_id' => $metadata['draft_id'],
                 'title' => $metadata['title'],
-                'slug' => $slug,
+                'slug' => $resolvedSlug,
                 'status' => 'published',
                 'summary' => $metadata['summary'],
                 'tags' => $metadata['tags'],
-                'hero_image' => $heroImage,
+                'hero_image' => $heroPath,
                 'hero_image_alt' => $metadata['hero_image_alt'],
                 'attachments' => $attachments,
                 'author' => $metadata['author'],
@@ -183,19 +250,41 @@ final class BlogService
                 'extra' => $metadata['extra'],
             ];
 
-            $this->writeJson($publishedPath . '/metadata.json', $publishedMetadata);
-            $this->writeFileAtomic($publishedPath . '/content.html', $body);
+            $this->writeJson($stagingDir . '/metadata.json', $publishedMetadata);
+            $this->writeFileAtomic($stagingDir . '/content.html', $body);
 
-            $metadata['status'] = 'published';
-            $metadata['published_at'] = $publishedAt;
-            $metadata['hero_image'] = $heroImage;
-            $metadata['attachments'] = $attachments;
-            $metadata['updated_at'] = $publishedAt;
-            $this->writeJson($this->draftDir . '/' . $draftId . '/metadata.json', $metadata);
+            $finalDir = $publishedDir;
+            if (is_dir($finalDir)) {
+                $this->ensureEmptyDirectory($finalDir, true);
+            }
+            $this->ensureDirectory(dirname($finalDir));
+            if (!rename($stagingDir, $finalDir)) {
+                throw new RuntimeException('Failed to finalise published article.');
+            }
+
+            $metadata['slug'] = $resolvedSlug;
+            $metadata['extra']['last_published_at'] = $publishedAt;
+            $metadata['extra']['last_published_slug'] = $resolvedSlug;
+            $metadata['updated_at'] = $this->now();
+            $this->writeDraft($metadata['draft_id'], $metadata, $body);
 
             $this->refreshCache();
 
-            return $this->formatPublishedResponse($publishedMetadata, $body);
+            $result = $this->formatPublishedResponse($publishedMetadata, $body);
+            $this->logTelemetry('blog_publish_success', [
+                'draft_id' => $draftId,
+                'slug' => $resolvedSlug,
+                'context_id' => $contextId,
+            ]);
+            return $result;
+        } catch (Throwable $exception) {
+            $this->logTelemetry('blog_publish_error', [
+                'draft_id' => $draftId,
+                'slug' => $metadata['slug'] ?? null,
+                'context_id' => $contextId,
+                'developer_message' => $exception->getMessage(),
+            ]);
+            throw $exception;
         } finally {
             if ($lock !== null) {
                 flock($lock, LOCK_UN);
@@ -204,45 +293,107 @@ final class BlogService
         }
     }
 
-    public function attachAssets(string $draftId, array $assets): array
+    public function unpublishPost(string $slug): array
     {
-        $draftPath = $this->draftDir . '/' . $draftId;
-        if (!is_dir($draftPath)) {
-            throw new RuntimeException('Draft not found for asset attachment.');
-        }
-        $assetsDir = $draftPath . '/assets';
-        $this->ensureDirectory($assetsDir);
+        $slug = $this->slugify($slug);
+        $lock = $this->acquireLock('slug_' . $slug);
+        try {
+            $published = $this->getPublished($slug);
+            $metadata = $published['metadata'];
+            $body = $published['body_html'];
 
-        $attached = [];
-        foreach ($assets as $asset) {
-            if (!is_array($asset)) {
-                continue;
+            $draftId = $metadata['draft_id'] ?? $this->generateDraftId();
+            $draftPath = $this->draftDir . '/' . $draftId;
+            $this->ensureDirectory($draftPath);
+
+            $heroAsset = '';
+            if ($metadata['hero_image'] !== '') {
+                $heroAsset = $this->restoreToAssetStore($metadata['hero_image']);
             }
-            $source = isset($asset['path']) ? (string) $asset['path'] : '';
-            if ($source === '') {
-                continue;
+
+            $attachments = [];
+            foreach ($metadata['attachments'] as $attachment) {
+                $attachments[] = $this->restoreToAssetStore($attachment);
             }
-            $preferredName = isset($asset['name']) ? (string) $asset['name'] : 'asset';
-            $attached[] = $this->copyAsset($source, $assetsDir, $preferredName);
+
+            $draftMetadata = [
+                'draft_id' => $draftId,
+                'title' => $metadata['title'],
+                'slug' => $metadata['slug'],
+                'status' => 'draft',
+                'created_at' => $metadata['created_at'],
+                'updated_at' => $this->now(),
+                'tags' => $metadata['tags'],
+                'summary' => $metadata['summary'],
+                'hero_image' => $heroAsset,
+                'hero_image_alt' => $metadata['hero_image_alt'],
+                'attachments' => $attachments,
+                'author' => $metadata['author'],
+                'extra' => $metadata['extra'],
+            ];
+
+            $this->writeDraft($draftId, $draftMetadata, $body);
+
+            $this->removeDirectory($this->publishedDir . '/' . $slug);
+            $this->refreshCache();
+
+            return $this->formatDraftResponse($draftMetadata, $body);
+        } finally {
+            if ($lock !== null) {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
         }
-
-        if (!$attached) {
-            return [];
-        }
-
-        $draft = $this->getDraft($draftId);
-        $metadata = $draft['metadata'];
-        $existing = $metadata['attachments'] ?? [];
-        $metadata['attachments'] = array_values(array_unique(array_merge($existing, $attached)));
-        $metadata['updated_at'] = $this->now();
-        $this->writeJson($draftPath . '/metadata.json', $metadata);
-
-        return $metadata['attachments'];
     }
 
-    private function normaliseDraftPayload(array $input, ?array $existing = null): array
+    public function deleteDraft(string $draftId): void
     {
-        $author = $input['author'] ?? ($existing['metadata']['author'] ?? []);
+        $path = $this->draftDir . '/' . $draftId;
+        if (!is_dir($path)) {
+            return;
+        }
+        $this->removeDirectory($path);
+    }
+
+    public function deletePublished(string $slug): void
+    {
+        $slug = $this->slugify($slug);
+        $path = $this->publishedDir . '/' . $slug;
+        if (!is_dir($path)) {
+            return;
+        }
+        $this->removeDirectory($path);
+        $this->refreshCache();
+    }
+
+    public function rebuildIndex(): void
+    {
+        $this->refreshCache();
+    }
+
+    public function healthCheck(): array
+    {
+        return [
+            'drafts' => $this->isWritable($this->draftDir),
+            'published' => $this->isWritable($this->publishedDir),
+            'assets' => $this->isWritable($this->assetDir),
+        ];
+    }
+
+    private function initialiseStorage(): void
+    {
+        foreach ([$this->root, $this->draftDir, $this->publishedDir, $this->assetDir, $this->cacheDir, $this->tempDir, $this->lockDir] as $dir) {
+            $this->ensureDirectory($dir);
+        }
+
+        $this->repairLegacyDrafts();
+        $this->repairLegacyPublished();
+    }
+
+    private function normaliseDraftPayload(array $input, ?array $existing): array
+    {
+        $existingMeta = $existing['metadata'] ?? [];
+        $author = $input['author'] ?? ($existingMeta['author'] ?? []);
         if (!is_array($author)) {
             $author = [];
         }
@@ -255,19 +406,22 @@ final class BlogService
             $authorName = (string) $input['author_name'];
         }
 
+        $body = $input['body_html'] ?? $input['body'] ?? ($existing['body_html'] ?? '');
+
         return [
-            'title' => trim((string) ($input['title'] ?? '')),
-            'summary' => trim((string) ($input['summary'] ?? ($existing['metadata']['summary'] ?? ''))),
-            'body_html' => trim((string) ($input['body_html'] ?? '')),
-            'tags' => $this->normaliseTags($input['tags'] ?? []),
-            'hero_image' => trim((string) ($input['hero_image'] ?? ($existing['metadata']['hero_image'] ?? ''))),
-            'hero_image_alt' => trim((string) ($input['hero_image_alt'] ?? ($existing['metadata']['hero_image_alt'] ?? ''))),
-            'attachments' => $this->normaliseAttachments($input['attachments'] ?? []),
+            'title' => trim((string) ($input['title'] ?? ($existingMeta['title'] ?? ''))),
+            'slug' => trim((string) ($input['slug'] ?? ($existingMeta['slug'] ?? ''))),
+            'summary' => trim((string) ($input['summary'] ?? ($existingMeta['summary'] ?? ''))),
+            'body_html' => (string) $body,
+            'tags' => $this->normaliseTags($input['tags'] ?? ($existingMeta['tags'] ?? [])),
+            'hero_image' => $this->normaliseRelativePath($input['hero_image'] ?? ($existingMeta['hero_image'] ?? '')),
+            'hero_image_alt' => trim((string) ($input['hero_image_alt'] ?? ($existingMeta['hero_image_alt'] ?? ''))),
+            'attachments' => $this->normaliseAttachments($input['attachments'] ?? ($existingMeta['attachments'] ?? [])),
             'author' => [
                 'id' => $authorId,
-                'name' => $authorName,
+                'name' => $authorName !== '' ? $authorName : 'Administrator',
             ],
-            'extra' => $this->normaliseExtra($input['extra'] ?? []),
+            'extra' => is_array($input['extra'] ?? null) ? $input['extra'] : ($existingMeta['extra'] ?? []),
         ];
     }
 
@@ -278,14 +432,13 @@ final class BlogService
             foreach ($tags as $tag) {
                 if (is_string($tag)) {
                     $label = trim($tag);
-                    if ($label !== '') {
-                        $normalised[] = $label;
-                    }
                 } elseif (is_array($tag) && isset($tag['name'])) {
                     $label = trim((string) $tag['name']);
-                    if ($label !== '') {
-                        $normalised[] = $label;
-                    }
+                } else {
+                    $label = '';
+                }
+                if ($label !== '') {
+                    $normalised[] = $label;
                 }
             }
         }
@@ -299,12 +452,14 @@ final class BlogService
         $normalised = [];
         if (is_array($attachments)) {
             foreach ($attachments as $attachment) {
-                $path = '';
                 if (is_string($attachment)) {
-                    $path = trim($attachment);
+                    $path = $attachment;
                 } elseif (is_array($attachment) && isset($attachment['path'])) {
-                    $path = trim((string) $attachment['path']);
+                    $path = (string) $attachment['path'];
+                } else {
+                    $path = '';
                 }
+                $path = $this->normaliseRelativePath($path);
                 if ($path !== '') {
                     $normalised[] = $path;
                 }
@@ -313,30 +468,212 @@ final class BlogService
         return array_values(array_unique($normalised));
     }
 
-    private function normaliseExtra($extra): array
+    private function hydrateMetadataDefaults(array $metadata, bool $isDraft = true): array
     {
-        if (!is_array($extra)) {
-            return [];
+        $metadata['draft_id'] = (string) ($metadata['draft_id'] ?? ($metadata['post_id'] ?? ''));
+        if ($isDraft) {
+            $metadata['status'] = 'draft';
+        } else {
+            $metadata['status'] = 'published';
         }
-        return $extra;
+        $metadata['title'] = (string) ($metadata['title'] ?? '');
+        $metadata['slug'] = $this->slugify((string) ($metadata['slug'] ?? ''));
+        $metadata['summary'] = (string) ($metadata['summary'] ?? '');
+        $metadata['tags'] = $this->normaliseTags($metadata['tags'] ?? []);
+        $metadata['hero_image'] = $this->normaliseRelativePath($metadata['hero_image'] ?? '');
+        $metadata['hero_image_alt'] = (string) ($metadata['hero_image_alt'] ?? '');
+        $metadata['attachments'] = $this->normaliseAttachments($metadata['attachments'] ?? []);
+        $metadata['author'] = is_array($metadata['author'] ?? null) ? $metadata['author'] : ['id' => '', 'name' => ''];
+        $metadata['extra'] = is_array($metadata['extra'] ?? null) ? $metadata['extra'] : [];
+        return $metadata;
     }
 
-    private function assertValidDraft(array $payload): void
+    private function assertValidDraftPayload(array $payload): void
     {
         if ($payload['title'] === '') {
             throw new RuntimeException('Title is required.');
         }
-        if ($payload['body_html'] === '') {
-            throw new RuntimeException('Content is required.');
+        if (trim($payload['body_html']) === '') {
+            throw new RuntimeException('Body content is required.');
         }
     }
 
-    private function writeDraft(string $draftId, array $metadata, string $body): void
+    private function assertPublishable(array $metadata, string $body): void
     {
-        $draftPath = $this->draftDir . '/' . $draftId;
-        $this->ensureDirectory($draftPath);
-        $this->writeJson($draftPath . '/metadata.json', $metadata);
-        $this->writeFileAtomic($draftPath . '/content.html', $body);
+        if (trim((string) $metadata['title']) === '') {
+            throw new RuntimeException('Title is required before publishing.');
+        }
+        if (trim($body) === '') {
+            throw new RuntimeException('Body content is required before publishing.');
+        }
+        if ($metadata['slug'] === '') {
+            throw new RuntimeException('Slug is missing for this draft.');
+        }
+
+        foreach ($metadata['attachments'] as $path) {
+            $this->guardReadableAsset($path);
+        }
+        if ($metadata['hero_image'] !== '') {
+            $this->guardReadableAsset($metadata['hero_image']);
+        }
+    }
+
+    private function resolvePublishSlug(string $slug, string $draftId): string
+    {
+        $slug = $this->slugify($slug !== '' ? $slug : 'post');
+        $candidate = $slug;
+        $existing = $this->publishedDir . '/' . $candidate;
+        while (is_dir($existing)) {
+            try {
+                $current = $this->readJson($existing . '/metadata.json');
+                if (($current['draft_id'] ?? '') === $draftId) {
+                    return $candidate;
+                }
+            } catch (Throwable $exception) {
+                // ignore
+            }
+            $candidate = $slug . '-' . substr($this->randomBase36(), 0, 6);
+            $existing = $this->publishedDir . '/' . $candidate;
+        }
+        return $candidate;
+    }
+
+    private function materialiseAsset(string $relativePath, string $destinationDir, string $slug, string $basename): string
+    {
+        $source = $this->resolveRelativeToRoot($relativePath);
+        if (!is_file($source)) {
+            throw new RuntimeException(sprintf('Attachment missing: %s', $relativePath));
+        }
+        if (filesize($source) === 0) {
+            throw new RuntimeException(sprintf('Attachment is empty: %s', $relativePath));
+        }
+
+        $extension = strtolower((string) pathinfo($source, PATHINFO_EXTENSION));
+        $extension = $extension !== '' ? '.' . $extension : '';
+        $fileName = $basename . '_' . substr(bin2hex(random_bytes(6)), 0, 12) . $extension;
+        $target = rtrim($destinationDir, '/') . '/' . $fileName;
+        if (!copy($source, $target)) {
+            throw new RuntimeException('Failed to copy attachment into publish directory.');
+        }
+
+        $finalPath = $this->publishedDir . '/' . $slug . '/assets/' . $fileName;
+        return $this->relativePath($finalPath);
+    }
+
+    private function restoreToAssetStore(string $relativePath): string
+    {
+        $source = $this->resolveRelativeToRoot($relativePath);
+        if (!is_file($source)) {
+            throw new RuntimeException(sprintf('Attachment could not be restored: %s', $relativePath));
+        }
+        $extension = strtolower((string) pathinfo($source, PATHINFO_EXTENSION));
+        $extension = $extension !== '' ? '.' . $extension : '';
+        $targetName = 'asset_' . substr(bin2hex(random_bytes(6)), 0, 12) . $extension;
+        $target = $this->assetDir . '/' . $targetName;
+        if (!copy($source, $target)) {
+            throw new RuntimeException('Failed to move attachment back to draft.');
+        }
+        return $this->relativePath($target);
+    }
+
+    private function guardReadableAsset(string $relativePath): void
+    {
+        $path = $this->resolveRelativeToRoot($relativePath);
+        if (!is_file($path)) {
+            throw new RuntimeException(sprintf('Attachment not found: %s', $relativePath));
+        }
+        if (!is_readable($path)) {
+            throw new RuntimeException(sprintf('Attachment cannot be read: %s', $relativePath));
+        }
+        if (filesize($path) === 0) {
+            throw new RuntimeException(sprintf('Attachment is empty: %s', $relativePath));
+        }
+    }
+
+    private function storeAssetDescriptor($asset): ?array
+    {
+        if (is_array($asset) && isset($asset['tmp_name']) && is_uploaded_file($asset['tmp_name'] ?? '')) {
+            return $this->storeUploadedFile($asset);
+        }
+
+        $path = '';
+        $name = '';
+        if (is_array($asset)) {
+            $path = isset($asset['path']) ? (string) $asset['path'] : '';
+            $name = isset($asset['name']) ? (string) $asset['name'] : '';
+        } elseif (is_string($asset)) {
+            $path = $asset;
+        }
+
+        $path = $this->normaliseRelativePath($path);
+        if ($path === '') {
+            return null;
+        }
+
+        $absolute = $this->resolveRelativeToRoot($path);
+        if (!is_file($absolute)) {
+            throw new RuntimeException(sprintf('Asset path does not exist: %s', $path));
+        }
+        if (!is_readable($absolute)) {
+            throw new RuntimeException(sprintf('Asset is not readable: %s', $path));
+        }
+
+        $assetRootNormalised = rtrim(str_replace('\\', '/', $this->assetDir), '/');
+        $absoluteNormalised = str_replace('\\', '/', $absolute);
+        if (strpos($absoluteNormalised, $assetRootNormalised) === 0) {
+            $relative = $this->relativePath($absolute);
+            return [
+                'internal_path' => $relative,
+                'public_url' => $this->buildPublicUrl('/' . $relative),
+            ];
+        }
+
+        $extension = strtolower((string) pathinfo($name !== '' ? $name : $absolute, PATHINFO_EXTENSION));
+        $extension = $extension !== '' ? '.' . $extension : '';
+        $target = $this->assetDir . '/' . 'asset_' . substr(bin2hex(random_bytes(6)), 0, 12) . $extension;
+        if (!copy($absolute, $target)) {
+            throw new RuntimeException('Failed to copy asset into store.');
+        }
+
+        $relative = $this->relativePath($target);
+        return [
+            'internal_path' => $relative,
+            'public_url' => $this->buildPublicUrl('/' . $relative),
+        ];
+    }
+
+    private function storeUploadedFile(array $file): array
+    {
+        $tmpName = $file['tmp_name'] ?? '';
+        if (!is_string($tmpName) || $tmpName === '') {
+            throw new RuntimeException('Upload missing temporary file.');
+        }
+        if (!is_uploaded_file($tmpName)) {
+            throw new RuntimeException('Upload did not originate from HTTP POST.');
+        }
+        $original = isset($file['name']) ? (string) $file['name'] : 'asset';
+        $extension = strtolower((string) pathinfo($original, PATHINFO_EXTENSION));
+        $extension = $extension !== '' ? '.' . $extension : '';
+        $target = $this->assetDir . '/' . 'asset_' . substr(bin2hex(random_bytes(6)), 0, 12) . $extension;
+        if (!move_uploaded_file($tmpName, $target)) {
+            throw new RuntimeException('Failed to move uploaded asset into store.');
+        }
+
+        $relative = $this->relativePath($target);
+        return [
+            'internal_path' => $relative,
+            'public_url' => $this->buildPublicUrl('/' . $relative),
+        ];
+    }
+
+    private function writeDraft(string $draftId, array $metadata, string $bodyHtml): void
+    {
+        $path = $this->draftDir . '/' . $draftId;
+        $this->ensureDirectory($path);
+        $metadata['draft_id'] = $draftId;
+        $metadata['status'] = 'draft';
+        $this->writeJson($path . '/metadata.json', $metadata);
+        $this->writeFileAtomic($path . '/content.html', $bodyHtml);
     }
 
     private function formatDraftResponse(array $metadata, string $body): array
@@ -345,7 +682,7 @@ final class BlogService
             'draft_id' => $metadata['draft_id'],
             'title' => $metadata['title'],
             'slug' => $metadata['slug'],
-            'status' => $metadata['status'],
+            'status' => 'draft',
             'summary' => $metadata['summary'],
             'tags' => $metadata['tags'],
             'hero_image' => $metadata['hero_image'],
@@ -354,7 +691,7 @@ final class BlogService
             'author' => $metadata['author'],
             'created_at' => $metadata['created_at'],
             'updated_at' => $metadata['updated_at'],
-            'published_at' => $metadata['published_at'] ?? null,
+            'published_at' => $metadata['extra']['last_published_at'] ?? null,
             'body_html' => $body,
             'extra' => $metadata['extra'],
         ];
@@ -362,10 +699,10 @@ final class BlogService
 
     private function formatPublishedResponse(array $metadata, string $body): array
     {
-        $heroImageUrl = $metadata['hero_image'] !== '' ? $this->buildPublicUrl('/' . ltrim($metadata['hero_image'], '/')) : '';
+        $heroUrl = $metadata['hero_image'] !== '' ? $this->buildPublicUrl('/' . $metadata['hero_image']) : '';
         $attachmentUrls = [];
-        foreach ($metadata['attachments'] ?? [] as $item) {
-            $attachmentUrls[] = $this->buildPublicUrl('/' . ltrim($item, '/'));
+        foreach ($metadata['attachments'] as $item) {
+            $attachmentUrls[] = $this->buildPublicUrl('/' . $item);
         }
 
         return [
@@ -373,11 +710,11 @@ final class BlogService
             'draft_id' => $metadata['draft_id'],
             'title' => $metadata['title'],
             'slug' => $metadata['slug'],
-            'status' => $metadata['status'],
+            'status' => 'published',
             'summary' => $metadata['summary'],
             'tags' => $metadata['tags'],
             'hero_image' => $metadata['hero_image'],
-            'hero_image_url' => $heroImageUrl,
+            'hero_image_url' => $heroUrl,
             'hero_image_alt' => $metadata['hero_image_alt'],
             'attachments' => $metadata['attachments'],
             'attachment_urls' => $attachmentUrls,
@@ -391,121 +728,175 @@ final class BlogService
         ];
     }
 
-    private function generateDraftId(): string
+    private function refreshCache(): void
     {
-        do {
-            $id = 'drf_' . substr(bin2hex(random_bytes(8)), 0, 12);
-        } while (is_dir($this->draftDir . '/' . $id));
-        return $id;
-    }
-
-    private function generateSlug(string $title): string
-    {
-        $base = $this->slugify($title);
-        do {
-            $candidate = $base . '-' . substr($this->randomBase36(), 0, 6);
-        } while ($this->slugExists($candidate));
-        return $candidate;
-    }
-
-    private function randomBase36(): string
-    {
-        $bytes = random_bytes(4);
-        $value = unpack('N', $bytes)[1];
-        return strtolower(base_convert((string) $value, 10, 36));
-    }
-
-    private function slugExists(string $slug): bool
-    {
-        if (is_dir($this->publishedDir . '/' . $slug)) {
-            return true;
+        $posts = $this->listPublished();
+        $payload = json_encode($posts, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($payload === false) {
+            return;
         }
+        $this->writeFileAtomic($this->cacheDir . '/published_index.json', $payload);
+    }
+
+    private function repairLegacyDrafts(): void
+    {
         foreach ($this->scanDirectory($this->draftDir) as $entry) {
             $metaPath = $entry . '/metadata.json';
             if (!is_file($metaPath)) {
                 continue;
             }
             $metadata = $this->readJson($metaPath);
-            if (($metadata['slug'] ?? '') === $slug) {
-                return true;
+            $changed = false;
+            $draftId = basename($entry);
+            $attachments = $this->normaliseAttachments($metadata['attachments'] ?? []);
+            $convertedAttachments = [];
+            foreach ($attachments as $attachment) {
+                $converted = $this->maybePromoteLegacyAsset($attachment, $draftId);
+                if ($converted !== '') {
+                    $convertedAttachments[] = $converted;
+                }
+            }
+            $assetDir = $entry . '/assets';
+            if (is_dir($assetDir)) {
+                $handle = opendir($assetDir);
+                if ($handle !== false) {
+                    while (($file = readdir($handle)) !== false) {
+                        if ($file === '.' || $file === '..') {
+                            continue;
+                        }
+                        $absolute = $assetDir . '/' . $file;
+                        if (!is_file($absolute)) {
+                            continue;
+                        }
+                        $legacyRelative = $this->relativePath($absolute);
+                        $converted = $this->maybePromoteLegacyAsset($legacyRelative, $draftId);
+                        if ($converted !== '' && !in_array($converted, $convertedAttachments, true)) {
+                            $convertedAttachments[] = $converted;
+                        }
+                    }
+                    closedir($handle);
+                }
+            }
+            if (!empty($convertedAttachments) && $convertedAttachments !== $attachments) {
+                $metadata['attachments'] = array_values(array_unique($convertedAttachments));
+                $changed = true;
+            } elseif (!isset($metadata['attachments']) || !is_array($metadata['attachments'])) {
+                $metadata['attachments'] = [];
+                $changed = true;
+            }
+            if (isset($metadata['hero_image'])) {
+                $convertedHero = $this->maybePromoteLegacyAsset($metadata['hero_image'], $draftId);
+                if ($convertedHero !== $metadata['hero_image']) {
+                    $metadata['hero_image'] = $convertedHero;
+                    $changed = true;
+                }
+            }
+            if (!isset($metadata['attachments']) || !is_array($metadata['attachments'])) {
+                $metadata['attachments'] = [];
+                $changed = true;
+            }
+            if (!isset($metadata['extra']) || !is_array($metadata['extra'])) {
+                $metadata['extra'] = [];
+                $changed = true;
+            }
+            if ($changed) {
+                $this->writeJson($metaPath, $metadata);
             }
         }
-        return false;
     }
 
-    private function slugify(string $text): string
+    private function maybePromoteLegacyAsset(string $path, string $draftId): string
     {
-        $text = trim($text);
-        if ($text === '') {
-            return 'post';
-        }
-        $text = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text) ?: $text;
-        $text = strtolower($text);
-        $text = preg_replace('/[^a-z0-9]+/i', '-', $text) ?? '';
-        $text = trim($text, '-');
-        return $text !== '' ? $text : 'post';
-    }
-
-    private function moveAssetIfPresent(string $path, string $destinationDir, string $basename): string
-    {
-        $path = trim($path);
+        $path = $this->normaliseRelativePath($path);
         if ($path === '') {
             return '';
         }
-        return $this->copyAsset($path, $destinationDir, $basename);
+        $legacyPrefix = 'storage/blog/drafts/' . $draftId . '/assets/';
+        if (strpos($path, $legacyPrefix) === 0) {
+            $absolute = $this->resolveRelativeToRoot($path);
+            if (is_file($absolute)) {
+                try {
+                    $stored = $this->storeAssetDescriptor(['path' => $path]);
+                    if ($stored !== null) {
+                        return $stored['internal_path'];
+                    }
+                } catch (Throwable $exception) {
+                    // fall through to path return
+                }
+            }
+        }
+        return $path;
     }
 
-    private function copyAsset(string $source, string $destinationDir, string $basename): string
+    private function repairLegacyPublished(): void
     {
-        $sourcePath = $this->resolvePath($source);
-        if (!is_file($sourcePath)) {
-            return '';
+        foreach ($this->scanDirectory($this->publishedDir) as $entry) {
+            $metaPath = $entry . '/metadata.json';
+            if (!is_file($metaPath)) {
+                continue;
+            }
+            $metadata = $this->readJson($metaPath);
+            $changed = false;
+            if (!isset($metadata['attachments']) || !is_array($metadata['attachments'])) {
+                $metadata['attachments'] = [];
+                $changed = true;
+            }
+            if (!isset($metadata['extra']) || !is_array($metadata['extra'])) {
+                $metadata['extra'] = [];
+                $changed = true;
+            }
+            if ($changed) {
+                $this->writeJson($metaPath, $metadata);
+            }
         }
-        $extension = pathinfo($sourcePath, PATHINFO_EXTENSION);
-        $extension = $extension !== '' ? '.' . $extension : '';
-        $fileName = $basename . '_' . substr(bin2hex(random_bytes(6)), 0, 10) . $extension;
-        $targetPath = rtrim($destinationDir, '/') . '/' . $fileName;
-        if (!copy($sourcePath, $targetPath)) {
-            throw new RuntimeException('Failed to copy asset.');
-        }
-        $relative = $this->relativePath($targetPath);
-        return $relative;
     }
 
-    private function resolvePath(string $path): string
+    private function ensureDirectory(string $dir): void
     {
-        if (preg_match('#^https?://#i', $path)) {
-            throw new RuntimeException('Remote assets cannot be copied.');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
         }
-        if ($path !== '' && $path[0] === '/') {
-            $absolute = __DIR__ . '/../' . ltrim($path, '/');
-        } else {
-            $absolute = __DIR__ . '/../' . ltrim($path, '/');
-        }
-        return $absolute;
     }
 
-    private function relativePath(string $absolute): string
+    private function ensureEmptyDirectory(string $dir, bool $reuse = false): void
     {
-        $root = realpath(__DIR__ . '/..');
-        $absoluteReal = realpath($absolute);
-        if ($absoluteReal !== false && $root !== false && strpos($absoluteReal, $root) === 0) {
-            return ltrim(substr($absoluteReal, strlen($root)), '/');
+        if (is_dir($dir)) {
+            $this->removeDirectory($dir);
+            if (!$reuse) {
+                mkdir($dir, 0775, true);
+            }
+        } elseif (!$reuse) {
+            mkdir($dir, 0775, true);
         }
-        return ltrim(str_replace('\\', '/', $absolute), '/');
     }
 
-    private function buildPublicUrl(string $path): string
+    private function removeDirectory(string $dir): void
     {
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        return rtrim($scheme . '://' . $host, '/') . '/' . ltrim($path, '/');
+        if (!is_dir($dir)) {
+            return;
+        }
+        $items = scandir($dir);
+        if ($items === false) {
+            return;
+        }
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $item;
+            if (is_dir($path)) {
+                $this->removeDirectory($path);
+            } else {
+                @unlink($path);
+            }
+        }
+        @rmdir($dir);
     }
 
     private function scanDirectory(string $path): array
     {
         $items = [];
-        $handle = opendir($path);
+        $handle = @opendir($path);
         if ($handle === false) {
             return $items;
         }
@@ -564,30 +955,134 @@ final class BlogService
     {
         $dir = dirname($path);
         $this->ensureDirectory($dir);
-        $temp = tempnam($dir, 'blog');
+        $temp = tempnam($this->tempDir, 'blog');
         if ($temp === false) {
-            throw new RuntimeException('Failed to create temporary file for blog write.');
+            throw new RuntimeException('Failed to create temporary file for write.');
         }
         if (file_put_contents($temp, $contents) === false) {
             @unlink($temp);
-            throw new RuntimeException('Failed to write blog contents.');
+            throw new RuntimeException('Failed to write contents to temporary file.');
         }
         if (!rename($temp, $path)) {
             @unlink($temp);
-            throw new RuntimeException('Failed to persist blog contents.');
+            throw new RuntimeException('Failed to persist file atomically.');
         }
     }
 
-    private function ensureDirectory(string $dir): void
+    private function relativePath(string $absolute): string
     {
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
+        $absoluteNormalised = str_replace('\\', '/', $absolute);
+        if (strpos($absoluteNormalised, $this->projectRoot) === 0) {
+            $relative = substr($absoluteNormalised, strlen($this->projectRoot));
+            return ltrim($relative, '/');
         }
+        $absoluteReal = realpath($absolute);
+        if ($absoluteReal !== false && strpos(str_replace('\\', '/', $absoluteReal), $this->projectRoot) === 0) {
+            $relative = substr(str_replace('\\', '/', $absoluteReal), strlen($this->projectRoot));
+            return ltrim($relative, '/');
+        }
+        return ltrim($absoluteNormalised, '/');
+    }
+
+    private function normaliseRelativePath($path): string
+    {
+        if (!is_string($path)) {
+            return '';
+        }
+        $path = trim($path);
+        if ($path === '') {
+            return '';
+        }
+        $path = str_replace('\\', '/', $path);
+        $path = preg_replace('#/+.#', '/', $path) ?? $path;
+        $path = preg_replace('#/+#', '/', $path) ?? $path;
+        $path = ltrim($path, './');
+        if (preg_match('#(^|/)\.\.(?:/|$)#', $path)) {
+            throw new RuntimeException('Parent directory traversal is not allowed.');
+        }
+        return $path;
+    }
+
+    private function resolveRelativeToRoot(string $relative): string
+    {
+        $relative = $this->normaliseRelativePath($relative);
+        if ($relative === '') {
+            throw new RuntimeException('Empty path.');
+        }
+        return $this->projectRoot . '/' . $relative;
+    }
+
+    private function buildPublicUrl(string $path): string
+    {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        return rtrim($scheme . '://' . $host, '/') . '/' . ltrim($path, '/');
+    }
+
+    private function generateDraftId(): string
+    {
+        do {
+            $id = 'drf_' . substr(bin2hex(random_bytes(8)), 0, 12);
+        } while (is_dir($this->draftDir . '/' . $id));
+        return $id;
+    }
+
+    private function generateSlug(string $title): string
+    {
+        $base = $this->slugify($title);
+        do {
+            $candidate = $base . '-' . substr($this->randomBase36(), 0, 6);
+        } while (is_dir($this->publishedDir . '/' . $candidate));
+        return $candidate;
+    }
+
+    private function slugify(string $text): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return 'post';
+        }
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+        if ($converted !== false) {
+            $text = $converted;
+        }
+        $text = strtolower($text);
+        $text = preg_replace('/[^a-z0-9]+/i', '-', $text) ?? '';
+        $text = trim($text, '-');
+        return $text !== '' ? $text : 'post';
+    }
+
+    private function randomBase36(): string
+    {
+        $bytes = random_bytes(4);
+        $value = unpack('N', $bytes)[1];
+        return strtolower(base_convert((string) $value, 10, 36));
     }
 
     private function now(): string
     {
         return (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format(DateTimeInterface::ATOM);
+    }
+
+    private function newContextId(): string
+    {
+        return substr(bin2hex(random_bytes(8)), 0, 16);
+    }
+
+    private function logTelemetry(string $event, array $payload): void
+    {
+        $safePayload = [];
+        foreach ($payload as $key => $value) {
+            if (is_scalar($value) || $value === null) {
+                $safePayload[$key] = $value;
+            } elseif (is_array($value)) {
+                $safePayload[$key] = json_encode($value, JSON_UNESCAPED_SLASHES);
+            } else {
+                $safePayload[$key] = (string) $value;
+            }
+        }
+        $message = sprintf('[blog] %s: %s', $event, json_encode($safePayload, JSON_UNESCAPED_SLASHES));
+        error_log($message);
     }
 
     private function acquireLock(string $name)
@@ -604,14 +1099,9 @@ final class BlogService
         return $handle;
     }
 
-    private function refreshCache(): void
+    private function isWritable(string $path): bool
     {
-        $posts = $this->listPublished();
-        $payload = json_encode($posts, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if ($payload === false) {
-            return;
-        }
-        $this->writeFileAtomic($this->cacheDir . '/published_index.json', $payload);
+        return is_dir($path) && is_writable($path);
     }
 }
 
