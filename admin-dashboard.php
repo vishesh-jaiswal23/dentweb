@@ -168,6 +168,10 @@ $indiaTz = new DateTimeZone('Asia/Kolkata');
           <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
           AI Studio
         </a>
+        <a href="<?= htmlspecialchars($pathFor('admin-smart-marketing.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
+          <i class="fa-solid fa-bullhorn" aria-hidden="true"></i>
+          Smart Marketing
+        </a>
         <a href="<?= htmlspecialchars($pathFor('admin-blog-manager.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
           <i class="fa-solid fa-newspaper" aria-hidden="true"></i>
           Blog Manager
