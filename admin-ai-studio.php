@@ -1018,7 +1018,8 @@ if ($flashMessage !== '') {
         brief: '',
         keywords: '',
         tone: '',
-        postId: null,
+        draftId: null,
+        publishedUrl: null,
         dirty: false,
         saving: false,
         generating: false,
@@ -1048,6 +1049,7 @@ if ($flashMessage !== '') {
 
       function markBlogDirty() {
         blogState.dirty = true;
+        blogState.publishedUrl = null;
         updateBlogAutosave('Unsaved changes', 'warning');
       }
 
@@ -1172,6 +1174,13 @@ if ($flashMessage !== '') {
           return;
         }
         syncBlogStateFromInputs();
+        if ((!blogState.title || blogState.paragraphs.length === 0) && manual) {
+          showToast('Add a title and generate content before saving.', 'warning');
+          return;
+        }
+        if (!blogState.title || blogState.paragraphs.length === 0) {
+          return;
+        }
         blogState.saving = true;
         updateBlogAutosave(manual ? 'Saving draft…' : 'Auto-saving…', 'info');
         try {
@@ -1190,7 +1199,7 @@ if ($flashMessage !== '') {
               paragraphs: blogState.paragraphs,
               coverImage: blogState.coverImage,
               coverImageAlt: blogState.coverImageAlt,
-              postId: blogState.postId,
+              draftId: blogState.draftId,
             }),
           });
           if (!response.ok) {
@@ -1198,6 +1207,9 @@ if ($flashMessage !== '') {
           }
           const payload = await response.json();
           blogState.dirty = false;
+          if (payload && payload.draftId) {
+            blogState.draftId = payload.draftId;
+          }
           if (payload && payload.savedAt) {
             const saved = new Date(payload.savedAt);
             updateBlogAutosave(`Draft saved ${saved.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`, 'success');
@@ -1226,6 +1238,10 @@ if ($flashMessage !== '') {
           showToast('Generate the blog content before publishing.', 'warning');
           return;
         }
+        if (!blogState.draftId) {
+          showToast('Save the draft at least once before publishing.', 'warning');
+          return;
+        }
         blogPublishButton.disabled = true;
         updateBlogStatus('Publishing…');
         if (blogProgress) {
@@ -1247,7 +1263,7 @@ if ($flashMessage !== '') {
               paragraphs: blogState.paragraphs,
               coverImage: blogState.coverImage,
               coverImageAlt: blogState.coverImageAlt,
-              postId: blogState.postId,
+              draftId: blogState.draftId,
             }),
           });
           if (!response.ok) {
@@ -1257,11 +1273,16 @@ if ($flashMessage !== '') {
           if (!payload || !payload.success) {
             throw new Error(payload && payload.error ? payload.error : 'Gemini could not publish the blog.');
           }
-          blogState.postId = payload.postId || null;
+          blogState.draftId = payload.postId || blogState.draftId;
+          blogState.publishedUrl = payload.url || null;
           blogState.dirty = false;
           updateBlogAutosave('Published just now', 'success');
           updateBlogStatus('Published successfully');
-          showToast('Blog published to the site. Review it in Blog publishing.', 'success');
+          if (blogState.publishedUrl) {
+            showToast(`Blog published: ${blogState.publishedUrl}`, 'success');
+          } else {
+            showToast('Blog published to the site. Review it in Blog publishing.', 'success');
+          }
           if (blogProgress) {
             blogProgress.textContent = '';
           }
@@ -1327,6 +1348,9 @@ if ($flashMessage !== '') {
                 if (Array.isArray(payload.paragraphs)) {
                   blogState.paragraphs = payload.paragraphs;
                   renderBlogPreview();
+                }
+                if (payload && payload.draftId) {
+                  blogState.draftId = payload.draftId;
                 }
                 if (payload.image && payload.image.path) {
                   blogState.coverImage = payload.image.path;
@@ -1430,7 +1454,7 @@ if ($flashMessage !== '') {
             blogState.paragraphs = Array.isArray(draft.paragraphs) ? draft.paragraphs : [];
             blogState.coverImage = draft.coverImage || '';
             blogState.coverImageAlt = draft.coverImageAlt || '';
-            blogState.postId = draft.postId || null;
+            blogState.draftId = draft.draftId || draft.postId || null;
             blogState.dirty = false;
             renderBlogPreview();
             renderBlogCover();
@@ -1522,7 +1546,7 @@ if ($flashMessage !== '') {
               'X-CSRF-Token': window.csrfToken || '',
             },
             credentials: 'same-origin',
-            body: JSON.stringify({ prompt }),
+            body: JSON.stringify({ prompt, draftId: blogState.draftId }),
           });
           if (!response.ok) {
             throw new Error('Unable to generate image.');

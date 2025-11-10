@@ -68,13 +68,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $action = (string) ($_POST['action'] ?? '');
-    $redirectId = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+    $redirectId = isset($_POST['id']) ? trim((string) $_POST['id']) : '';
 
     try {
         switch ($action) {
             case 'save-post':
                 $payload = [
-                    'id' => isset($_POST['id']) && $_POST['id'] !== '' ? (int) $_POST['id'] : null,
+                    'id' => isset($_POST['id']) && $_POST['id'] !== '' ? trim((string) $_POST['id']) : null,
                     'title' => $_POST['title'] ?? '',
                     'slug' => $_POST['slug'] ?? '',
                     'excerpt' => $_POST['excerpt'] ?? '',
@@ -87,21 +87,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'coverPrompt' => $_POST['cover_prompt'] ?? '',
                 ];
                 $saved = blog_save_post($db, $payload, (int) ($admin['id'] ?? 0));
-                $redirectId = (int) ($saved['id'] ?? $redirectId);
+                $redirectId = (string) ($saved['id'] ?? $redirectId);
                 set_flash('success', 'Blog post saved successfully.');
                 break;
             case 'publish-post':
-                $postId = (int) ($_POST['id'] ?? 0);
+                $postId = trim((string) ($_POST['id'] ?? ''));
                 $publish = !empty($_POST['publish']);
+                if (!$publish) {
+                    set_flash('warning', 'Unpublishing is not supported in the current blog system.');
+                    break;
+                }
                 blog_publish_post($db, $postId, $publish, (int) ($admin['id'] ?? 0));
                 $redirectId = $postId;
-                set_flash('success', $publish ? 'Post published.' : 'Post moved back to draft.');
+                set_flash('success', 'Post published.');
                 break;
             case 'archive-post':
-                $postId = (int) ($_POST['id'] ?? 0);
-                blog_archive_post($db, $postId, (int) ($admin['id'] ?? 0));
-                $redirectId = $postId;
-                set_flash('success', 'Post archived.');
+                set_flash('warning', 'Archiving is not available with file-based storage.');
                 break;
             default:
                 throw new RuntimeException('Unsupported action.');
@@ -111,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $location = 'admin-blog.php';
-    if ($redirectId > 0) {
+    if ($redirectId !== '') {
         $location .= '?id=' . $redirectId;
     }
 
@@ -119,10 +120,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$selectedId = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+$selectedId = isset($_GET['id']) ? trim((string) $_GET['id']) : '';
 $posts = blog_admin_list($db);
 $selectedPost = null;
-if ($selectedId > 0) {
+if ($selectedId !== '') {
     try {
         $selectedPost = blog_get_post_by_id($db, $selectedId);
     } catch (Throwable $exception) {
@@ -217,7 +218,7 @@ $tagsValue = $formDefaults['tags'] ? implode(', ', $formDefaults['tags']) : '';
         <input type="hidden" name="action" value="save-post" />
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
         <?php if ($formDefaults['id']): ?>
-        <input type="hidden" name="id" value="<?= (int) $formDefaults['id'] ?>" />
+        <input type="hidden" name="id" value="<?= htmlspecialchars((string) $formDefaults['id'], ENT_QUOTES) ?>" />
         <?php endif; ?>
         <div class="admin-form__grid">
           <label>
@@ -296,8 +297,9 @@ $tagsValue = $formDefaults['tags'] ? implode(', ', $formDefaults['tags']) : '';
           <tbody>
             <?php foreach ($posts as $post): ?>
             <tr <?= $selectedId === (int) $post['id'] ? 'class="is-selected"' : '' ?>>
+              <?php $rowId = (string) ($post['id'] ?? ''); ?>
               <td>
-                <a href="admin-blog.php?id=<?= (int) $post['id'] ?>" class="admin-link"><?= htmlspecialchars($post['title'], ENT_QUOTES) ?></a>
+                <a href="admin-blog.php?id=<?= htmlspecialchars($rowId, ENT_QUOTES) ?>" class="admin-link"><?= htmlspecialchars($post['title'], ENT_QUOTES) ?></a>
                 <?php if (!empty($post['excerpt'])): ?>
                 <div class="admin-muted"><?= htmlspecialchars($post['excerpt'], ENT_QUOTES) ?></div>
                 <?php endif; ?>
@@ -308,22 +310,14 @@ $tagsValue = $formDefaults['tags'] ? implode(', ', $formDefaults['tags']) : '';
               <td class="admin-blog__actions-cell">
                 <form method="post">
                   <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
-                  <input type="hidden" name="id" value="<?= (int) $post['id'] ?>" />
+                  <input type="hidden" name="id" value="<?= htmlspecialchars($rowId, ENT_QUOTES) ?>" />
                   <?php if ($post['status'] === 'published'): ?>
-                  <input type="hidden" name="action" value="publish-post" />
-                  <input type="hidden" name="publish" value="0" />
-                  <button type="submit" class="btn btn-secondary btn-xs">Unpublish</button>
+                  <a href="<?= htmlspecialchars($post['url'] ?? ('/blog/post.php?slug=' . urlencode($post['slug'] ?? '')), ENT_QUOTES) ?>" class="btn btn-secondary btn-xs" target="_blank" rel="noopener">View live</a>
                   <?php else: ?>
                   <input type="hidden" name="action" value="publish-post" />
                   <input type="hidden" name="publish" value="1" />
                   <button type="submit" class="btn btn-success btn-xs">Publish</button>
                   <?php endif; ?>
-                </form>
-                <form method="post">
-                  <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES) ?>" />
-                  <input type="hidden" name="action" value="archive-post" />
-                  <input type="hidden" name="id" value="<?= (int) $post['id'] ?>" />
-                  <button type="submit" class="btn btn-danger btn-xs" onclick="return confirm('Archive this post? It will be hidden from the blog.');">Archive</button>
                 </form>
               </td>
             </tr>
