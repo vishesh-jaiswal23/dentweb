@@ -168,6 +168,10 @@ $indiaTz = new DateTimeZone('Asia/Kolkata');
           <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
           AI Studio
         </a>
+        <a href="<?= htmlspecialchars($pathFor('admin-blog-manager.php'), ENT_QUOTES) ?>" class="btn btn-ghost">
+          <i class="fa-solid fa-newspaper" aria-hidden="true"></i>
+          Blog Manager
+        </a>
         <button type="button" class="btn btn-ghost" data-theme-toggle>
           <i class="fa-solid fa-circle-half-stroke" aria-hidden="true"></i>
           Theme
