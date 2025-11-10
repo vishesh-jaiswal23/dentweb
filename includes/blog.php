@@ -410,6 +410,13 @@ function blog_map_published_post(array $post): array
         'cover_image' => $post['hero_image'] ?? '',
         'cover_image_url' => $post['hero_image_url'] ?? '',
         'cover_image_alt' => $post['hero_image_alt'] ?? '',
+        'attachments' => array_values(array_map(static function ($item) {
+            if (is_array($item) && isset($item['path'])) {
+                return $item['path'];
+            }
+            return (string) $item;
+        }, $post['attachments'] ?? [])),
+        'attachment_urls' => $post['attachment_urls'] ?? [],
         'author_name' => $author,
         'status' => 'published',
         'tags' => $tags,
@@ -439,6 +446,12 @@ function blog_map_draft_post(array $draft): array
         'body_html' => $draft['body_html'] ?? '',
         'cover_image' => $draft['hero_image'] ?? '',
         'cover_image_alt' => $draft['hero_image_alt'] ?? '',
+        'attachments' => array_values(array_map(static function ($item) {
+            if (is_array($item) && isset($item['path'])) {
+                return $item['path'];
+            }
+            return (string) $item;
+        }, $draft['attachments'] ?? [])),
         'author_name' => $author,
         'status' => $draft['status'] ?? 'draft',
         'tags' => $tags,
