@@ -1,15 +1,13 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/bootstrap.php';
-
-$db = get_db();
+$requireOnce = require_once __DIR__ . '/../includes/bootstrap.php';
 $slug = trim((string) ($_GET['slug'] ?? ''));
 if ($slug === '') {
     render_not_found();
 }
 
-$post = blog_get_post_by_slug($db, $slug);
+$post = blog_get_post_by_slug(null, $slug);
 if (!$post) {
     render_not_found();
 }
@@ -73,8 +71,8 @@ send_cache_headers($post['updated_at'] ?? '', 'blog-post-' . $post['id']);
 
 $visibleTagsRaw = blog_filter_tags($post['tags'] ?? []);
 $tags = array_map(static fn ($tag) => is_array($tag) ? $tag['name'] : $tag, $visibleTagsRaw);
-$adjacent = blog_get_adjacent_posts($db, (int) $post['id']);
-$related = blog_related_posts($db, (int) $post['id'], 3);
+$adjacent = blog_get_adjacent_posts(null, (string) $post['id']);
+$related = blog_related_posts(null, (string) $post['id'], 3);
 
 if (isset($_GET['format']) && $_GET['format'] === 'json') {
     $imageForJson = $post['cover_image'] ?? $coverImage;

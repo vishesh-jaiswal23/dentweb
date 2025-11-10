@@ -302,31 +302,33 @@ function handle_blog_generate(int $adminId): void
         $imageInfo = null;
     }
 
-    $draft = ai_blog_draft_load($adminId);
-    $draft['title'] = $title;
-    $draft['brief'] = $brief;
-    $draft['keywords'] = $keywords;
-    $draft['tone'] = $tone;
-    $draft['paragraphs'] = $paragraphs;
-    if ($imageInfo) {
-        $draft['coverImage'] = $imageInfo['path'];
-        $draft['coverImageAlt'] = 'AI generated illustration for ' . $title;
-    }
-    $draft['updatedAt'] = ai_timestamp();
+    $coverImage = $imageInfo['path'] ?? '';
+    $coverAlt = $imageInfo ? ('AI generated illustration for ' . $title) : '';
+
     try {
-        ai_blog_draft_save($adminId, $draft);
+        $savedDraft = blog_ai_save_draft($adminId, [
+            'title' => $title,
+            'brief' => $brief,
+            'keywords' => $keywords,
+            'tone' => $tone,
+            'paragraphs' => $paragraphs,
+            'coverImage' => $coverImage,
+            'coverImageAlt' => $coverAlt,
+        ]);
     } catch (Throwable $exception) {
-        // Silent failure to avoid interrupting streaming.
+        sse_emit('error', ['message' => 'Draft storage failed: ' . $exception->getMessage()]);
+        return;
     }
 
     $payload = [
         'success' => true,
         'paragraphs' => $paragraphs,
         'excerpt' => ai_build_excerpt_from_paragraphs($paragraphs, $brief),
+        'draftId' => $savedDraft['draft_id'] ?? null,
     ];
     if ($imageInfo) {
         $payload['image'] = $imageInfo;
-        $payload['image']['alt'] = 'AI generated illustration for ' . $title;
+        $payload['image']['alt'] = $coverAlt;
     }
 
     sse_emit('done', $payload);
@@ -342,34 +344,63 @@ function handle_blog_autosave(int $adminId): void
     }
 
     $payload = decode_json_body();
-    $draft = [
-        'title' => trim((string) ($payload['title'] ?? '')),
-        'brief' => trim((string) ($payload['brief'] ?? '')),
-        'keywords' => trim((string) ($payload['keywords'] ?? '')),
-        'tone' => trim((string) ($payload['tone'] ?? '')),
-        'paragraphs' => ai_normalize_paragraphs($payload['paragraphs'] ?? []),
-        'coverImage' => trim((string) ($payload['coverImage'] ?? '')),
-        'coverImageAlt' => trim((string) ($payload['coverImageAlt'] ?? '')),
-        'coverPrompt' => trim((string) ($payload['coverPrompt'] ?? '')),
-    ];
+    $title = trim((string) ($payload['title'] ?? ''));
+    $brief = trim((string) ($payload['brief'] ?? ''));
+    $keywords = trim((string) ($payload['keywords'] ?? ''));
+    $tone = trim((string) ($payload['tone'] ?? ''));
+    $paragraphs = ai_normalize_paragraphs($payload['paragraphs'] ?? []);
+    $coverImage = trim((string) ($payload['coverImage'] ?? ''));
+    $coverAlt = trim((string) ($payload['coverImageAlt'] ?? ''));
+    $draftId = isset($payload['draftId']) && $payload['draftId'] !== ''
+        ? (string) $payload['draftId']
+        : null;
 
-    if (isset($payload['postId']) && (int) $payload['postId'] > 0) {
-        $draft['postId'] = (int) $payload['postId'];
+    if ($title === '' || empty($paragraphs)) {
+        header('Content-Type: application/json');
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Add a title and generate content before saving the draft.',
+        ]);
+        return;
     }
 
-    $draft['updatedAt'] = ai_timestamp();
-
     try {
-        ai_blog_draft_save($adminId, $draft);
+        $draft = blog_ai_save_draft($adminId, [
+            'title' => $title,
+            'brief' => $brief,
+            'keywords' => $keywords,
+            'tone' => $tone,
+            'paragraphs' => $paragraphs,
+            'coverImage' => $coverImage,
+            'coverImageAlt' => $coverAlt,
+        ], $draftId);
+        blog_log_event('blog_draft_save_success', [
+            'draft_id' => $draft['draft_id'] ?? null,
+            'slug' => $draft['slug'] ?? null,
+        ]);
     } catch (Throwable $exception) {
+        blog_log_event('blog_draft_save_error', [
+            'draft_id' => $draftId,
+            'developer_message' => $exception->getMessage(),
+        ]);
         header('Content-Type: application/json');
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Failed to save draft. Please retry.',
+            'developer_message' => $exception->getMessage(),
+        ]);
         return;
     }
 
     header('Content-Type: application/json');
-    echo json_encode(['success' => true, 'savedAt' => $draft['updatedAt']]);
+    echo json_encode([
+        'success' => true,
+        'savedAt' => $draft['updated_at'] ?? ai_timestamp(),
+        'draftId' => $draft['draft_id'] ?? null,
+        'slug' => $draft['slug'] ?? null,
+    ]);
 }
 
 function handle_blog_load_draft(int $adminId): void
@@ -381,7 +412,7 @@ function handle_blog_load_draft(int $adminId): void
         return;
     }
 
-    $draft = ai_blog_draft_load($adminId);
+    $draft = blog_ai_find_draft_for_admin($adminId);
     header('Content-Type: application/json');
     echo json_encode(['success' => true, 'draft' => $draft]);
 }
@@ -403,7 +434,7 @@ function handle_blog_publish(int $adminId): void
     $paragraphs = ai_normalize_paragraphs($payload['paragraphs'] ?? []);
     $coverImage = trim((string) ($payload['coverImage'] ?? ''));
     $coverImageAlt = trim((string) ($payload['coverImageAlt'] ?? ''));
-    $postId = isset($payload['postId']) ? (int) $payload['postId'] : 0;
+    $draftId = isset($payload['draftId']) ? (string) $payload['draftId'] : '';
 
     if ($title === '' || empty($paragraphs)) {
         header('Content-Type: application/json');
@@ -412,48 +443,65 @@ function handle_blog_publish(int $adminId): void
         return;
     }
 
-    $settings = ai_settings_load();
-    if (!($settings['enabled'] ?? false)) {
+    if ($draftId === '') {
         header('Content-Type: application/json');
-        http_response_code(409);
-        echo json_encode(['success' => false, 'error' => 'AI is disabled. Enable Gemini in settings.']);
+        http_response_code(422);
+        echo json_encode(['success' => false, 'error' => 'Draft is missing. Save the draft once before publishing.']);
         return;
     }
-
-    $db = get_db();
-
-    $bodyHtml = ai_paragraphs_to_html($paragraphs);
-    $excerpt = ai_build_excerpt_from_paragraphs($paragraphs, $brief);
-    $tags = ai_keywords_to_tags($keywords);
 
     try {
-        $saved = blog_save_post($db, [
-            'id' => $postId > 0 ? $postId : null,
+        $draft = blog_ai_save_draft($adminId, [
             'title' => $title,
-            'excerpt' => $brief !== '' ? $brief : $excerpt,
-            'body' => $bodyHtml,
+            'brief' => $brief,
+            'keywords' => $keywords,
+            'tone' => $tone,
+            'paragraphs' => $paragraphs,
             'coverImage' => $coverImage,
             'coverImageAlt' => $coverImageAlt,
-            'coverPrompt' => $brief,
-            'authorName' => '',
-            'status' => 'published',
-            'tags' => $tags,
-            'slug' => $payload['slug'] ?? '',
-        ], $adminId);
+        ], $draftId);
     } catch (Throwable $exception) {
+        blog_log_event('blog_publish_error', [
+            'draft_id' => $draftId,
+            'developer_message' => $exception->getMessage(),
+        ]);
         header('Content-Type: application/json');
         http_response_code(500);
-        echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Unable to prepare draft for publishing.',
+            'developer_message' => $exception->getMessage(),
+        ]);
         return;
     }
 
-    ai_blog_draft_clear($adminId);
+    try {
+        $published = blog_service()->publishPost($draftId);
+        blog_log_event('blog_publish_success', [
+            'draft_id' => $draftId,
+            'slug' => $published['slug'] ?? null,
+        ]);
+    } catch (Throwable $exception) {
+        blog_log_event('blog_publish_error', [
+            'draft_id' => $draftId,
+            'developer_message' => $exception->getMessage(),
+        ]);
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Publishing failed. Please retry.',
+            'developer_message' => $exception->getMessage(),
+        ]);
+        return;
+    }
 
     header('Content-Type: application/json');
     echo json_encode([
         'success' => true,
-        'postId' => (int) ($saved['id'] ?? 0),
-        'slug' => $saved['slug'] ?? '',
+        'postId' => $published['post_id'] ?? $draftId,
+        'slug' => $published['slug'] ?? '',
+        'url' => $published['url'] ?? '',
     ]);
 }
 
@@ -555,14 +603,17 @@ function handle_image_generate(int $adminId): void
         return;
     }
 
-    $draft = ai_blog_draft_load($adminId);
-    $draft['coverImage'] = $image['path'];
-    $draft['coverImageAlt'] = $payload['alt'] ?? ('AI generated visual for ' . ($draft['title'] ?? 'blog post'));
-    $draft['updatedAt'] = ai_timestamp();
+    $draftId = isset($payload['draftId']) && $payload['draftId'] !== '' ? (string) $payload['draftId'] : null;
+    $altText = isset($payload['alt']) && $payload['alt'] !== ''
+        ? (string) $payload['alt']
+        : 'AI generated visual for blog post';
     try {
-        ai_blog_draft_save($adminId, $draft);
+        blog_ai_update_cover_image($adminId, $image['path'], $altText, $draftId);
     } catch (Throwable $exception) {
-        // ignore
+        blog_log_event('blog_draft_save_error', [
+            'draft_id' => $draftId,
+            'developer_message' => $exception->getMessage(),
+        ]);
     }
 
     header('Content-Type: application/json');
@@ -710,6 +761,169 @@ function ai_keywords_to_tags(string $keywords): array
     }
 
     return $tags;
+}
+
+function blog_log_event(string $event, array $context = []): void
+{
+    try {
+        $timestamp = (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format(DateTimeInterface::ATOM);
+    } catch (Throwable $exception) {
+        $timestamp = gmdate(DateTimeInterface::ATOM);
+    }
+    $payload = [
+        'event' => $event,
+        'timestamp' => $timestamp,
+        'context' => $context,
+    ];
+    $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES);
+    if ($encoded !== false) {
+        error_log('blog_event:' . $encoded);
+    }
+}
+
+function blog_ai_find_raw_draft(int $adminId, ?string $draftId = null): ?array
+{
+    $service = blog_service();
+    $drafts = $service->listDrafts();
+    $matches = [];
+    foreach ($drafts as $draft) {
+        $ownerId = $draft['extra']['owner_id'] ?? ($draft['author']['id'] ?? '');
+        if ($draftId !== null) {
+            if (($draft['draft_id'] ?? '') === $draftId) {
+                return $draft;
+            }
+            continue;
+        }
+        if ((string) $ownerId === (string) $adminId) {
+            $matches[] = $draft;
+        }
+    }
+    if ($draftId !== null) {
+        return null;
+    }
+    if (empty($matches)) {
+        return null;
+    }
+    usort($matches, static function (array $a, array $b): int {
+        return strcmp($b['updated_at'] ?? '', $a['updated_at'] ?? '');
+    });
+    return $matches[0];
+}
+
+function blog_ai_find_draft_for_admin(int $adminId, ?string $draftId = null): ?array
+{
+    $draft = blog_ai_find_raw_draft($adminId, $draftId);
+    if ($draft === null) {
+        return null;
+    }
+
+    $extra = $draft['extra'] ?? [];
+
+    return [
+        'draftId' => $draft['draft_id'] ?? null,
+        'postId' => $draft['draft_id'] ?? null,
+        'title' => $draft['title'] ?? '',
+        'brief' => $extra['brief'] ?? '',
+        'keywords' => $extra['keywords'] ?? '',
+        'tone' => $extra['tone'] ?? '',
+        'paragraphs' => $extra['paragraphs'] ?? [],
+        'coverImage' => $draft['hero_image'] ?? '',
+        'coverImageAlt' => $draft['hero_image_alt'] ?? '',
+        'updatedAt' => $draft['updated_at'] ?? null,
+        'slug' => $draft['slug'] ?? null,
+    ];
+}
+
+function blog_ai_build_payload(array $data, int $adminId, ?array $existing = null): array
+{
+    $existingExtra = $existing['extra'] ?? [];
+    $paragraphsSource = $data['paragraphs'] ?? $existingExtra['paragraphs'] ?? [];
+    $paragraphs = ai_normalize_paragraphs($paragraphsSource);
+    if (empty($paragraphs)) {
+        throw new RuntimeException('Draft must contain content.');
+    }
+
+    $title = trim((string) ($data['title'] ?? ($existing['title'] ?? '')));
+    if ($title === '') {
+        throw new RuntimeException('Draft title is required.');
+    }
+
+    $brief = trim((string) ($data['brief'] ?? ($existingExtra['brief'] ?? '')));
+    $keywords = trim((string) ($data['keywords'] ?? ($existingExtra['keywords'] ?? '')));
+    $tone = trim((string) ($data['tone'] ?? ($existingExtra['tone'] ?? '')));
+    $coverImage = trim((string) ($data['coverImage'] ?? ($existing['hero_image'] ?? '')));
+    $coverAlt = trim((string) ($data['coverImageAlt'] ?? ($existing['hero_image_alt'] ?? '')));
+
+    $bodyHtml = ai_paragraphs_to_html($paragraphs);
+    $summary = blog_render_excerpt($bodyHtml, $brief);
+    $tags = ai_keywords_to_tags($keywords);
+
+    $currentUser = current_user();
+    $authorName = isset($data['authorName']) && $data['authorName'] !== ''
+        ? (string) $data['authorName']
+        : trim((string) ($currentUser['full_name'] ?? 'Administrator'));
+
+    $attachments = $data['attachments'] ?? ($existing['attachments'] ?? []);
+
+    return [
+        'title' => $title,
+        'summary' => $summary,
+        'body_html' => $bodyHtml,
+        'hero_image' => $coverImage,
+        'hero_image_alt' => $coverAlt,
+        'tags' => $tags,
+        'author' => [
+            'id' => (string) $adminId,
+            'name' => $authorName,
+        ],
+        'attachments' => $attachments,
+        'extra' => [
+            'owner_id' => (string) $adminId,
+            'brief' => $brief,
+            'keywords' => $keywords,
+            'tone' => $tone,
+            'paragraphs' => $paragraphs,
+            'source' => 'ai-studio',
+        ],
+    ];
+}
+
+function blog_ai_save_draft(int $adminId, array $data, ?string $draftId = null): array
+{
+    $service = blog_service();
+    $existing = blog_ai_find_raw_draft($adminId, $draftId);
+    if ($draftId === null && $existing !== null) {
+        $draftId = $existing['draft_id'] ?? null;
+    }
+
+    $payload = blog_ai_build_payload($data, $adminId, $existing);
+
+    if ($draftId !== null) {
+        return $service->updateDraft($draftId, $payload);
+    }
+
+    return $service->createDraft($payload);
+}
+
+function blog_ai_update_cover_image(int $adminId, string $path, string $alt, ?string $draftId = null): void
+{
+    $existing = blog_ai_find_raw_draft($adminId, $draftId);
+    if ($existing === null) {
+        return;
+    }
+
+    $data = [
+        'title' => $existing['title'] ?? '',
+        'brief' => $existing['extra']['brief'] ?? '',
+        'keywords' => $existing['extra']['keywords'] ?? '',
+        'tone' => $existing['extra']['tone'] ?? '',
+        'paragraphs' => $existing['extra']['paragraphs'] ?? [],
+        'coverImage' => $path,
+        'coverImageAlt' => $alt,
+        'attachments' => $existing['attachments'] ?? [],
+    ];
+
+    blog_ai_save_draft($adminId, $data, $existing['draft_id'] ?? null);
 }
 
 function sse_emit(string $event, array $data): void
