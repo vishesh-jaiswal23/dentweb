@@ -18,6 +18,14 @@ $integrationsHealth = smart_marketing_integrations_health($marketingSettings);
 $brainRuns = smart_marketing_brain_runs_load();
 $assets = smart_marketing_list_assets();
 $auditLog = smart_marketing_audit_log_read();
+$campaigns = smart_marketing_campaigns_load();
+$automationLog = smart_marketing_automation_log_read();
+$connectors = smart_marketing_channel_connectors($marketingSettings);
+$sitePages = smart_marketing_site_pages();
+$campaignCatalog = [];
+foreach (smart_marketing_campaign_catalog() as $key => $meta) {
+    $campaignCatalog[] = ['id' => $key, 'label' => $meta['label']];
+}
 
 $defaultRegions = smart_marketing_region_defaults($marketingSettings);
 $defaultCompliance = smart_marketing_compliance_defaults($marketingSettings);
@@ -64,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'aiHealth' => smart_marketing_ai_health($aiSettings),
                     'integrations' => smart_marketing_integrations_health($marketingSettings),
                     'audit' => smart_marketing_audit_log_read(),
+                    'connectors' => smart_marketing_channel_connectors($marketingSettings),
                 ];
                 break;
 
@@ -86,11 +95,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 smart_marketing_audit_log_append('brain.generated', ['run_id' => $runId, 'status' => $status], $admin);
 
+                $autoLaunched = [];
+                if ($status === 'live') {
+                    try {
+                        $autoTypes = array_keys(smart_marketing_campaign_catalog());
+                        $autoResult = smart_marketing_launch_campaigns($runs, $runId, $autoTypes, $marketingSettings, ['landing' => ['mode' => 'auto']]);
+                        $runs = smart_marketing_brain_runs_load();
+                        $autoLaunched = $autoResult['launched'];
+                        $campaigns = $autoResult['campaigns'];
+                        $automationLog = smart_marketing_automation_log_read();
+                        smart_marketing_audit_log_append('campaigns.auto_launched', ['run_id' => $runId, 'campaign_ids' => array_column($autoLaunched, 'id')], $admin);
+                    } catch (Throwable $autoException) {
+                        $campaigns = smart_marketing_campaigns_load();
+                        $automationLog = smart_marketing_automation_log_read();
+                        smart_marketing_audit_log_append('campaigns.auto_launch_failed', ['run_id' => $runId, 'error' => $autoException->getMessage()], $admin);
+                    }
+                } else {
+                    $campaigns = smart_marketing_campaigns_load();
+                    $automationLog = smart_marketing_automation_log_read();
+                }
+
                 $response = [
                     'ok' => true,
                     'run' => $record,
                     'runs' => array_reverse($runs),
                     'audit' => smart_marketing_audit_log_read(),
+                    'campaigns' => $campaigns,
+                    'automationLog' => $automationLog,
+                    'autoLaunched' => $autoLaunched,
                 ];
                 break;
 
@@ -129,6 +161,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'runs' => array_reverse($runs),
                     'settings' => $marketingSettings,
                     'audit' => smart_marketing_audit_log_read(),
+                    'campaigns' => smart_marketing_campaigns_load(),
+                    'automationLog' => smart_marketing_automation_log_read(),
                 ];
                 break;
 
@@ -178,6 +212,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'audit' => smart_marketing_audit_log_read(),
                 ];
                 break;
+            case 'connector-connect':
+                $connectorKey = (string) ($payload['connector'] ?? '');
+                $fields = is_array($payload['fields'] ?? null) ? $payload['fields'] : [];
+                $entry = smart_marketing_connector_connect($marketingSettings, $connectorKey, $fields);
+                smart_marketing_settings_save($marketingSettings);
+                smart_marketing_audit_log_append('connector.connected', ['connector' => $connectorKey], $admin);
+                $response = [
+                    'ok' => true,
+                    'connector' => $entry,
+                    'settings' => $marketingSettings,
+                    'integrations' => smart_marketing_integrations_health($marketingSettings),
+                    'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                    'audit' => smart_marketing_audit_log_read(),
+                ];
+                break;
+
+            case 'connector-test':
+                $connectorKey = (string) ($payload['connector'] ?? '');
+                $entry = smart_marketing_connector_test($marketingSettings, $connectorKey);
+                smart_marketing_settings_save($marketingSettings);
+                smart_marketing_audit_log_append('connector.tested', ['connector' => $connectorKey, 'result' => $entry['lastTestResult'] ?? 'unknown'], $admin);
+                $response = [
+                    'ok' => true,
+                    'connector' => $entry,
+                    'settings' => $marketingSettings,
+                    'integrations' => smart_marketing_integrations_health($marketingSettings),
+                    'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                    'audit' => smart_marketing_audit_log_read(),
+                ];
+                break;
+
+            case 'campaign-launch':
+                $runId = (int) ($payload['runId'] ?? 0);
+                $types = array_values(array_filter((array) ($payload['campaignTypes'] ?? []), static fn($value) => is_string($value) && $value !== ''));
+                $landingOptions = is_array($payload['landing'] ?? null) ? $payload['landing'] : [];
+                if (empty($types)) {
+                    throw new RuntimeException('Select at least one campaign type.');
+                }
+                $result = smart_marketing_launch_campaigns($brainRuns, $runId, $types, $marketingSettings, ['landing' => $landingOptions]);
+                $brainRuns = smart_marketing_brain_runs_load();
+                $campaigns = $result['campaigns'];
+                $automationLog = smart_marketing_automation_log_read();
+                smart_marketing_audit_log_append('campaigns.launched', ['run_id' => $runId, 'types' => $types, 'campaign_ids' => array_column($result['launched'], 'id')], $admin);
+                $response = [
+                    'ok' => true,
+                    'launched' => $result['launched'],
+                    'runs' => array_reverse($brainRuns),
+                    'campaigns' => $campaigns,
+                    'automationLog' => $automationLog,
+                    'audit' => smart_marketing_audit_log_read(),
+                ];
+                break;
+
+            case 'automation-run':
+                $campaigns = smart_marketing_campaigns_load();
+                $entries = smart_marketing_run_automations($campaigns, $marketingSettings, true);
+                $automationLog = smart_marketing_automation_log_read();
+                $response = [
+                    'ok' => true,
+                    'automation' => $entries,
+                    'automationLog' => $automationLog,
+                    'campaigns' => smart_marketing_campaigns_load(),
+                    'audit' => smart_marketing_audit_log_read(),
+                ];
+                break;
         }
     } catch (Throwable $exception) {
         $response = ['ok' => false, 'error' => $exception->getMessage()];
@@ -195,6 +294,11 @@ $pageState = [
     'brainRuns' => array_reverse($brainRuns),
     'assets' => $assets,
     'audit' => $auditLog,
+    'campaigns' => $campaigns,
+    'automationLog' => $automationLog,
+    'connectors' => $connectors,
+    'sitePages' => $sitePages,
+    'campaignCatalog' => $campaignCatalog,
     'csrfToken' => $csrfToken,
     'defaults' => [
         'regions' => $defaultRegions,
@@ -262,6 +366,15 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
     </section>
 
     <section class="smart-marketing__grid" aria-label="Marketing workspace">
+      <article class="smart-marketing__card" aria-labelledby="connectors-heading">
+        <header class="smart-marketing__card-header">
+          <h2 id="connectors-heading"><i class="fa-solid fa-plug-circle-bolt" aria-hidden="true"></i> Channel Connectors</h2>
+          <p class="smart-marketing__status">Admin control panel</p>
+        </header>
+        <p class="smart-marketing__hint">Connect ad accounts and messaging profiles to enable automated launches and lead sync.</p>
+        <div class="smart-marketing__connectors" data-connector-list></div>
+      </article>
+
       <article class="smart-marketing__card" aria-labelledby="brain-heading">
         <header class="smart-marketing__card-header">
           <h2 id="brain-heading"><i class="fa-solid fa-brain" aria-hidden="true"></i> Marketing Brain</h2>
@@ -320,6 +433,42 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
           <p class="smart-marketing__error" role="alert" hidden data-brain-error></p>
         </form>
         <section class="smart-marketing__runlog" aria-live="polite" data-brain-runs></section>
+      </article>
+
+      <article class="smart-marketing__card" aria-labelledby="builder-heading">
+        <header class="smart-marketing__card-header">
+          <h2 id="builder-heading"><i class="fa-solid fa-rocket" aria-hidden="true"></i> Campaign Builder</h2>
+          <p class="smart-marketing__status">Brain → Launch pipeline</p>
+        </header>
+        <form class="smart-marketing__campaign-form" data-campaign-form>
+          <label>Plan to launch
+            <select data-campaign-run>
+              <option value="">Select a generated plan</option>
+            </select>
+          </label>
+          <fieldset>
+            <legend>Campaign types</legend>
+            <div class="smart-marketing__campaign-types" data-campaign-types></div>
+          </fieldset>
+          <fieldset>
+            <legend>Landing destination</legend>
+            <label class="smart-marketing__radio"><input type="radio" name="landing_mode" value="existing" data-landing-mode checked /> Use existing site page</label>
+            <select data-landing-existing>
+              <option value="/contact.html">/contact.html</option>
+            </select>
+            <label class="smart-marketing__radio"><input type="radio" name="landing_mode" value="auto" data-landing-mode /> Auto-generate Smart landing</label>
+            <div class="smart-marketing__landing-fields" data-landing-auto hidden>
+              <label>Headline<input type="text" data-landing-headline placeholder="Summer rooftop subsidy spotlight" /></label>
+              <label>Offer<input type="text" data-landing-offer placeholder="Free site audit + subsidy paperwork" /></label>
+              <label>Primary CTA<input type="text" data-landing-cta placeholder="Book consultation" /></label>
+              <label>WhatsApp number<input type="text" data-landing-whatsapp placeholder="+91620XXXXXXX" /></label>
+              <label>Call desk<input type="text" data-landing-call placeholder="620-XXXX-XXX" /></label>
+            </div>
+          </fieldset>
+          <button type="submit" class="btn btn-primary"><i class="fa-solid fa-circle-play" aria-hidden="true"></i> Build &amp; launch</button>
+          <p class="smart-marketing__hint">Launched campaigns automatically sync leads to CRM with attribution tags.</p>
+        </form>
+        <section class="smart-marketing__campaigns" data-campaign-output aria-live="polite"></section>
       </article>
 
       <article class="smart-marketing__card" aria-labelledby="settings-heading">
@@ -432,6 +581,15 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
             </div>
           </section>
         </div>
+      </article>
+
+      <article class="smart-marketing__card" aria-labelledby="automation-heading">
+        <header class="smart-marketing__card-header">
+          <h2 id="automation-heading"><i class="fa-solid fa-gears" aria-hidden="true"></i> Optimisation Automations</h2>
+        </header>
+        <p class="smart-marketing__hint">Weekly creative refresh, budget shifts, negative keywords, and compliance sweeps log here.</p>
+        <button type="button" class="btn btn-ghost" data-run-automations><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Run optimisation sweep</button>
+        <section class="smart-marketing__automation" data-automation-log aria-live="polite"></section>
       </article>
 
       <article class="smart-marketing__card" aria-labelledby="creative-heading">
