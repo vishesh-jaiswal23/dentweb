@@ -52,6 +52,88 @@
     campaignOutput: document.querySelector('[data-campaign-output]'),
     automationLog: document.querySelector('[data-automation-log]'),
     runAutomationsButton: document.querySelector('[data-run-automations]'),
+    analyticsUpdated: document.querySelector('[data-analytics-updated]'),
+    analyticsKpis: document.querySelector('[data-analytics-kpis]'),
+    analyticsCohorts: document.querySelector('[data-analytics-cohorts]'),
+    analyticsFunnel: document.querySelector('[data-analytics-funnel]'),
+    analyticsCreatives: document.querySelector('[data-analytics-creatives]'),
+    analyticsBudget: document.querySelector('[data-analytics-budget]'),
+    analyticsAlerts: document.querySelector('[data-analytics-alerts]'),
+    analyticsRefresh: document.querySelector('[data-analytics-refresh]'),
+    optimizationAuto: document.querySelector('[data-optimization-auto]'),
+    optimizationSave: document.querySelector('[data-optimization-save]'),
+    optimizationManualForm: document.querySelector('[data-optimization-manual]'),
+    optimizationManualDetails: document.querySelector('[data-optimization-manual-details]'),
+    optimizationHistory: document.querySelector('[data-optimization-history]'),
+    optimizationLearning: document.querySelector('[data-optimization-learning]'),
+    governanceBudgetToggle: document.querySelector('[data-governance-budget-lock]'),
+    governanceBudgetCap: document.querySelector('[data-governance-budget-cap]'),
+    governanceSaveBudget: document.querySelector('[data-governance-save-budget]'),
+    governancePolicyList: document.querySelector('[data-governance-policy]'),
+    governanceSavePolicy: document.querySelector('[data-governance-save-policy]'),
+    governanceEmergency: document.querySelector('[data-governance-emergency]'),
+    governanceEmergencyStatus: document.querySelector('[data-governance-emergency-status]'),
+    governanceExport: document.querySelector('[data-governance-export]'),
+    governanceErase: document.querySelector('[data-governance-erase]'),
+    governanceLog: document.querySelector('[data-governance-log]'),
+    notificationsForm: document.querySelector('[data-notifications-form]'),
+    notificationsDigestEnabled: document.querySelector('[data-notifications-digest-enabled]'),
+    notificationsDigestTime: document.querySelector('[data-notifications-digest-time]'),
+    notificationsDigestEmail: document.querySelector('[data-notifications-digest-email]'),
+    notificationsDigestWhatsapp: document.querySelector('[data-notifications-digest-whatsapp]'),
+    notificationsInstantEmail: document.querySelector('[data-notifications-instant-email]'),
+    notificationsInstantWhatsapp: document.querySelector('[data-notifications-instant-whatsapp]'),
+    notificationsLog: document.querySelector('[data-notifications-log]'),
+    notificationsTest: document.querySelector('[data-notifications-test]'),
+  };
+
+  const analyticsMetricDefinitions = [
+    { key: 'impressions', label: 'Impr', format: formatNumber },
+    { key: 'clicks', label: 'Clicks', format: formatNumber },
+    { key: 'ctr', label: 'CTR', format: formatPercent },
+    { key: 'cpc', label: 'CPC', format: formatCurrency },
+    { key: 'spend', label: 'Spend', format: formatCurrency },
+    { key: 'leads', label: 'Leads', format: formatNumber },
+    { key: 'cpl', label: 'CPL', format: formatCurrency },
+    { key: 'convRate', label: 'Conv-rate', format: formatPercent },
+    { key: 'callConnects', label: 'Call connects', format: formatNumber },
+    { key: 'meetings', label: 'Meetings', format: formatNumber },
+    { key: 'sales', label: 'Sales', format: formatNumber },
+  ];
+
+  const optimizationRuleConfig = {
+    pauseUnderperforming: {
+      label: 'Pause underperforming ads',
+      description: 'Automatically pauses ads below CTR/CVR guardrails.',
+      fields: [
+        { key: 'ctrThreshold', label: 'CTR threshold', type: 'percent' },
+        { key: 'cvrThreshold', label: 'Conversion threshold', type: 'percent' },
+      ],
+    },
+    bidGuardrails: {
+      label: 'Bid guardrails',
+      description: 'Raises or lowers bids within configured guardrails.',
+      fields: [
+        { key: 'minBid', label: 'Min bid', type: 'currency' },
+        { key: 'maxBid', label: 'Max bid', type: 'currency' },
+        { key: 'step', label: 'Adjustment %', type: 'percent' },
+      ],
+    },
+    budgetShift: {
+      label: 'Budget shift to top performers',
+      description: 'Moves budget toward top quartile CPL performers.',
+      fields: [
+        { key: 'shiftPercent', label: 'Shift %', type: 'percent' },
+        { key: 'targetCpl', label: 'Target CPL', type: 'currency' },
+      ],
+    },
+    creativeRefresh: {
+      label: 'Creative refresh cadence',
+      description: 'Refreshes creatives that have decayed beyond schedule.',
+      fields: [
+        { key: 'decayDays', label: 'Refresh every (days)', type: 'number' },
+      ],
+    },
   };
 
   function formatDate(value) {
@@ -64,6 +146,54 @@
     } catch (error) {
       return value;
     }
+  }
+
+  function formatNumber(value) {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? number.toLocaleString('en-IN') : value;
+  }
+
+  function formatPercent(value) {
+    const number = Number(value || 0);
+    if (!Number.isFinite(number)) return value;
+    return `${(number * 100).toFixed(number >= 1 ? 0 : 1)}%`;
+  }
+
+  function formatCurrency(value) {
+    const currency = state.settings?.budget?.currency || 'INR';
+    const amount = Number(value || 0);
+    if (!Number.isFinite(amount)) {
+      return `${currency} ${value}`;
+    }
+    return `${currency} ${amount.toLocaleString('en-IN', {
+      minimumFractionDigits: amount >= 1000 ? 0 : 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+
+  function showToast(message, variant = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `smart-marketing__toast smart-marketing__toast--${variant}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => {
+      toast.classList.add('is-visible');
+    });
+    setTimeout(() => {
+      toast.classList.remove('is-visible');
+      toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+    }, 4000);
+  }
+
+  function apiRequest(action, body = {}) {
+    const payload = Object.assign({ action, csrfToken }, body);
+    return fetch('admin-smart-marketing.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }).then((response) => response.json());
   }
 
   function createChip(value, groupName) {
@@ -94,6 +224,18 @@
       }
       container.appendChild(chip);
     });
+  }
+
+  function createMetricsGrid(metrics) {
+    const grid = document.createElement('div');
+    grid.className = 'smart-marketing__metrics-grid';
+    analyticsMetricDefinitions.forEach((definition) => {
+      const value = metrics[definition.key] ?? 0;
+      const item = document.createElement('div');
+      item.innerHTML = `<span>${definition.label}</span><strong>${definition.format(value)}</strong>`;
+      grid.appendChild(item);
+    });
+    return grid;
   }
 
   function renderAiHealth() {
@@ -140,6 +282,439 @@
           .join(' · ')}</small>`;
       elements.integrations.appendChild(li);
     });
+  }
+
+  function renderAnalytics() {
+    const analytics = state.analytics || {};
+    if (elements.analyticsUpdated) {
+      elements.analyticsUpdated.textContent = analytics.updatedAt
+        ? `Last sync ${formatDate(analytics.updatedAt)}`
+        : 'Sync pending';
+    }
+
+    if (elements.analyticsKpis) {
+      elements.analyticsKpis.innerHTML = '';
+      (analytics.channels || []).forEach((channel) => {
+        const wrapper = document.createElement('article');
+        wrapper.className = 'smart-marketing__analytics-channel';
+        const metrics = channel.metrics || {};
+        wrapper.innerHTML = `
+          <header>
+            <h3>${escapeHtml(channel.label || channel.id || 'Channel')}</h3>
+            <p>${formatNumber(metrics.leads || 0)} leads · ${formatCurrency(metrics.spend || 0)}</p>
+          </header>`;
+        wrapper.appendChild(createMetricsGrid(metrics));
+        const campaignsContainer = document.createElement('div');
+        campaignsContainer.className = 'smart-marketing__analytics-campaigns';
+        (channel.campaigns || []).forEach((campaign) => {
+          const details = document.createElement('details');
+          const summary = document.createElement('summary');
+          summary.innerHTML = `<strong>${escapeHtml(campaign.label || campaign.id || 'Campaign')}</strong><span>${formatCurrency((campaign.metrics || {}).cpl || 0)} CPL</span>`;
+          details.appendChild(summary);
+          details.appendChild(createMetricsGrid(campaign.metrics || {}));
+          if (campaign.ads && campaign.ads.length) {
+            const adsList = document.createElement('div');
+            adsList.className = 'smart-marketing__analytics-ads';
+            campaign.ads.forEach((ad) => {
+              const adItem = document.createElement('div');
+              adItem.className = 'smart-marketing__analytics-ad';
+              adItem.innerHTML = `<h4>${escapeHtml(ad.label || ad.id || 'Ad')}</h4>`;
+              adItem.appendChild(createMetricsGrid(ad.metrics || {}));
+              adsList.appendChild(adItem);
+            });
+            details.appendChild(adsList);
+          }
+          campaignsContainer.appendChild(details);
+        });
+        wrapper.appendChild(campaignsContainer);
+        elements.analyticsKpis.appendChild(wrapper);
+      });
+      if (!(analytics.channels || []).length) {
+        elements.analyticsKpis.innerHTML = '<p class="smart-marketing__hint">No channel data available yet.</p>';
+      }
+    }
+
+    if (elements.analyticsCohorts) {
+      elements.analyticsCohorts.innerHTML = '';
+      const cohorts = analytics.cohorts || {};
+      Object.entries(cohorts).forEach(([key, items]) => {
+        const section = document.createElement('section');
+        section.innerHTML = `<h3>${escapeHtml(key.replace(/_/g, ' '))}</h3>`;
+        const list = document.createElement('ul');
+        (items || []).forEach((item) => {
+          const li = document.createElement('li');
+          li.innerHTML = `<strong>${escapeHtml(item.label || 'Cohort')}</strong><span>${formatNumber(item.leads || 0)} leads · ${formatCurrency(item.cpl || 0)}</span>`;
+          if (item.sales) {
+            li.innerHTML += `<span>${formatNumber(item.sales)} sales</span>`;
+          }
+          list.appendChild(li);
+        });
+        if (!(items || []).length) {
+          const li = document.createElement('li');
+          li.textContent = 'No cohort data available.';
+          list.appendChild(li);
+        }
+        section.appendChild(list);
+        elements.analyticsCohorts.appendChild(section);
+      });
+    }
+
+    if (elements.analyticsFunnel) {
+      const funnel = analytics.funnels || {};
+      const stages = [
+        { key: 'impressions', label: 'Impressions' },
+        { key: 'clicks', label: 'Clicks' },
+        { key: 'leads', label: 'Leads' },
+        { key: 'qualified', label: 'Qualified' },
+        { key: 'converted', label: 'Converted' },
+      ];
+      const max = Math.max(...stages.map((stage) => funnel[stage.key] || 0), 1);
+      elements.analyticsFunnel.innerHTML = stages
+        .map((stage) => {
+          const value = funnel[stage.key] || 0;
+          const width = Math.max(10, Math.round((value / max) * 100));
+          return `<div class="smart-marketing__funnel-stage"><span>${stage.label}</span><div class="smart-marketing__funnel-bar" style="width:${width}%">${formatNumber(value)}</div></div>`;
+        })
+        .join('');
+    }
+
+    if (elements.analyticsCreatives) {
+      elements.analyticsCreatives.innerHTML = '';
+      const creatives = analytics.creatives || {};
+      Object.entries(creatives).forEach(([key, items]) => {
+        const section = document.createElement('section');
+        section.innerHTML = `<h3>${escapeHtml(key.replace(/_/g, ' '))}</h3>`;
+        const list = document.createElement('ul');
+        (items || []).forEach((item) => {
+          const li = document.createElement('li');
+          li.innerHTML = `<strong>${escapeHtml(item.label || 'Creative')}</strong><span>${formatPercent(item.ctr || 0)} CTR · ${formatNumber(item.leads || 0)} leads · ${formatCurrency(item.cpl || 0)} CPL</span>`;
+          list.appendChild(li);
+        });
+        if (!(items || []).length) {
+          const li = document.createElement('li');
+          li.textContent = 'No performance data yet.';
+          list.appendChild(li);
+        }
+        section.appendChild(list);
+        elements.analyticsCreatives.appendChild(section);
+      });
+    }
+
+    if (elements.analyticsBudget) {
+      const budget = analytics.budget || {};
+      elements.analyticsBudget.innerHTML = `
+        <div class="smart-marketing__budget-row"><span>Monthly cap</span><strong>${formatCurrency(budget.monthlyCap || 0)}</strong></div>
+        <div class="smart-marketing__budget-row"><span>Spend to date</span><strong>${formatCurrency(budget.spendToDate || 0)}</strong></div>
+        <div class="smart-marketing__budget-row"><span>Pacing</span><strong>${formatPercent(budget.pacing || 0)}</strong></div>
+        <div class="smart-marketing__budget-row"><span>Burn rate</span><strong>${formatCurrency(budget.burnRate || 0)}/day</strong></div>
+        <div class="smart-marketing__budget-row"><span>Expected burn</span><strong>${formatCurrency(budget.expectedBurn || 0)}/day</strong></div>`;
+    }
+
+    if (elements.analyticsAlerts) {
+      elements.analyticsAlerts.innerHTML = '';
+      const alerts = [...(analytics.budget?.alerts || []), ...(analytics.alerts || [])];
+      if (!alerts.length) {
+        elements.analyticsAlerts.innerHTML = '<p class="smart-marketing__hint">No alerts at this time.</p>';
+      } else {
+        const list = document.createElement('ul');
+        alerts.forEach((alert) => {
+          const li = document.createElement('li');
+          li.textContent = alert.message || 'Alert logged.';
+          list.appendChild(li);
+        });
+        elements.analyticsAlerts.appendChild(list);
+      }
+    }
+  }
+
+  function updateManualDetails(kind) {
+    if (!elements.optimizationManualDetails) return;
+    const container = elements.optimizationManualDetails;
+    container.innerHTML = '';
+    if (kind === 'promote_creative') {
+      container.innerHTML = `
+        <label>Creative name<input type="text" name="creative" placeholder="Headline or asset ID" required></label>
+        <label>Channels<textarea name="channels" rows="2" placeholder="Google, Meta, WhatsApp"></textarea></label>`;
+    } else if (kind === 'duplicate_campaign') {
+      container.innerHTML = `
+        <label>Source campaign<input type="text" name="source" placeholder="Campaign ID" required></label>
+        <label>Target districts<textarea name="targets" rows="2" placeholder="Ranchi, Bokaro"></textarea></label>`;
+    } else {
+      container.innerHTML = `
+        <label>Test type<select name="testType" required>
+          <option value="Creative">Creative</option>
+          <option value="CTA">CTA</option>
+          <option value="Offer">Offer</option>
+          <option value="Landing">Landing</option>
+        </select></label>
+        <label>Variant A<input type="text" name="variantA" placeholder="Current control" required></label>
+        <label>Variant B<input type="text" name="variantB" placeholder="New challenger" required></label>
+        <label>Schedule<input type="text" name="schedule" placeholder="Start next Monday"></label>`;
+    }
+  }
+
+  function collectOptimizationPayload() {
+    const payload = { autoRules: {} };
+    Object.entries(optimizationRuleConfig).forEach(([ruleKey, config]) => {
+      const toggle = elements.optimizationAuto?.querySelector(`[data-optimization-toggle="${ruleKey}"]`);
+      if (!toggle) {
+        return;
+      }
+      const rule = { enabled: toggle.checked };
+      (config.fields || []).forEach((field) => {
+        const input = elements.optimizationAuto.querySelector(`input[name="${ruleKey}.${field.key}"]`);
+        if (!input) return;
+        if (input.value === '') return;
+        let value = Number(input.value);
+        if (field.type === 'percent') {
+          value = Number(input.value) / 100;
+        }
+        rule[field.key] = Number.isFinite(value) ? value : input.value;
+      });
+      payload.autoRules[ruleKey] = rule;
+    });
+    return payload;
+  }
+
+  function collectPolicyPayload() {
+    const payload = {};
+    if (!elements.governancePolicyList) return payload;
+    elements.governancePolicyList.querySelectorAll('input[data-policy]').forEach((input) => {
+      payload[input.dataset.policy] = input.checked;
+    });
+    const notes = elements.governancePolicyList.querySelector('[data-policy-notes]');
+    if (notes) {
+      payload.notes = notes.value;
+    }
+    return payload;
+  }
+
+  function collectNotificationsPayload() {
+    const payload = { notifications: { dailyDigest: { channels: {} }, instant: {} } };
+    if (elements.notificationsDigestEnabled) {
+      payload.notifications.dailyDigest.enabled = elements.notificationsDigestEnabled.checked;
+    }
+    if (elements.notificationsDigestTime) {
+      payload.notifications.dailyDigest.time = elements.notificationsDigestTime.value;
+    }
+    if (elements.notificationsDigestEmail) {
+      payload.notifications.dailyDigest.channels.email = elements.notificationsDigestEmail.value;
+    }
+    if (elements.notificationsDigestWhatsapp) {
+      payload.notifications.dailyDigest.channels.whatsapp = elements.notificationsDigestWhatsapp.value;
+    }
+    if (elements.notificationsInstantEmail) {
+      payload.notifications.instant.email = elements.notificationsInstantEmail.checked;
+    }
+    if (elements.notificationsInstantWhatsapp) {
+      payload.notifications.instant.whatsapp = elements.notificationsInstantWhatsapp.checked;
+    }
+    return payload;
+  }
+
+  function renderOptimization() {
+    const optimization = state.optimization || {};
+    const autoRules = optimization.autoRules || {};
+    if (elements.optimizationAuto) {
+      elements.optimizationAuto.innerHTML = '';
+      Object.entries(optimizationRuleConfig).forEach(([ruleKey, config]) => {
+        const rule = autoRules[ruleKey] || {};
+        const section = document.createElement('section');
+        section.className = 'smart-marketing__optimization-rule';
+        const enabled = !!rule.enabled;
+        section.innerHTML = `
+          <header>
+            <label><input type="checkbox" data-optimization-toggle="${ruleKey}" ${enabled ? 'checked' : ''}/> ${escapeHtml(config.label)}</label>
+            <p>${escapeHtml(config.description)}</p>
+          </header>`;
+        const fieldsContainer = document.createElement('div');
+        fieldsContainer.className = 'smart-marketing__optimization-fields';
+        (config.fields || []).forEach((field) => {
+          const value = rule[field.key];
+          const input = document.createElement('input');
+          input.name = `${ruleKey}.${field.key}`;
+          input.dataset.rule = ruleKey;
+          input.dataset.field = field.key;
+          input.dataset.type = field.type;
+          input.type = 'number';
+          input.step = field.type === 'number' ? '1' : '0.1';
+          if (field.type === 'currency') {
+            input.step = '1';
+          }
+          if (field.type === 'percent') {
+            input.value = Number.isFinite(value) ? (Number(value) * 100).toFixed(1) : '';
+          } else {
+            input.value = Number.isFinite(value) ? Number(value) : '';
+          }
+          const label = document.createElement('label');
+          label.textContent = field.label;
+          label.appendChild(input);
+          fieldsContainer.appendChild(label);
+        });
+        section.appendChild(fieldsContainer);
+        elements.optimizationAuto.appendChild(section);
+      });
+    }
+
+    if (elements.optimizationHistory) {
+      const history = optimization.history || [];
+      elements.optimizationHistory.innerHTML = '<h3>Automation history</h3>';
+      const list = document.createElement('ul');
+      if (!history.length) {
+        const item = document.createElement('li');
+        item.textContent = 'No optimisation actions recorded yet.';
+        list.appendChild(item);
+      } else {
+        history.slice(-10).reverse().forEach((entry) => {
+          const item = document.createElement('li');
+          item.innerHTML = `<strong>${escapeHtml(entry.rule || 'action')}</strong> · ${escapeHtml(entry.message || '')}<span>${formatDate(entry.timestamp)}</span>`;
+          list.appendChild(item);
+        });
+      }
+      elements.optimizationHistory.appendChild(list);
+    }
+
+    if (elements.optimizationLearning) {
+      const learning = optimization.learning || {};
+      elements.optimizationLearning.innerHTML = '<h3>Learning memory</h3>';
+      const next = document.createElement('p');
+      next.className = 'smart-marketing__hint';
+      next.textContent = learning.nextBestAction || 'No recommendation yet.';
+      elements.optimizationLearning.appendChild(next);
+      const tests = document.createElement('ul');
+      (learning.tests || []).slice(-5).reverse().forEach((test) => {
+        const item = document.createElement('li');
+        item.innerHTML = `<strong>${escapeHtml(test.id || '')}</strong> · ${escapeHtml(test.type || '')} · ${escapeHtml(test.status || '')}<span>${escapeHtml(test.result || '')}</span>`;
+        tests.appendChild(item);
+      });
+      if (!(learning.tests || []).length) {
+        const item = document.createElement('li');
+        item.textContent = 'No experiments logged yet.';
+        tests.appendChild(item);
+      }
+      elements.optimizationLearning.appendChild(tests);
+    }
+
+    updateManualDetails(elements.optimizationManualForm?.querySelector('select')?.value || 'promote_creative');
+  }
+
+  function renderGovernance() {
+    const governance = state.governance || {};
+    const emergency = governance.emergencyStop || {};
+    if (elements.governanceBudgetToggle) {
+      elements.governanceBudgetToggle.checked = !!(governance.budgetLock?.enabled);
+    }
+    if (elements.governanceBudgetCap) {
+      elements.governanceBudgetCap.value = governance.budgetLock?.cap ?? '';
+    }
+    if (elements.governanceEmergency) {
+      const isActive = !!emergency.active;
+      elements.governanceEmergency.disabled = isActive;
+      elements.governanceEmergency.classList.toggle('is-active', isActive);
+      elements.governanceEmergency.innerHTML = isActive
+        ? '<i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i> Emergency stop active'
+        : '<i class="fa-solid fa-stop" aria-hidden="true"></i> Emergency stop';
+      elements.governanceEmergency.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      elements.governanceEmergency.title = isActive
+        ? `Activated by ${emergency.triggeredBy || 'Admin'}`
+        : 'Pause all channels instantly';
+    }
+    if (elements.governanceEmergencyStatus) {
+      const isActive = !!emergency.active;
+      if (isActive) {
+        const since = emergency.triggeredAt ? formatDate(emergency.triggeredAt) : 'just now';
+        const by = emergency.triggeredBy ? emergency.triggeredBy : 'Admin';
+        elements.governanceEmergencyStatus.textContent = `Emergency stop active since ${since} by ${by}.`;
+        elements.governanceEmergencyStatus.classList.add('is-active');
+      } else {
+        elements.governanceEmergencyStatus.textContent = 'Emergency stop is idle.';
+        elements.governanceEmergencyStatus.classList.remove('is-active');
+      }
+    }
+    if (elements.governancePolicyList) {
+      const policy = governance.policyChecklist || {};
+      elements.governancePolicyList.innerHTML = '';
+      const items = [
+        { key: 'pmSuryaClaims', label: 'PM Surya Ghar claims accurate' },
+        { key: 'ethicalMessaging', label: 'Solar advertising ethics followed' },
+        { key: 'disclaimerPlaced', label: 'Required disclaimers placed' },
+        { key: 'dataAccuracy', label: 'Performance data verified' },
+      ];
+      items.forEach((item) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<label><input type="checkbox" data-policy="${item.key}" ${policy[item.key] ? 'checked' : ''}/> ${item.label}</label>`;
+        elements.governancePolicyList.appendChild(li);
+      });
+      const notes = document.createElement('li');
+      notes.innerHTML = `<label>Notes<textarea rows="2" data-policy-notes>${escapeHtml(policy.notes || '')}</textarea></label>`;
+      elements.governancePolicyList.appendChild(notes);
+      const reviewed = document.createElement('li');
+      reviewed.className = 'smart-marketing__hint';
+      reviewed.textContent = policy.lastReviewed ? `Last reviewed ${formatDate(policy.lastReviewed)}` : 'Checklist not reviewed yet.';
+      elements.governancePolicyList.appendChild(reviewed);
+    }
+    if (elements.governanceLog) {
+      const logEntries = governance.log || [];
+      elements.governanceLog.innerHTML = '<h3>Autonomy audit trail</h3>';
+      const list = document.createElement('ul');
+      if (!logEntries.length) {
+        const li = document.createElement('li');
+        li.textContent = 'No governance actions logged yet.';
+        list.appendChild(li);
+      } else {
+        logEntries.slice(-10).reverse().forEach((entry) => {
+          const li = document.createElement('li');
+          const context = entry.context && Object.keys(entry.context).length
+            ? Object.entries(entry.context)
+                .map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
+                .join(' · ')
+            : '';
+          li.innerHTML = `<strong>${escapeHtml(entry.event || '')}</strong> · ${escapeHtml(entry.user?.name || 'Admin')}<span>${formatDate(entry.timestamp)}</span>${context ? `<p>${escapeHtml(context)}</p>` : ''}`;
+          list.appendChild(li);
+        });
+      }
+      elements.governanceLog.appendChild(list);
+    }
+  }
+
+  function renderNotifications() {
+    const notifications = state.notifications || {};
+    const digest = notifications.dailyDigest || {};
+    if (elements.notificationsDigestEnabled) {
+      elements.notificationsDigestEnabled.checked = !!digest.enabled;
+    }
+    if (elements.notificationsDigestTime) {
+      elements.notificationsDigestTime.value = digest.time || '';
+    }
+    if (elements.notificationsDigestEmail) {
+      elements.notificationsDigestEmail.value = digest.channels?.email || '';
+    }
+    if (elements.notificationsDigestWhatsapp) {
+      elements.notificationsDigestWhatsapp.value = digest.channels?.whatsapp || '';
+    }
+    if (elements.notificationsInstantEmail) {
+      elements.notificationsInstantEmail.checked = !!notifications.instant?.email;
+    }
+    if (elements.notificationsInstantWhatsapp) {
+      elements.notificationsInstantWhatsapp.checked = !!notifications.instant?.whatsapp;
+    }
+    if (elements.notificationsLog) {
+      const log = notifications.log || [];
+      elements.notificationsLog.innerHTML = '<h3>Notification log</h3>';
+      const list = document.createElement('ul');
+      if (!log.length) {
+        const li = document.createElement('li');
+        li.textContent = 'No notifications sent yet.';
+        list.appendChild(li);
+      } else {
+        log.slice(-10).reverse().forEach((entry) => {
+          const li = document.createElement('li');
+          li.innerHTML = `<strong>${escapeHtml(entry.type || 'notice')}</strong> · ${formatDate(entry.timestamp)}<span>${escapeHtml(entry.message || '')}</span>`;
+          list.appendChild(li);
+        });
+      }
+      elements.notificationsLog.appendChild(list);
+    }
   }
 
   function createSelectField(config) {
@@ -654,18 +1229,280 @@
           if (data.campaigns) state.campaigns = data.campaigns;
           if (data.automationLog) state.automationLog = data.automationLog;
           if (data.audit) state.audit = data.audit;
+          if (data.optimization) state.optimization = data.optimization;
+          if (data.notifications) state.notifications = data.notifications;
+          if (data.governance) state.governance = data.governance;
           renderCampaigns();
           renderAutomationLog();
+          renderOptimization();
+          renderNotifications();
+          renderGovernance();
           renderAudit();
+          showToast('Automation sweep completed', 'success');
         })
         .catch((error) => {
-          alert(error.message);
+          showToast(error.message, 'error');
         })
         .finally(() => {
           elements.runAutomationsButton.disabled = false;
           elements.runAutomationsButton.innerHTML = original;
         });
     });
+  }
+
+  function initAnalyticsSection() {
+    if (!elements.analyticsRefresh) return;
+    elements.analyticsRefresh.addEventListener('click', () => {
+      const original = elements.analyticsRefresh.innerHTML;
+      elements.analyticsRefresh.disabled = true;
+      elements.analyticsRefresh.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Refreshing…';
+      apiRequest('analytics-refresh')
+        .then((data) => {
+          if (!data.ok) throw new Error(data.error || 'Unable to refresh analytics');
+          if (data.analytics) state.analytics = data.analytics;
+          if (data.notifications) state.notifications = data.notifications;
+          renderAnalytics();
+          renderNotifications();
+          showToast('Analytics refreshed', 'success');
+        })
+        .catch((error) => {
+          showToast(error.message, 'error');
+        })
+        .finally(() => {
+          elements.analyticsRefresh.disabled = false;
+          elements.analyticsRefresh.innerHTML = original;
+        });
+    });
+  }
+
+  function initOptimizationSection() {
+    if (elements.optimizationSave) {
+      elements.optimizationSave.addEventListener('click', () => {
+        const payload = collectOptimizationPayload();
+        elements.optimizationSave.disabled = true;
+        apiRequest('optimization-save', { optimization: payload })
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to save optimisation rules');
+            if (data.optimization) state.optimization = data.optimization;
+            renderOptimization();
+            showToast('Optimisation guardrails saved', 'success');
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            elements.optimizationSave.disabled = false;
+          });
+      });
+    }
+
+    if (elements.optimizationManualForm) {
+      const kindSelect = elements.optimizationManualForm.querySelector('select[name="kind"]');
+      if (kindSelect) {
+        kindSelect.addEventListener('change', (event) => {
+          updateManualDetails(event.target.value);
+        });
+        updateManualDetails(kindSelect.value);
+      }
+      elements.optimizationManualForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const formData = new FormData(elements.optimizationManualForm);
+        const kind = formData.get('kind');
+        if (!kind) return;
+        const notes = formData.get('notes') || '';
+        const details = {};
+        formData.forEach((value, key) => {
+          if (['kind', 'notes'].includes(key)) return;
+          details[key] = value;
+        });
+        elements.optimizationManualForm.querySelector('button[type="submit"]').disabled = true;
+        apiRequest('optimization-manual-action', { kind, notes, details })
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to log manual action');
+            if (data.optimization) state.optimization = data.optimization;
+            if (data.notifications) state.notifications = data.notifications;
+            if (data.governance) state.governance = data.governance;
+            renderOptimization();
+            renderNotifications();
+            renderGovernance();
+            showToast('Manual optimisation logged', 'success');
+            elements.optimizationManualForm.reset();
+            updateManualDetails('promote_creative');
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            const submit = elements.optimizationManualForm.querySelector('button[type="submit"]');
+            if (submit) submit.disabled = false;
+          });
+      });
+    }
+  }
+
+  function initGovernanceSection() {
+    if (elements.governanceSaveBudget) {
+      elements.governanceSaveBudget.addEventListener('click', () => {
+        const payload = {
+          enabled: elements.governanceBudgetToggle?.checked ?? false,
+          cap: parseFloat(elements.governanceBudgetCap?.value || '0'),
+        };
+        elements.governanceSaveBudget.disabled = true;
+        apiRequest('governance-budget-lock', payload)
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to update budget lock');
+            if (data.governance) state.governance = data.governance;
+            renderGovernance();
+            showToast('Budget lock updated', 'success');
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            elements.governanceSaveBudget.disabled = false;
+          });
+      });
+    }
+
+    if (elements.governanceSavePolicy) {
+      elements.governanceSavePolicy.addEventListener('click', () => {
+        const policy = collectPolicyPayload();
+        elements.governanceSavePolicy.disabled = true;
+        apiRequest('governance-policy-save', { policy })
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to save policy checklist');
+            if (data.governance) state.governance = data.governance;
+            renderGovernance();
+            showToast('Policy checklist saved', 'success');
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            elements.governanceSavePolicy.disabled = false;
+          });
+      });
+    }
+
+    if (elements.governanceEmergency) {
+      elements.governanceEmergency.addEventListener('click', () => {
+        if (!confirm('Activate emergency stop across all channels?')) return;
+        elements.governanceEmergency.disabled = true;
+        apiRequest('governance-emergency-stop')
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to trigger emergency stop');
+            if (data.campaigns) state.campaigns = data.campaigns;
+            if (data.settings) state.settings = data.settings;
+            if (data.governance) state.governance = data.governance;
+            if (data.notifications) state.notifications = data.notifications;
+            if (data.automationLog) state.automationLog = data.automationLog;
+            if (data.audit) state.audit = data.audit;
+            renderCampaigns();
+            renderGovernance();
+            renderNotifications();
+            renderAutomationLog();
+            renderAudit();
+            renderAutonomyMode();
+            showToast('Emergency stop engaged', 'warning');
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            elements.governanceEmergency.disabled = false;
+          });
+      });
+    }
+
+    if (elements.governanceExport) {
+      elements.governanceExport.addEventListener('click', () => {
+        elements.governanceExport.disabled = true;
+        apiRequest('governance-data-request', { mode: 'export' })
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to export data');
+            if (data.governance) state.governance = data.governance;
+            if (data.notifications) state.notifications = data.notifications;
+            renderGovernance();
+            renderNotifications();
+            if (data.download) {
+              showToast(`Export saved as ${data.download}`, 'success');
+            } else {
+              showToast('Export queued', 'success');
+            }
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            elements.governanceExport.disabled = false;
+          });
+      });
+    }
+
+    if (elements.governanceErase) {
+      elements.governanceErase.addEventListener('click', () => {
+        if (!confirm('Queue PII erasure request?')) return;
+        elements.governanceErase.disabled = true;
+        apiRequest('governance-data-request', { mode: 'erase' })
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to queue erasure');
+            if (data.governance) state.governance = data.governance;
+            if (data.notifications) state.notifications = data.notifications;
+            renderGovernance();
+            renderNotifications();
+            showToast('Erasure request queued', 'info');
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            elements.governanceErase.disabled = false;
+          });
+      });
+    }
+  }
+
+  function initNotificationsSection() {
+    if (elements.notificationsForm) {
+      elements.notificationsForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const payload = collectNotificationsPayload();
+        elements.notificationsForm.querySelector('button[type="submit"]').disabled = true;
+        apiRequest('notifications-save', payload)
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to save notifications');
+            if (data.notifications) state.notifications = data.notifications;
+            renderNotifications();
+            showToast('Notification preferences saved', 'success');
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            const submit = elements.notificationsForm.querySelector('button[type="submit"]');
+            if (submit) submit.disabled = false;
+          });
+      });
+    }
+
+    if (elements.notificationsTest) {
+      elements.notificationsTest.addEventListener('click', () => {
+        elements.notificationsTest.disabled = true;
+        apiRequest('notifications-test')
+          .then((data) => {
+            if (!data.ok) throw new Error(data.error || 'Unable to send test notification');
+            if (data.notifications) state.notifications = data.notifications;
+            renderNotifications();
+            showToast('Test notification logged', 'success');
+          })
+          .catch((error) => {
+            showToast(error.message, 'error');
+          })
+          .finally(() => {
+            elements.notificationsTest.disabled = false;
+          });
+      });
+    }
   }
 
   function renderAudit() {
@@ -1279,12 +2116,16 @@
     renderAiHealth();
     renderIntegrations();
     renderConnectors();
+    renderAnalytics();
     renderAudit();
     renderAutonomyMode();
     renderRuns();
     renderAssets();
     renderCampaigns();
     renderAutomationLog();
+    renderOptimization();
+    renderGovernance();
+    renderNotifications();
     applyDefaultSelections();
     initTabs();
     initSettingsBindings();
@@ -1295,6 +2136,10 @@
     initConnectorActions();
     initCampaignBuilder();
     initAutomations();
+    initAnalyticsSection();
+    initOptimizationSection();
+    initGovernanceSection();
+    initNotificationsSection();
     setSaving('saved', 'All changes saved');
   }
 

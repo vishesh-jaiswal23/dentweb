@@ -53,6 +53,36 @@ function smart_marketing_automation_log_file(): string
     return smart_marketing_storage_dir() . '/automations.log';
 }
 
+function smart_marketing_analytics_file(): string
+{
+    return smart_marketing_storage_dir() . '/analytics.json';
+}
+
+function smart_marketing_optimization_file(): string
+{
+    return smart_marketing_storage_dir() . '/optimization.json';
+}
+
+function smart_marketing_governance_file(): string
+{
+    return smart_marketing_storage_dir() . '/governance.json';
+}
+
+function smart_marketing_notifications_file(): string
+{
+    return smart_marketing_storage_dir() . '/notifications.json';
+}
+
+function smart_marketing_exports_dir(): string
+{
+    $dir = smart_marketing_storage_dir() . '/exports';
+    if (!is_dir($dir)) {
+        mkdir($dir, 0775, true);
+    }
+
+    return $dir;
+}
+
 function smart_marketing_landings_dir(): string
 {
     $dir = smart_marketing_storage_dir() . '/landings';
@@ -369,6 +399,21 @@ function smart_marketing_audit_log_append(string $action, array $context = [], a
     file_put_contents(smart_marketing_audit_log_file(), $line, FILE_APPEND | LOCK_EX);
 }
 
+function smart_marketing_mask_value(string $value): string
+{
+    $masked = preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+/i', '[redacted-email]', $value);
+    $masked = preg_replace_callback('/\+?\d[\d\s-]{7,}/', static function ($matches) {
+        $digits = preg_replace('/\D+/', '', $matches[0]);
+        if (strlen($digits) < 7) {
+            return '[redacted]';
+        }
+        $visible = substr($digits, -2);
+        return '[redacted-phone]' . $visible;
+    }, $masked);
+
+    return $masked;
+}
+
 function smart_marketing_scrub_context(array $context): array
 {
     $scrubbed = [];
@@ -381,6 +426,8 @@ function smart_marketing_scrub_context(array $context): array
 
         if (str_contains($lower, 'key') || str_contains($lower, 'token') || str_contains($lower, 'secret') || str_contains($lower, 'password')) {
             $scrubbed[$key] = '***';
+        } elseif (is_string($value)) {
+            $scrubbed[$key] = smart_marketing_mask_value($value);
         } else {
             $scrubbed[$key] = $value;
         }
@@ -1145,7 +1192,8 @@ function smart_marketing_launch_campaigns(array &$runs, int $runId, array $campa
     smart_marketing_brain_runs_save($runs);
     smart_marketing_campaigns_save($campaigns);
 
-    $automationEntries = smart_marketing_run_automations($campaigns, $settings, true);
+    $automationResult = smart_marketing_run_automations($campaigns, $settings, true);
+    $automationEntries = $automationResult['entries'];
 
     return [
         'launched' => $launched,
@@ -1284,88 +1332,81 @@ function smart_marketing_pick_employee_for_region(PDO $db, string $region): ?int
     return (int) ($employees[$index]['id'] ?? null);
 }
 
-function smart_marketing_run_automations(array &$campaigns, array $settings, bool $forced = false): array
+function smart_marketing_run_automations(
+    array &$campaigns,
+    array $settings,
+    bool $forced = false,
+    ?array $optimization = null,
+    ?array $governance = null,
+    ?array $notifications = null
+): array
 {
     $entries = [];
-    $targetCpl = (float) ($settings['budget']['targetCpl'] ?? 450);
-    $ctrThreshold = 0.02;
+    $campaignsTouched = false;
 
-    foreach ($campaigns as &$campaign) {
-        if (($campaign['status'] ?? '') !== 'launched') {
-            continue;
-        }
-        $metrics = $campaign['metrics'] ?? ['ctr' => 0.02, 'cpl' => $targetCpl];
-        if (($metrics['ctr'] ?? 0) < $ctrThreshold) {
-            $campaign['maintenance']['lastCreativeRefresh'] = ai_timestamp();
-            $entries[] = [
-                'timestamp' => ai_timestamp(),
-                'type' => 'creative_refresh',
-                'campaign_id' => $campaign['id'],
-                'message' => sprintf('Queued fresh creative variants because CTR %.2f%% is below %.2f%%.', ($metrics['ctr'] ?? 0) * 100, $ctrThreshold * 100),
-            ];
-            $campaign['metrics']['ctr'] = ($metrics['ctr'] ?? 0) + 0.004;
-        }
+    $optimizationState = $optimization ?? smart_marketing_optimization_load($settings);
+    $governanceState = $governance ?? smart_marketing_governance_load($settings);
+    $notificationState = $notifications ?? smart_marketing_notifications_load();
 
-        if (($metrics['cpl'] ?? 0) > $targetCpl) {
-            $campaign['budget']['daily'] = round($campaign['budget']['daily'] * 0.95, 2);
-            $entries[] = [
-                'timestamp' => ai_timestamp(),
-                'type' => 'budget_reallocation',
-                'campaign_id' => $campaign['id'],
-                'message' => sprintf('Shifted spend to stronger CPL performers for %s (CPL %s vs target %s).', $campaign['id'], number_format($metrics['cpl'], 2), number_format($targetCpl, 2)),
-            ];
-            $campaign['metrics']['cpl'] = ($metrics['cpl'] ?? 0) * 0.95;
-        }
-
-        if ($campaign['type'] === 'search') {
-            $campaign['negative_keywords'] = array_values(array_unique(array_merge($campaign['negative_keywords'] ?? [], ['free installation', 'jobs'])));
-            $entries[] = [
-                'timestamp' => ai_timestamp(),
-                'type' => 'negative_keywords',
-                'campaign_id' => $campaign['id'],
-                'message' => 'Added negative keywords: free installation, jobs.',
-            ];
-        }
-
-        if (in_array($campaign['type'], ['lead_gen', 'whatsapp', 'boosted'], true)) {
-            $campaign['frequency_cap'] = '2 impressions per person per 7 days';
-            $entries[] = [
-                'timestamp' => ai_timestamp(),
-                'type' => 'frequency_cap',
-                'campaign_id' => $campaign['id'],
-                'message' => 'Adjusted Meta frequency cap to 2/7 to control fatigue.',
-            ];
-        }
+    $autoResult = smart_marketing_apply_auto_rules($campaigns, $optimizationState, $settings, $governanceState);
+    if (!empty($autoResult['entries'])) {
+        $entries = array_merge($entries, $autoResult['entries']);
+        $campaignsTouched = $campaignsTouched || (bool) $autoResult['modified'];
     }
-    unset($campaign);
+    $optimizationState = $autoResult['optimization'];
+
+    foreach ($autoResult['alerts'] as $alert) {
+        $notificationState = smart_marketing_notifications_push(
+            $notificationState,
+            $alert['type'] ?? 'alert',
+            (string) ($alert['message'] ?? 'Smart Marketing alert'),
+            (array) ($alert['channels'] ?? [])
+        );
+    }
 
     if ($forced) {
-        $entries[] = [
-            'timestamp' => ai_timestamp(),
-            'type' => 'seasonal_schedule',
-            'campaign_id' => null,
-            'message' => 'Seasonal bursts locked: Summer rooftop push & Diwali festival offers.',
+        $timestamp = ai_timestamp();
+        $seasonal = [
+            [
+                'timestamp' => $timestamp,
+                'type' => 'seasonal_schedule',
+                'campaign_id' => null,
+                'message' => 'Seasonal bursts locked: Summer rooftop push & Diwali festival offers.',
+            ],
+            [
+                'timestamp' => $timestamp,
+                'type' => 'dayparting',
+                'campaign_id' => null,
+                'message' => 'Applied 25% bid uplift during 9am-8pm call hours and reduced bids overnight.',
+            ],
+            [
+                'timestamp' => $timestamp,
+                'type' => 'compliance_rescan',
+                'campaign_id' => null,
+                'message' => 'Re-scanned active creatives; flagged items would be paused automatically.',
+            ],
         ];
-        $entries[] = [
-            'timestamp' => ai_timestamp(),
-            'type' => 'dayparting',
-            'campaign_id' => null,
-            'message' => 'Applied 25% bid uplift during 9am-8pm call hours and reduced bids overnight.',
-        ];
-        $entries[] = [
-            'timestamp' => ai_timestamp(),
-            'type' => 'compliance_rescan',
-            'campaign_id' => null,
-            'message' => 'Re-scanned active creatives; flagged items would be paused automatically.',
-        ];
+        $entries = array_merge($entries, $seasonal);
     }
 
     if (!empty($entries)) {
         smart_marketing_automation_log_append($entries);
+    }
+
+    if ($campaignsTouched || $forced) {
         smart_marketing_campaigns_save($campaigns);
     }
 
-    return $entries;
+    smart_marketing_optimization_save($optimizationState);
+    smart_marketing_notifications_save($notificationState);
+
+    return [
+        'entries' => $entries,
+        'optimization' => $optimizationState,
+        'governance' => $governanceState,
+        'notifications' => $notificationState,
+        'campaignsChanged' => $campaignsTouched || $forced,
+    ];
 }
 
 function smart_marketing_automation_log_append(array $entries): void
@@ -1428,6 +1469,1275 @@ function smart_marketing_automation_log_read(int $limit = 25): array
     }
 
     return $decoded;
+}
+
+function smart_marketing_analytics_defaults(): array
+{
+    return [
+        'updatedAt' => ai_timestamp(),
+        'channels' => [
+            [
+                'id' => 'googleAds',
+                'label' => 'Google Ads',
+                'metrics' => [
+                    'impressions' => 185400,
+                    'clicks' => 7420,
+                    'spend' => 178500,
+                    'leads' => 362,
+                    'qualified' => 210,
+                    'converted' => 58,
+                    'callConnects' => 164,
+                    'meetings' => 92,
+                    'sales' => 34,
+                ],
+                'campaigns' => [
+                    [
+                        'id' => 'SRCH-RES',
+                        'label' => 'Search • Residential Rooftop',
+                        'metrics' => [
+                            'impressions' => 86400,
+                            'clicks' => 3980,
+                            'spend' => 91200,
+                            'leads' => 214,
+                            'qualified' => 132,
+                            'converted' => 36,
+                            'callConnects' => 98,
+                            'meetings' => 54,
+                            'sales' => 18,
+                        ],
+                        'ads' => [
+                            [
+                                'id' => 'SRCH-RES-01',
+                                'label' => 'Claim PM Surya Ghar subsidy',
+                                'metrics' => [
+                                    'impressions' => 41200,
+                                    'clicks' => 2050,
+                                    'spend' => 47200,
+                                    'leads' => 118,
+                                    'qualified' => 74,
+                                    'converted' => 20,
+                                    'callConnects' => 58,
+                                    'meetings' => 31,
+                                    'sales' => 11,
+                                ],
+                            ],
+                            [
+                                'id' => 'SRCH-RES-02',
+                                'label' => 'Free rooftop solar audit',
+                                'metrics' => [
+                                    'impressions' => 45200,
+                                    'clicks' => 1930,
+                                    'spend' => 44000,
+                                    'leads' => 96,
+                                    'qualified' => 58,
+                                    'converted' => 16,
+                                    'callConnects' => 40,
+                                    'meetings' => 23,
+                                    'sales' => 7,
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'id' => 'SRCH-CI',
+                        'label' => 'Search • C&I Rooftop',
+                        'metrics' => [
+                            'impressions' => 61200,
+                            'clicks' => 1890,
+                            'spend' => 61200,
+                            'leads' => 92,
+                            'qualified' => 54,
+                            'converted' => 14,
+                            'callConnects' => 42,
+                            'meetings' => 26,
+                            'sales' => 10,
+                        ],
+                        'ads' => [
+                            [
+                                'id' => 'SRCH-CI-01',
+                                'label' => 'Lower factory power bills',
+                                'metrics' => [
+                                    'impressions' => 30200,
+                                    'clicks' => 980,
+                                    'spend' => 31200,
+                                    'leads' => 48,
+                                    'qualified' => 28,
+                                    'converted' => 8,
+                                    'callConnects' => 20,
+                                    'meetings' => 12,
+                                    'sales' => 4,
+                                ],
+                            ],
+                            [
+                                'id' => 'SRCH-CI-02',
+                                'label' => 'Accelerated depreciation savings',
+                                'metrics' => [
+                                    'impressions' => 31000,
+                                    'clicks' => 910,
+                                    'spend' => 30000,
+                                    'leads' => 44,
+                                    'qualified' => 26,
+                                    'converted' => 6,
+                                    'callConnects' => 22,
+                                    'meetings' => 14,
+                                    'sales' => 6,
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'id' => 'meta',
+                'label' => 'Meta Ads',
+                'metrics' => [
+                    'impressions' => 146200,
+                    'clicks' => 6120,
+                    'spend' => 128400,
+                    'leads' => 286,
+                    'qualified' => 164,
+                    'converted' => 42,
+                    'callConnects' => 120,
+                    'meetings' => 66,
+                    'sales' => 18,
+                ],
+                'campaigns' => [
+                    [
+                        'id' => 'META-LA',
+                        'label' => 'Lead Ads • Subsidy Explainer',
+                        'metrics' => [
+                            'impressions' => 80200,
+                            'clicks' => 3580,
+                            'spend' => 72400,
+                            'leads' => 182,
+                            'qualified' => 106,
+                            'converted' => 26,
+                            'callConnects' => 78,
+                            'meetings' => 38,
+                            'sales' => 12,
+                        ],
+                        'ads' => [
+                            [
+                                'id' => 'META-LA-01',
+                                'label' => 'Carousel • Rooftop installs',
+                                'metrics' => [
+                                    'impressions' => 38200,
+                                    'clicks' => 1820,
+                                    'spend' => 36200,
+                                    'leads' => 94,
+                                    'qualified' => 54,
+                                    'converted' => 14,
+                                    'callConnects' => 40,
+                                    'meetings' => 22,
+                                    'sales' => 8,
+                                ],
+                            ],
+                            [
+                                'id' => 'META-LA-02',
+                                'label' => 'Video • Customer testimonial',
+                                'metrics' => [
+                                    'impressions' => 42000,
+                                    'clicks' => 1760,
+                                    'spend' => 36200,
+                                    'leads' => 88,
+                                    'qualified' => 52,
+                                    'converted' => 12,
+                                    'callConnects' => 38,
+                                    'meetings' => 16,
+                                    'sales' => 4,
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'id' => 'META-RT',
+                        'label' => 'Retargeting • Site Visitors',
+                        'metrics' => [
+                            'impressions' => 66000,
+                            'clicks' => 2540,
+                            'spend' => 56000,
+                            'leads' => 104,
+                            'qualified' => 58,
+                            'converted' => 16,
+                            'callConnects' => 42,
+                            'meetings' => 28,
+                            'sales' => 6,
+                        ],
+                        'ads' => [
+                            [
+                                'id' => 'META-RT-01',
+                                'label' => 'Static • Install team photo',
+                                'metrics' => [
+                                    'impressions' => 33800,
+                                    'clicks' => 1290,
+                                    'spend' => 27600,
+                                    'leads' => 54,
+                                    'qualified' => 32,
+                                    'converted' => 8,
+                                    'callConnects' => 22,
+                                    'meetings' => 12,
+                                    'sales' => 4,
+                                ],
+                            ],
+                            [
+                                'id' => 'META-RT-02',
+                                'label' => 'Reel • Drone walkthrough',
+                                'metrics' => [
+                                    'impressions' => 32200,
+                                    'clicks' => 1250,
+                                    'spend' => 28400,
+                                    'leads' => 50,
+                                    'qualified' => 26,
+                                    'converted' => 8,
+                                    'callConnects' => 20,
+                                    'meetings' => 16,
+                                    'sales' => 2,
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'id' => 'whatsapp',
+                'label' => 'WhatsApp Automation',
+                'metrics' => [
+                    'impressions' => 28400,
+                    'clicks' => 2140,
+                    'spend' => 18400,
+                    'leads' => 146,
+                    'qualified' => 112,
+                    'converted' => 28,
+                    'callConnects' => 104,
+                    'meetings' => 48,
+                    'sales' => 12,
+                ],
+                'campaigns' => [
+                    [
+                        'id' => 'WA-FLOW',
+                        'label' => 'Auto-response • Quote builder',
+                        'metrics' => [
+                            'impressions' => 15400,
+                            'clicks' => 1180,
+                            'spend' => 9600,
+                            'leads' => 82,
+                            'qualified' => 64,
+                            'converted' => 16,
+                            'callConnects' => 64,
+                            'meetings' => 30,
+                            'sales' => 8,
+                        ],
+                        'ads' => [
+                            [
+                                'id' => 'WA-FLOW-01',
+                                'label' => 'Template • Roof size capture',
+                                'metrics' => [
+                                    'impressions' => 7800,
+                                    'clicks' => 620,
+                                    'spend' => 4800,
+                                    'leads' => 44,
+                                    'qualified' => 36,
+                                    'converted' => 10,
+                                    'callConnects' => 36,
+                                    'meetings' => 16,
+                                    'sales' => 5,
+                                ],
+                            ],
+                            [
+                                'id' => 'WA-FLOW-02',
+                                'label' => 'Template • Subsidy checklist',
+                                'metrics' => [
+                                    'impressions' => 7600,
+                                    'clicks' => 560,
+                                    'spend' => 4800,
+                                    'leads' => 38,
+                                    'qualified' => 28,
+                                    'converted' => 6,
+                                    'callConnects' => 28,
+                                    'meetings' => 14,
+                                    'sales' => 3,
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'id' => 'WA-NUDGE',
+                        'label' => 'Reminder • Site survey follow-ups',
+                        'metrics' => [
+                            'impressions' => 13000,
+                            'clicks' => 960,
+                            'spend' => 8800,
+                            'leads' => 64,
+                            'qualified' => 48,
+                            'converted' => 12,
+                            'callConnects' => 40,
+                            'meetings' => 18,
+                            'sales' => 4,
+                        ],
+                        'ads' => [
+                            [
+                                'id' => 'WA-NUDGE-01',
+                                'label' => 'Broadcast • Survey reminder',
+                                'metrics' => [
+                                    'impressions' => 6500,
+                                    'clicks' => 480,
+                                    'spend' => 4200,
+                                    'leads' => 30,
+                                    'qualified' => 22,
+                                    'converted' => 6,
+                                    'callConnects' => 18,
+                                    'meetings' => 8,
+                                    'sales' => 2,
+                                ],
+                            ],
+                            [
+                                'id' => 'WA-NUDGE-02',
+                                'label' => 'Broadcast • Finance options',
+                                'metrics' => [
+                                    'impressions' => 6500,
+                                    'clicks' => 480,
+                                    'spend' => 4600,
+                                    'leads' => 34,
+                                    'qualified' => 26,
+                                    'converted' => 6,
+                                    'callConnects' => 22,
+                                    'meetings' => 10,
+                                    'sales' => 2,
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+        'cohorts' => [
+            'district' => [
+                ['label' => 'Ranchi', 'leads' => 146, 'cpl' => 402, 'meetings' => 58],
+                ['label' => 'Bokaro', 'leads' => 118, 'cpl' => 388, 'meetings' => 42],
+                ['label' => 'Hazaribagh', 'leads' => 86, 'cpl' => 362, 'meetings' => 36],
+            ],
+            'system_size' => [
+                ['label' => '1 kW', 'leads' => 44, 'cpl' => 320, 'sales' => 12],
+                ['label' => '3 kW', 'leads' => 98, 'cpl' => 368, 'sales' => 18],
+                ['label' => '5 kW', 'leads' => 132, 'cpl' => 412, 'sales' => 22],
+                ['label' => '10 kW', 'leads' => 60, 'cpl' => 502, 'sales' => 12],
+            ],
+            'language' => [
+                ['label' => 'Hindi', 'leads' => 286, 'cpl' => 362, 'sales' => 32],
+                ['label' => 'English', 'leads' => 208, 'cpl' => 418, 'sales' => 20],
+            ],
+            'creative_theme' => [
+                ['label' => 'Subsidy explainer', 'leads' => 182, 'cpl' => 340, 'sales' => 24],
+                ['label' => 'Savings calculator', 'leads' => 134, 'cpl' => 372, 'sales' => 16],
+                ['label' => 'Customer testimonial', 'leads' => 128, 'cpl' => 396, 'sales' => 18],
+            ],
+        ],
+        'funnels' => [
+            'impressions' => 359, // thousands placeholder, will normalise
+            'clicks' => 157,
+            'leads' => 794,
+            'qualified' => 486,
+            'converted' => 128,
+        ],
+        'creatives' => [
+            'headlines' => [
+                ['label' => 'Claim PM Surya Ghar rooftop subsidy today', 'ctr' => 0.052, 'leads' => 132, 'cpl' => 348],
+                ['label' => 'Slash power bills with Dakshayani solar', 'ctr' => 0.048, 'leads' => 118, 'cpl' => 362],
+                ['label' => 'Free rooftop audit + MNRE paperwork', 'ctr' => 0.044, 'leads' => 102, 'cpl' => 354],
+            ],
+            'images' => [
+                ['label' => 'Crew installing 5 kW system', 'ctr' => 0.036, 'leads' => 88, 'cpl' => 338],
+                ['label' => 'Before/after roof transformation', 'ctr' => 0.033, 'leads' => 76, 'cpl' => 346],
+                ['label' => 'Savings calculator graphic', 'ctr' => 0.031, 'leads' => 68, 'cpl' => 358],
+            ],
+            'videos' => [
+                ['label' => '30s customer testimonial', 'ctr' => 0.042, 'leads' => 64, 'cpl' => 352],
+                ['label' => 'Drone walkthrough of rooftop plant', 'ctr' => 0.038, 'leads' => 52, 'cpl' => 364],
+                ['label' => 'Installer interview on PM Surya Ghar', 'ctr' => 0.036, 'leads' => 48, 'cpl' => 372],
+            ],
+        ],
+        'budget' => [
+            'monthlyCap' => 500000,
+            'plannedSpend' => 468000,
+            'spendToDate' => 325300,
+            'pacing' => 0.65,
+            'burnRate' => 18600,
+            'expectedBurn' => 16100,
+            'alerts' => [],
+        ],
+        'alerts' => [
+            ['type' => 'cpl_spike', 'message' => 'Meta retargeting CPL up 12% week-on-week; monitor bids.'],
+        ],
+    ];
+}
+
+function smart_marketing_analytics_normalise_metrics(array $metrics): array
+{
+    $impressions = max(0, (int) ($metrics['impressions'] ?? 0));
+    $clicks = max(0, (int) ($metrics['clicks'] ?? 0));
+    $spend = max(0.0, (float) ($metrics['spend'] ?? 0));
+    $leads = max(0, (int) ($metrics['leads'] ?? ($metrics['lead_count'] ?? 0)));
+    $qualified = max(0, (int) ($metrics['qualified'] ?? 0));
+    $converted = max(0, (int) ($metrics['converted'] ?? 0));
+    $callConnects = max(0, (int) ($metrics['callConnects'] ?? ($metrics['call_connects'] ?? 0)));
+    $meetings = max(0, (int) ($metrics['meetings'] ?? 0));
+    $sales = max(0, (int) ($metrics['sales'] ?? $converted));
+
+    $ctr = $impressions > 0 ? $clicks / $impressions : 0.0;
+    $cpc = $clicks > 0 ? $spend / $clicks : 0.0;
+    $cpl = $leads > 0 ? $spend / max(1, $leads) : 0.0;
+    $base = $leads > 0 ? $leads : max(1, $qualified);
+    $convRate = $base > 0 ? $sales / $base : 0.0;
+
+    return [
+        'impressions' => $impressions,
+        'clicks' => $clicks,
+        'spend' => round($spend, 2),
+        'leads' => $leads,
+        'qualified' => $qualified,
+        'converted' => $converted,
+        'callConnects' => $callConnects,
+        'meetings' => $meetings,
+        'sales' => $sales,
+        'ctr' => $ctr,
+        'cpc' => $cpc,
+        'cpl' => $cpl,
+        'convRate' => min(1.0, $convRate),
+    ];
+}
+
+function smart_marketing_analytics_normalise(array $analytics, array $settings = []): array
+{
+    $defaults = smart_marketing_analytics_defaults();
+    $analytics = array_replace_recursive($defaults, $analytics);
+
+    $totals = [
+        'impressions' => 0,
+        'clicks' => 0,
+        'spend' => 0.0,
+        'leads' => 0,
+        'qualified' => 0,
+        'converted' => 0,
+        'callConnects' => 0,
+        'meetings' => 0,
+        'sales' => 0,
+    ];
+
+    $channels = [];
+    foreach ($analytics['channels'] as $channel) {
+        $channelMetrics = smart_marketing_analytics_normalise_metrics($channel['metrics'] ?? []);
+        $channelCampaigns = [];
+        foreach (($channel['campaigns'] ?? []) as $campaign) {
+            $campaignMetrics = smart_marketing_analytics_normalise_metrics($campaign['metrics'] ?? []);
+            $campaignAds = [];
+            foreach (($campaign['ads'] ?? []) as $ad) {
+                $campaignAds[] = [
+                    'id' => (string) ($ad['id'] ?? ''),
+                    'label' => (string) ($ad['label'] ?? ''),
+                    'metrics' => smart_marketing_analytics_normalise_metrics($ad['metrics'] ?? []),
+                ];
+            }
+            $campaignCampaign = [
+                'id' => (string) ($campaign['id'] ?? ''),
+                'label' => (string) ($campaign['label'] ?? ''),
+                'metrics' => $campaignMetrics,
+                'ads' => $campaignAds,
+            ];
+            $channelCampaigns[] = $campaignCampaign;
+        }
+
+        foreach ($channelCampaigns as $campaign) {
+            $channelMetrics['impressions'] += $campaign['metrics']['impressions'];
+            $channelMetrics['clicks'] += $campaign['metrics']['clicks'];
+            $channelMetrics['spend'] += $campaign['metrics']['spend'];
+            $channelMetrics['leads'] += $campaign['metrics']['leads'];
+            $channelMetrics['qualified'] += $campaign['metrics']['qualified'];
+            $channelMetrics['converted'] += $campaign['metrics']['converted'];
+            $channelMetrics['callConnects'] += $campaign['metrics']['callConnects'];
+            $channelMetrics['meetings'] += $campaign['metrics']['meetings'];
+            $channelMetrics['sales'] += $campaign['metrics']['sales'];
+        }
+
+        $channelMetrics = smart_marketing_analytics_normalise_metrics($channelMetrics);
+
+        foreach ($totals as $key => $value) {
+            $totals[$key] += $channelMetrics[$key];
+        }
+
+        $channels[] = [
+            'id' => (string) ($channel['id'] ?? ''),
+            'label' => (string) ($channel['label'] ?? ''),
+            'metrics' => $channelMetrics,
+            'campaigns' => $channelCampaigns,
+        ];
+    }
+    $analytics['channels'] = $channels;
+
+    $funnels = $analytics['funnels'] ?? [];
+    $funnels['impressions'] = max($totals['impressions'], (int) ($funnels['impressions'] ?? $totals['impressions']));
+    $funnels['clicks'] = max($totals['clicks'], (int) ($funnels['clicks'] ?? $totals['clicks']));
+    $funnels['leads'] = max($totals['leads'], (int) ($funnels['leads'] ?? $totals['leads']));
+    $funnels['qualified'] = max($totals['qualified'], (int) ($funnels['qualified'] ?? $totals['qualified']));
+    $funnels['converted'] = max($totals['sales'], (int) ($funnels['converted'] ?? $totals['sales']));
+    $analytics['funnels'] = $funnels;
+
+    if (!isset($analytics['budget']) || !is_array($analytics['budget'])) {
+        $analytics['budget'] = $defaults['budget'];
+    }
+
+    $monthlyCap = (float) ($settings['budget']['monthlyCap'] ?? $analytics['budget']['monthlyCap'] ?? 0);
+    $analytics['budget']['monthlyCap'] = $monthlyCap;
+    $analytics['budget']['spendToDate'] = round($totals['spend'], 2);
+
+    $analytics['updatedAt'] = (string) ($analytics['updatedAt'] ?? ai_timestamp());
+    if (!isset($analytics['alerts']) || !is_array($analytics['alerts'])) {
+        $analytics['alerts'] = [];
+    }
+
+    return $analytics;
+}
+
+function smart_marketing_analytics_save(array $analytics): void
+{
+    $payload = json_encode($analytics, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode Smart Marketing analytics.');
+    }
+
+    if (file_put_contents(smart_marketing_analytics_file(), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist Smart Marketing analytics.');
+    }
+}
+
+function smart_marketing_analytics_load(array $settings = []): array
+{
+    $file = smart_marketing_analytics_file();
+    if (!is_file($file)) {
+        $defaults = smart_marketing_analytics_defaults();
+        smart_marketing_analytics_save($defaults);
+        return smart_marketing_analytics_normalise($defaults, $settings);
+    }
+
+    $contents = file_get_contents($file);
+    if ($contents === false || trim($contents) === '') {
+        $defaults = smart_marketing_analytics_defaults();
+        return smart_marketing_analytics_normalise($defaults, $settings);
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('smart_marketing_analytics_load decode failed: ' . $exception->getMessage());
+        $decoded = smart_marketing_analytics_defaults();
+    }
+
+    if (!is_array($decoded)) {
+        $decoded = smart_marketing_analytics_defaults();
+    }
+
+    return smart_marketing_analytics_normalise($decoded, $settings);
+}
+
+function smart_marketing_refresh_analytics(array $settings): array
+{
+    $analytics = smart_marketing_analytics_load($settings);
+    $analytics['updatedAt'] = ai_timestamp();
+
+    $monthlyCap = (float) ($settings['budget']['monthlyCap'] ?? $analytics['budget']['monthlyCap'] ?? 0);
+    $currency = (string) ($settings['budget']['currency'] ?? 'INR');
+
+    $totals = ['spend' => 0.0, 'leads' => 0, 'sales' => 0, 'clicks' => 0, 'impressions' => 0];
+    foreach ($analytics['channels'] as $channel) {
+        $totals['spend'] += $channel['metrics']['spend'];
+        $totals['leads'] += $channel['metrics']['leads'];
+        $totals['sales'] += $channel['metrics']['sales'];
+        $totals['clicks'] += $channel['metrics']['clicks'];
+        $totals['impressions'] += $channel['metrics']['impressions'];
+    }
+
+    $analytics['budget']['monthlyCap'] = $monthlyCap;
+    $analytics['budget']['spendToDate'] = round($totals['spend'], 2);
+
+    $tz = new DateTimeZone('Asia/Kolkata');
+    $now = new DateTime('now', $tz);
+    $dayOfMonth = (int) $now->format('j');
+    $daysInMonth = (int) $now->format('t');
+
+    $analytics['budget']['pacing'] = $monthlyCap > 0 ? $analytics['budget']['spendToDate'] / $monthlyCap : 0.0;
+    $analytics['budget']['burnRate'] = $dayOfMonth > 0 ? $analytics['budget']['spendToDate'] / $dayOfMonth : 0.0;
+    $analytics['budget']['expectedBurn'] = ($monthlyCap > 0 && $daysInMonth > 0) ? $monthlyCap / $daysInMonth : 0.0;
+    $analytics['budget']['plannedSpend'] = (float) ($analytics['budget']['plannedSpend'] ?? $monthlyCap);
+
+    $expectedPacing = ($daysInMonth > 0) ? $dayOfMonth / $daysInMonth : 0.0;
+    $alerts = [];
+    if ($analytics['budget']['pacing'] > ($expectedPacing + 0.1)) {
+        $alerts[] = [
+            'type' => 'budget_overpace',
+            'message' => sprintf('Spend pacing %.1f%% vs expected %.1f%% of %s %s.', $analytics['budget']['pacing'] * 100, $expectedPacing * 100, $currency, number_format($monthlyCap, 0)),
+            'channels' => ['email', 'whatsapp'],
+        ];
+    }
+    if ($analytics['budget']['burnRate'] > ($analytics['budget']['expectedBurn'] * 1.2) && $analytics['budget']['expectedBurn'] > 0) {
+        $alerts[] = [
+            'type' => 'burn_rate_high',
+            'message' => sprintf('Burn rate %s/day exceeds guardrail %s/day.', smart_marketing_format_currency($analytics['budget']['burnRate'], $currency), smart_marketing_format_currency($analytics['budget']['expectedBurn'], $currency)),
+            'channels' => ['email'],
+        ];
+    }
+    if ($totals['leads'] > 0 && $totals['sales'] > 0) {
+        $conversionRate = $totals['sales'] / max(1, $totals['leads']);
+        if ($conversionRate < 0.1) {
+            $alerts[] = [
+                'type' => 'conversion_soft',
+                'message' => 'Lead-to-sale conversion dropped below 10%. Review qualification steps.',
+                'channels' => ['email'],
+            ];
+        }
+    }
+
+    $analytics['budget']['alerts'] = $alerts;
+    smart_marketing_analytics_save($analytics);
+
+    return ['analytics' => $analytics, 'alerts' => $alerts];
+}
+
+function smart_marketing_optimization_defaults(array $settings = []): array
+{
+    $minBid = (float) ($settings['budget']['minBid'] ?? 20);
+    $targetCpl = (float) ($settings['budget']['targetCpl'] ?? 450);
+
+    return [
+        'autoRules' => [
+            'pauseUnderperforming' => [
+                'enabled' => true,
+                'ctrThreshold' => 0.015,
+                'cvrThreshold' => 0.04,
+            ],
+            'bidGuardrails' => [
+                'enabled' => true,
+                'minBid' => max(1.0, $minBid),
+                'maxBid' => max(2 * $minBid, $minBid + 10),
+                'step' => 0.1,
+            ],
+            'budgetShift' => [
+                'enabled' => true,
+                'shiftPercent' => 0.12,
+                'targetCpl' => $targetCpl,
+            ],
+            'creativeRefresh' => [
+                'enabled' => true,
+                'decayDays' => 7,
+            ],
+        ],
+        'manualPlaybooks' => [
+            'lastActionAt' => null,
+        ],
+        'learning' => [
+            'tests' => [
+                [
+                    'id' => 'TEST-CTA-01',
+                    'createdAt' => ai_timestamp(),
+                    'type' => 'CTA',
+                    'status' => 'completed',
+                    'result' => 'Variant B (+14% CTR) rolled out to Meta retargeting.',
+                ],
+                [
+                    'id' => 'TEST-IMAGE-02',
+                    'createdAt' => ai_timestamp(),
+                    'type' => 'Creative',
+                    'status' => 'queued',
+                    'result' => 'Pending – rooftop night shot vs day shot.',
+                ],
+            ],
+            'nextBestAction' => 'Run a Hindi landing page CTA vs WhatsApp chat handoff test.',
+        ],
+        'history' => [],
+        'updatedAt' => null,
+    ];
+}
+
+function smart_marketing_optimization_load(array $settings = []): array
+{
+    $file = smart_marketing_optimization_file();
+    if (!is_file($file)) {
+        $defaults = smart_marketing_optimization_defaults($settings);
+        smart_marketing_optimization_save($defaults);
+        return $defaults;
+    }
+
+    $contents = file_get_contents($file);
+    if ($contents === false || trim($contents) === '') {
+        return smart_marketing_optimization_defaults($settings);
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('smart_marketing_optimization_load decode failed: ' . $exception->getMessage());
+        $decoded = smart_marketing_optimization_defaults($settings);
+    }
+
+    if (!is_array($decoded)) {
+        $decoded = smart_marketing_optimization_defaults($settings);
+    }
+
+    $defaults = smart_marketing_optimization_defaults($settings);
+    $state = array_replace_recursive($defaults, $decoded);
+
+    if (!isset($state['history']) || !is_array($state['history'])) {
+        $state['history'] = [];
+    }
+    if (!isset($state['learning']['tests']) || !is_array($state['learning']['tests'])) {
+        $state['learning']['tests'] = [];
+    }
+
+    return $state;
+}
+
+function smart_marketing_optimization_save(array $state): void
+{
+    $state['updatedAt'] = ai_timestamp();
+    $payload = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode Smart Marketing optimisation state.');
+    }
+
+    if (file_put_contents(smart_marketing_optimization_file(), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist Smart Marketing optimisation state.');
+    }
+}
+
+function smart_marketing_optimization_merge(array $input, array $current, array $settings = []): array
+{
+    $state = $current;
+    $autoRules = $state['autoRules'] ?? [];
+
+    if (isset($input['autoRules']) && is_array($input['autoRules'])) {
+        foreach ($input['autoRules'] as $key => $rule) {
+            if (!isset($autoRules[$key])) {
+                continue;
+            }
+            $autoRules[$key]['enabled'] = (bool) ($rule['enabled'] ?? $autoRules[$key]['enabled']);
+            foreach ($rule as $field => $value) {
+                if ($field === 'enabled') {
+                    continue;
+                }
+                $autoRules[$key][$field] = is_numeric($value) ? (float) $value : $value;
+            }
+        }
+        $state['autoRules'] = $autoRules;
+    }
+
+    if (isset($input['learning']) && is_array($input['learning'])) {
+        if (isset($input['learning']['nextBestAction'])) {
+            $state['learning']['nextBestAction'] = trim((string) $input['learning']['nextBestAction']);
+        }
+    }
+
+    $state['updatedAt'] = ai_timestamp();
+
+    return $state;
+}
+
+function smart_marketing_apply_auto_rules(array &$campaigns, array $optimization, array $settings, array $governance): array
+{
+    $entries = [];
+    $alerts = [];
+    $modified = false;
+    $autoRules = $optimization['autoRules'] ?? [];
+    $currency = (string) ($settings['budget']['currency'] ?? 'INR');
+    $targetCpl = (float) ($settings['budget']['targetCpl'] ?? 450);
+    $now = ai_timestamp();
+
+    if (!isset($optimization['history']) || !is_array($optimization['history'])) {
+        $optimization['history'] = [];
+    }
+
+    $emergencyActive = (bool) ($governance['emergencyStop']['active'] ?? false);
+    if ($emergencyActive) {
+        $message = 'Emergency stop active; automations paused.';
+        $lastHistory = end($optimization['history']);
+        $alreadyLogged = is_array($lastHistory)
+            && (($lastHistory['rule'] ?? '') === 'emergency_stop')
+            && (($lastHistory['message'] ?? '') === $message);
+        if (!$alreadyLogged) {
+            $optimization['history'][] = [
+                'timestamp' => $now,
+                'rule' => 'emergency_stop',
+                'campaign_id' => null,
+                'message' => $message,
+            ];
+            if (count($optimization['history']) > 100) {
+                $optimization['history'] = array_slice($optimization['history'], -100);
+            }
+        }
+        if (!empty($optimization['history'])) {
+            reset($optimization['history']);
+        }
+
+        $entries[] = [
+            'timestamp' => $now,
+            'type' => 'emergency_stop',
+            'rule' => 'emergency_stop',
+            'campaign_id' => null,
+            'message' => $message,
+        ];
+        $alerts[] = [
+            'type' => 'emergency_stop',
+            'message' => $message,
+            'channels' => ['email'],
+        ];
+
+        return [
+            'entries' => $entries,
+            'alerts' => $alerts,
+            'optimization' => $optimization,
+            'modified' => false,
+        ];
+    }
+
+    if (($autoRules['pauseUnderperforming']['enabled'] ?? false)) {
+        $ctrThreshold = (float) ($autoRules['pauseUnderperforming']['ctrThreshold'] ?? 0.012);
+        $cvrThreshold = (float) ($autoRules['pauseUnderperforming']['cvrThreshold'] ?? 0.04);
+        foreach ($campaigns as &$campaign) {
+            if (($campaign['status'] ?? '') !== 'launched') {
+                continue;
+            }
+            $metrics = smart_marketing_analytics_normalise_metrics($campaign['metrics'] ?? []);
+            $ctr = $metrics['ctr'];
+            $cvr = $metrics['leads'] > 0 ? ($metrics['sales'] / max(1, $metrics['leads'])) : 0.0;
+            if ($ctr < $ctrThreshold && $cvr < $cvrThreshold) {
+                $campaign['status'] = 'paused';
+                $campaign['audit_trail'][] = [
+                    'timestamp' => $now,
+                    'action' => 'auto_rule.pause',
+                    'context' => ['rule' => 'pause_underperforming'],
+                ];
+                $entries[] = [
+                    'timestamp' => $now,
+                    'type' => 'auto_rule',
+                    'rule' => 'pause_underperforming',
+                    'campaign_id' => $campaign['id'] ?? null,
+                    'message' => sprintf('Paused %s due to CTR %.2f%% and conversion %.1f%% below guardrail.', $campaign['label'] ?? ($campaign['id'] ?? 'campaign'), $ctr * 100, $cvr * 100),
+                ];
+                $modified = true;
+            }
+        }
+        unset($campaign);
+    }
+
+    if (($autoRules['bidGuardrails']['enabled'] ?? false)) {
+        $minBid = max(1.0, (float) ($autoRules['bidGuardrails']['minBid'] ?? ($settings['budget']['minBid'] ?? 10)));
+        $maxBid = max($minBid, (float) ($autoRules['bidGuardrails']['maxBid'] ?? ($minBid * 3)));
+        $step = max(0.01, (float) ($autoRules['bidGuardrails']['step'] ?? 0.1));
+        $lockEnabled = (bool) ($governance['budgetLock']['enabled'] ?? false);
+        foreach ($campaigns as &$campaign) {
+            if (($campaign['status'] ?? '') !== 'launched') {
+                continue;
+            }
+            $currentDaily = (float) ($campaign['budget']['daily'] ?? $minBid);
+            $metrics = smart_marketing_analytics_normalise_metrics($campaign['metrics'] ?? []);
+            $cpl = $metrics['leads'] > 0 ? $metrics['spend'] / max(1, $metrics['leads']) : $targetCpl;
+            if ($cpl <= 0) {
+                $cpl = $targetCpl;
+            }
+
+            if ($cpl < $targetCpl * 0.85) {
+                $proposed = min($maxBid, $currentDaily * (1 + $step));
+                if ($lockEnabled && $proposed > $currentDaily) {
+                    $alerts[] = [
+                        'type' => 'budget_lock',
+                        'message' => sprintf('Budget lock prevented bid uplift for %s.', $campaign['label'] ?? ($campaign['id'] ?? 'campaign')),
+                        'channels' => ['email'],
+                    ];
+                    continue;
+                }
+                if ($proposed > $currentDaily) {
+                    $campaign['budget']['daily'] = round($proposed, 2);
+                    $entries[] = [
+                        'timestamp' => $now,
+                        'type' => 'auto_rule',
+                        'rule' => 'bid_guardrail_up',
+                        'campaign_id' => $campaign['id'] ?? null,
+                        'message' => sprintf('Raised daily bid to %s for %s (CPL %s).', smart_marketing_format_currency($campaign['budget']['daily'], $currency), $campaign['label'] ?? ($campaign['id'] ?? 'campaign'), smart_marketing_format_currency($cpl, $currency)),
+                    ];
+                    $modified = true;
+                }
+            } elseif ($cpl > $targetCpl * 1.2) {
+                $proposed = max($minBid, $currentDaily * (1 - $step));
+                if ($proposed < $currentDaily) {
+                    $campaign['budget']['daily'] = round($proposed, 2);
+                    $entries[] = [
+                        'timestamp' => $now,
+                        'type' => 'auto_rule',
+                        'rule' => 'bid_guardrail_down',
+                        'campaign_id' => $campaign['id'] ?? null,
+                        'message' => sprintf('Reduced daily bid to %s for %s (CPL %s above guardrail).', smart_marketing_format_currency($campaign['budget']['daily'], $currency), $campaign['label'] ?? ($campaign['id'] ?? 'campaign'), smart_marketing_format_currency($cpl, $currency)),
+                    ];
+                    $modified = true;
+                }
+            }
+        }
+        unset($campaign);
+    }
+
+    if (($autoRules['budgetShift']['enabled'] ?? false)) {
+        $shiftPercent = max(0.01, (float) ($autoRules['budgetShift']['shiftPercent'] ?? 0.1));
+        $campaignPool = [];
+        foreach ($campaigns as $index => $campaign) {
+            if (($campaign['status'] ?? '') !== 'launched') {
+                continue;
+            }
+            $metrics = smart_marketing_analytics_normalise_metrics($campaign['metrics'] ?? []);
+            if ($metrics['leads'] < 10) {
+                continue;
+            }
+            $cpl = $metrics['leads'] > 0 ? $metrics['spend'] / max(1, $metrics['leads']) : $targetCpl;
+            $campaignPool[] = [
+                'index' => $index,
+                'id' => $campaign['id'] ?? null,
+                'label' => $campaign['label'] ?? ($campaign['id'] ?? 'campaign'),
+                'cpl' => $cpl,
+            ];
+        }
+
+        if (count($campaignPool) >= 4) {
+            usort($campaignPool, static fn($a, $b) => $a['cpl'] <=> $b['cpl']);
+            $quartileCount = max(1, (int) ceil(count($campaignPool) / 4));
+            $winners = array_slice($campaignPool, 0, $quartileCount);
+            $laggards = array_slice($campaignPool, -$quartileCount);
+
+            $lockEnabled = (bool) ($governance['budgetLock']['enabled'] ?? false);
+            foreach ($winners as $winner) {
+                $idx = $winner['index'];
+                $daily = (float) ($campaigns[$idx]['budget']['daily'] ?? $settings['budget']['dailyCap'] ?? 0);
+                $proposed = $daily * (1 + $shiftPercent);
+                if ($lockEnabled && $proposed > $daily) {
+                    $alerts[] = [
+                        'type' => 'budget_lock',
+                        'message' => sprintf('Budget lock held spend for %s despite top performance.', $winner['label']),
+                        'channels' => ['email'],
+                    ];
+                    continue;
+                }
+                $campaigns[$idx]['budget']['daily'] = round($proposed, 2);
+                $entries[] = [
+                    'timestamp' => $now,
+                    'type' => 'auto_rule',
+                    'rule' => 'budget_shift_up',
+                    'campaign_id' => $winner['id'],
+                    'message' => sprintf('Shifted +%d%% budget to %s (CPL %s).', (int) round($shiftPercent * 100), $winner['label'], smart_marketing_format_currency($winner['cpl'], $currency)),
+                ];
+                $modified = true;
+            }
+
+            foreach ($laggards as $laggard) {
+                $idx = $laggard['index'];
+                $daily = (float) ($campaigns[$idx]['budget']['daily'] ?? $settings['budget']['dailyCap'] ?? 0);
+                $proposed = max(0, $daily * (1 - $shiftPercent));
+                $campaigns[$idx]['budget']['daily'] = round($proposed, 2);
+                $entries[] = [
+                    'timestamp' => $now,
+                    'type' => 'auto_rule',
+                    'rule' => 'budget_shift_down',
+                    'campaign_id' => $laggard['id'],
+                    'message' => sprintf('Trimmed %d%% budget from %s (CPL %s above guardrail).', (int) round($shiftPercent * 100), $laggard['label'], smart_marketing_format_currency($laggard['cpl'], $currency)),
+                ];
+                $modified = true;
+            }
+        }
+    }
+
+    if (($autoRules['creativeRefresh']['enabled'] ?? false)) {
+        $decayDays = max(1, (int) ($autoRules['creativeRefresh']['decayDays'] ?? 7));
+        $tz = new DateTimeZone('Asia/Kolkata');
+        foreach ($campaigns as &$campaign) {
+            if (($campaign['status'] ?? '') !== 'launched') {
+                continue;
+            }
+            $lastRefresh = $campaign['maintenance']['lastCreativeRefresh'] ?? null;
+            $needsRefresh = true;
+            if ($lastRefresh) {
+                try {
+                    $last = new DateTime($lastRefresh, $tz);
+                    $nowDate = new DateTime('now', $tz);
+                    $diff = $nowDate->diff($last);
+                    $needsRefresh = ($diff->days ?? 0) >= $decayDays;
+                } catch (Throwable $exception) {
+                    $needsRefresh = true;
+                }
+            }
+            if ($needsRefresh) {
+                $campaign['maintenance']['lastCreativeRefresh'] = $now;
+                $entries[] = [
+                    'timestamp' => $now,
+                    'type' => 'auto_rule',
+                    'rule' => 'creative_refresh',
+                    'campaign_id' => $campaign['id'] ?? null,
+                    'message' => sprintf('Refreshed creatives for %s after %d-day cycle.', $campaign['label'] ?? ($campaign['id'] ?? 'campaign'), $decayDays),
+                ];
+                $modified = true;
+            }
+        }
+        unset($campaign);
+    }
+
+    foreach ($entries as $entry) {
+        $optimization['history'][] = [
+            'timestamp' => $entry['timestamp'],
+            'rule' => $entry['rule'] ?? $entry['type'],
+            'campaign_id' => $entry['campaign_id'] ?? null,
+            'message' => $entry['message'],
+        ];
+    }
+    if (count($optimization['history']) > 100) {
+        $optimization['history'] = array_slice($optimization['history'], -100);
+    }
+
+    return [
+        'entries' => $entries,
+        'alerts' => $alerts,
+        'optimization' => $optimization,
+        'modified' => $modified,
+    ];
+}
+
+function smart_marketing_governance_defaults(array $settings = []): array
+{
+    return [
+        'budgetLock' => [
+            'enabled' => false,
+            'cap' => (float) ($settings['budget']['monthlyCap'] ?? 0),
+            'updatedAt' => null,
+        ],
+        'emergencyStop' => [
+            'active' => false,
+            'triggeredAt' => null,
+            'triggeredBy' => null,
+        ],
+        'policyChecklist' => [
+            'pmSuryaClaims' => true,
+            'ethicalMessaging' => true,
+            'disclaimerPlaced' => true,
+            'dataAccuracy' => true,
+            'lastReviewed' => null,
+            'notes' => '',
+        ],
+        'dataProtection' => [
+            'maskPii' => true,
+            'requests' => [],
+        ],
+        'log' => [],
+        'updatedAt' => null,
+    ];
+}
+
+function smart_marketing_governance_load(array $settings = []): array
+{
+    $file = smart_marketing_governance_file();
+    if (!is_file($file)) {
+        $defaults = smart_marketing_governance_defaults($settings);
+        smart_marketing_governance_save($defaults);
+        return $defaults;
+    }
+
+    $contents = file_get_contents($file);
+    if ($contents === false || trim($contents) === '') {
+        return smart_marketing_governance_defaults($settings);
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('smart_marketing_governance_load decode failed: ' . $exception->getMessage());
+        $decoded = smart_marketing_governance_defaults($settings);
+    }
+
+    if (!is_array($decoded)) {
+        $decoded = smart_marketing_governance_defaults($settings);
+    }
+
+    $defaults = smart_marketing_governance_defaults($settings);
+    $state = array_replace_recursive($defaults, $decoded);
+
+    if (!isset($state['log']) || !is_array($state['log'])) {
+        $state['log'] = [];
+    }
+    if (!isset($state['dataProtection']['requests']) || !is_array($state['dataProtection']['requests'])) {
+        $state['dataProtection']['requests'] = [];
+    }
+
+    return $state;
+}
+
+function smart_marketing_governance_save(array $state): void
+{
+    $state['updatedAt'] = ai_timestamp();
+    $payload = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode Smart Marketing governance state.');
+    }
+
+    if (file_put_contents(smart_marketing_governance_file(), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist Smart Marketing governance state.');
+    }
+}
+
+function smart_marketing_governance_log(array &$state, string $event, array $context = [], array $user = []): void
+{
+    if (!isset($state['log']) || !is_array($state['log'])) {
+        $state['log'] = [];
+    }
+
+    $state['log'][] = [
+        'timestamp' => ai_timestamp(),
+        'event' => $event,
+        'context' => smart_marketing_scrub_context($context),
+        'user' => [
+            'id' => (int) ($user['id'] ?? 0),
+            'name' => (string) ($user['full_name'] ?? ($user['name'] ?? 'Admin')),
+        ],
+    ];
+
+    if (count($state['log']) > 100) {
+        $state['log'] = array_slice($state['log'], -100);
+    }
+}
+
+function smart_marketing_governance_track_data_request(array &$state, string $type, array $context = []): void
+{
+    if (!isset($state['dataProtection']['requests']) || !is_array($state['dataProtection']['requests'])) {
+        $state['dataProtection']['requests'] = [];
+    }
+
+    $state['dataProtection']['requests'][] = [
+        'timestamp' => ai_timestamp(),
+        'type' => $type,
+        'context' => smart_marketing_scrub_context($context),
+    ];
+
+    if (count($state['dataProtection']['requests']) > 50) {
+        $state['dataProtection']['requests'] = array_slice($state['dataProtection']['requests'], -50);
+    }
+}
+
+function smart_marketing_data_export(array &$governance, array $settings): array
+{
+    $payload = [
+        'generatedAt' => ai_timestamp(),
+        'analytics' => smart_marketing_analytics_load($settings),
+        'campaigns' => smart_marketing_campaigns_load(),
+        'audit' => smart_marketing_audit_log_read(),
+    ];
+
+    $file = smart_marketing_exports_dir() . '/smart-marketing-export-' . date('Ymd-His') . '.json';
+    $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        throw new RuntimeException('Unable to encode Smart Marketing export payload.');
+    }
+
+    if (file_put_contents($file, $json, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist Smart Marketing export payload.');
+    }
+
+    smart_marketing_governance_track_data_request($governance, 'export', ['file' => basename($file)]);
+    smart_marketing_governance_log($governance, 'data.export', ['file' => basename($file)]);
+
+    return ['file' => $file, 'payload' => $payload];
+}
+
+function smart_marketing_data_erase(array &$governance): void
+{
+    smart_marketing_governance_track_data_request($governance, 'erase', []);
+    smart_marketing_governance_log($governance, 'data.erase_queued');
+}
+
+function smart_marketing_notifications_defaults(): array
+{
+    return [
+        'dailyDigest' => [
+            'enabled' => true,
+            'time' => '08:30',
+            'channels' => [
+                'email' => 'ops@dakshayani.in',
+                'whatsapp' => '+91-6200001234',
+            ],
+        ],
+        'instant' => [
+            'email' => true,
+            'whatsapp' => true,
+        ],
+        'lastDigest' => null,
+        'log' => [],
+        'updatedAt' => null,
+    ];
+}
+
+function smart_marketing_notifications_load(): array
+{
+    $file = smart_marketing_notifications_file();
+    if (!is_file($file)) {
+        $defaults = smart_marketing_notifications_defaults();
+        smart_marketing_notifications_save($defaults);
+        return $defaults;
+    }
+
+    $contents = file_get_contents($file);
+    if ($contents === false || trim($contents) === '') {
+        return smart_marketing_notifications_defaults();
+    }
+
+    try {
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        error_log('smart_marketing_notifications_load decode failed: ' . $exception->getMessage());
+        $decoded = smart_marketing_notifications_defaults();
+    }
+
+    if (!is_array($decoded)) {
+        $decoded = smart_marketing_notifications_defaults();
+    }
+
+    $defaults = smart_marketing_notifications_defaults();
+    $state = array_replace_recursive($defaults, $decoded);
+    if (!isset($state['log']) || !is_array($state['log'])) {
+        $state['log'] = [];
+    }
+
+    return $state;
+}
+
+function smart_marketing_notifications_save(array $state): void
+{
+    $state['updatedAt'] = ai_timestamp();
+    $payload = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode Smart Marketing notification state.');
+    }
+
+    if (file_put_contents(smart_marketing_notifications_file(), $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to persist Smart Marketing notification state.');
+    }
+}
+
+function smart_marketing_notifications_push(array $state, string $type, string $message, array $channels = []): array
+{
+    if (!isset($state['log']) || !is_array($state['log'])) {
+        $state['log'] = [];
+    }
+
+    $state['log'][] = [
+        'timestamp' => ai_timestamp(),
+        'type' => $type,
+        'message' => $message,
+        'channels' => $channels,
+    ];
+
+    if (count($state['log']) > 50) {
+        $state['log'] = array_slice($state['log'], -50);
+    }
+
+    return $state;
 }
 
 function smart_marketing_store_asset(string $type, array $payload): array

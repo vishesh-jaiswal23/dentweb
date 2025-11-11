@@ -12537,6 +12537,321 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   gap: 1.25rem;
 }
 
+.smart-marketing__toolbar {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.smart-marketing__analytics-channel {
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  padding: 1rem;
+  background: #f8fafc;
+}
+
+.smart-marketing__analytics-channel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.smart-marketing__metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.smart-marketing__metrics-grid div {
+  background: #fff;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.smart-marketing__metrics-grid span {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.smart-marketing__analytics-campaigns details {
+  border: 1px solid #d7e3ff;
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.smart-marketing__analytics-campaigns summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.smart-marketing__analytics-ads {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.smart-marketing__analytics-ad {
+  border: 1px dashed #d7e3ff;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: #f8fafc;
+}
+
+.smart-marketing__analytics-cohorts section,
+.smart-marketing__analytics-creatives section {
+  margin-bottom: 1rem;
+}
+
+.smart-marketing__analytics-cohorts ul,
+.smart-marketing__analytics-creatives ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.smart-marketing__analytics-cohorts li,
+.smart-marketing__analytics-creatives li {
+  background: #f1f5f9;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.smart-marketing__analytics-funnel {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.smart-marketing__funnel-stage {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.smart-marketing__funnel-stage > span {
+  width: 7rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.smart-marketing__funnel-bar {
+  background: linear-gradient(90deg, #2563eb, #1d4ed8);
+  color: #fff;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  text-align: right;
+  min-width: 5rem;
+  font-weight: 600;
+}
+
+.smart-marketing__analytics-budget {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.smart-marketing__budget-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.smart-marketing__alerts ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.smart-marketing__alerts li {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  color: #b91c1c;
+}
+
+.smart-marketing__optimization-rule {
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  padding: 1rem;
+  background: #f8fafc;
+}
+
+.smart-marketing__optimization-rule header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.smart-marketing__optimization-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.smart-marketing__optimization-fields label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  color: #475569;
+  gap: 0.25rem;
+}
+
+.smart-marketing__optimization-fields input {
+  border: 1px solid #cbd5f5;
+  border-radius: 0.75rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.smart-marketing__optimization-form fieldset {
+  border: 1px dashed #cbd5f5;
+  border-radius: 1rem;
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.smart-marketing__optimization-form select,
+.smart-marketing__optimization-form textarea,
+.smart-marketing__optimization-form input {
+  border: 1px solid #cbd5f5;
+  border-radius: 0.75rem;
+  padding: 0.6rem;
+}
+
+.smart-marketing__optimization-history ul,
+.smart-marketing__optimization-learning ul,
+.smart-marketing__governance-log ul,
+.smart-marketing__notifications-log ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.smart-marketing__optimization-history li,
+.smart-marketing__optimization-learning li,
+.smart-marketing__governance-log li,
+.smart-marketing__notifications-log li {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.smart-marketing__governance {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.smart-marketing__governance h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.5rem;
+}
+
+.smart-marketing__governance [data-governance-emergency].is-active {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.smart-marketing__governance [data-governance-emergency]:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.smart-marketing__emergency-status {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.smart-marketing__emergency-status.is-active {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.smart-marketing__notifications fieldset {
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.smart-marketing__notifications label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.smart-marketing__notifications input,
+.smart-marketing__notifications textarea,
+.smart-marketing__notifications select {
+  border: 1px solid #cbd5f5;
+  border-radius: 0.75rem;
+  padding: 0.6rem;
+}
+
+.smart-marketing__toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  background: #1d4ed8;
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  border-radius: 999px;
+  box-shadow: 0 18px 40px -20px rgba(15, 31, 62, 0.4);
+  opacity: 0;
+  transform: translateY(1rem);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 1000;
+}
+
+.smart-marketing__toast--success {
+  background: #059669;
+}
+
+.smart-marketing__toast--warning {
+  background: #f59e0b;
+}
+
+.smart-marketing__toast--error {
+  background: #dc2626;
+}
+
+.smart-marketing__toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .smart-marketing__card-header {
   display: flex;
   justify-content: space-between;

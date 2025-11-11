@@ -22,6 +22,10 @@ $campaigns = smart_marketing_campaigns_load();
 $automationLog = smart_marketing_automation_log_read();
 $connectors = smart_marketing_channel_connectors($marketingSettings);
 $sitePages = smart_marketing_site_pages();
+$analytics = smart_marketing_analytics_load($marketingSettings);
+$optimizationState = smart_marketing_optimization_load($marketingSettings);
+$governanceState = smart_marketing_governance_load($marketingSettings);
+$notificationsState = smart_marketing_notifications_load();
 $campaignCatalog = [];
 foreach (smart_marketing_campaign_catalog() as $key => $meta) {
     $campaignCatalog[] = ['id' => $key, 'label' => $meta['label']];
@@ -63,9 +67,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'save-settings':
                 $updates = is_array($payload['settings'] ?? null) ? $payload['settings'] : [];
                 $merged = smart_marketing_collect_settings_payload($updates, $marketingSettings);
+                $governanceSnapshot = $governanceState ?? smart_marketing_governance_load($marketingSettings);
+                if (($governanceSnapshot['budgetLock']['enabled'] ?? false)) {
+                    $lockedCap = (float) ($governanceSnapshot['budgetLock']['cap'] ?? ($marketingSettings['budget']['monthlyCap'] ?? 0));
+                    if ($merged['budget']['monthlyCap'] > $lockedCap + 0.01) {
+                        throw new RuntimeException(sprintf('Budget lock prevents increasing monthly cap beyond %s.', smart_marketing_format_currency($lockedCap, $merged['budget']['currency'] ?? 'INR')));
+                    }
+                }
                 smart_marketing_settings_save($merged);
                 smart_marketing_audit_log_append('settings.updated', ['keys' => array_keys($updates)], $admin);
                 $marketingSettings = smart_marketing_settings_load();
+                $governanceState = smart_marketing_governance_load($marketingSettings);
                 $response = [
                     'ok' => true,
                     'settings' => $marketingSettings,
@@ -265,15 +277,271 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
                 break;
 
-            case 'automation-run':
-                $campaigns = smart_marketing_campaigns_load();
-                $entries = smart_marketing_run_automations($campaigns, $marketingSettings, true);
-                $automationLog = smart_marketing_automation_log_read();
+            case 'analytics-refresh':
+                $refresh = smart_marketing_refresh_analytics($marketingSettings);
+                $analytics = $refresh['analytics'];
+                foreach ($refresh['alerts'] as $alert) {
+                    $notificationsState = smart_marketing_notifications_push(
+                        $notificationsState,
+                        $alert['type'] ?? 'budget_alert',
+                        (string) ($alert['message'] ?? ''),
+                        (array) ($alert['channels'] ?? ['email'])
+                    );
+                }
+                smart_marketing_notifications_save($notificationsState);
+                smart_marketing_audit_log_append('analytics.refresh', ['alerts' => count($refresh['alerts'])], $admin);
                 $response = [
                     'ok' => true,
-                    'automation' => $entries,
+                    'analytics' => $analytics,
+                    'notifications' => $notificationsState,
+                    'alerts' => $refresh['alerts'],
+                ];
+                break;
+
+            case 'optimization-save':
+                $incoming = is_array($payload['optimization'] ?? null) ? $payload['optimization'] : [];
+                $current = smart_marketing_optimization_load($marketingSettings);
+                $optimizationState = smart_marketing_optimization_merge($incoming, $current, $marketingSettings);
+                smart_marketing_optimization_save($optimizationState);
+                smart_marketing_audit_log_append('optimization.updated', ['rules' => array_keys($incoming['autoRules'] ?? [])], $admin);
+                $response = [
+                    'ok' => true,
+                    'optimization' => $optimizationState,
+                ];
+                break;
+
+            case 'optimization-auto-run':
+                $campaigns = smart_marketing_campaigns_load();
+                $result = smart_marketing_run_automations($campaigns, $marketingSettings, false);
+                $automationLog = smart_marketing_automation_log_read();
+                $optimizationState = $result['optimization'];
+                $notificationsState = $result['notifications'];
+                $governanceState = $result['governance'];
+                smart_marketing_audit_log_append('optimization.auto_run', ['actions' => count($result['entries'])], $admin);
+                $response = [
+                    'ok' => true,
+                    'automation' => $result['entries'],
                     'automationLog' => $automationLog,
                     'campaigns' => smart_marketing_campaigns_load(),
+                    'optimization' => $optimizationState,
+                    'notifications' => $notificationsState,
+                    'governance' => $governanceState,
+                ];
+                break;
+
+            case 'optimization-manual-action':
+                $kind = (string) ($payload['kind'] ?? '');
+                $details = is_array($payload['details'] ?? null) ? $payload['details'] : [];
+                $notes = trim((string) ($payload['notes'] ?? ''));
+                if (!in_array($kind, ['promote_creative', 'duplicate_campaign', 'schedule_test'], true)) {
+                    throw new RuntimeException('Unsupported manual optimisation action.');
+                }
+                $optimizationState = smart_marketing_optimization_load($marketingSettings);
+                $message = '';
+                $timestamp = ai_timestamp();
+                if ($kind === 'promote_creative') {
+                    $message = sprintf('Promoted creative "%s" across %s channels.', $details['creative'] ?? 'asset', $details['channels'] ?? 'selected');
+                } elseif ($kind === 'duplicate_campaign') {
+                    $message = sprintf('Duplicated campaign %s into %s.', $details['source'] ?? 'campaign', $details['targets'] ?? 'new districts');
+                } else {
+                    $variantA = $details['variantA'] ?? 'Variant A';
+                    $variantB = $details['variantB'] ?? 'Variant B';
+                    $schedule = $details['schedule'] ?? 'next cycle';
+                    $message = sprintf('Scheduled %s test: %s vs %s starting %s.', $details['testType'] ?? 'creative', $variantA, $variantB, $schedule);
+                    $optimizationState['learning']['tests'][] = [
+                        'id' => 'TEST-' . strtoupper(dechex(time())),
+                        'createdAt' => $timestamp,
+                        'type' => strtoupper((string) ($details['testType'] ?? 'Creative')),
+                        'status' => 'scheduled',
+                        'result' => sprintf('%s vs %s starting %s', $variantA, $variantB, $schedule),
+                    ];
+                    if (count($optimizationState['learning']['tests']) > 25) {
+                        $optimizationState['learning']['tests'] = array_slice($optimizationState['learning']['tests'], -25);
+                    }
+                    $optimizationState['learning']['nextBestAction'] = 'Review experiment results after 7 days.';
+                }
+                $optimizationState['manualPlaybooks']['lastActionAt'] = $timestamp;
+                $optimizationState['history'][] = [
+                    'timestamp' => $timestamp,
+                    'rule' => $kind,
+                    'campaign_id' => $details['source'] ?? null,
+                    'message' => $message . ($notes !== '' ? ' Notes: ' . $notes : ''),
+                ];
+                if (count($optimizationState['history']) > 100) {
+                    $optimizationState['history'] = array_slice($optimizationState['history'], -100);
+                }
+                smart_marketing_optimization_save($optimizationState);
+                $notificationsState = smart_marketing_notifications_push($notificationsState, 'manual_action', $message, ['email']);
+                smart_marketing_notifications_save($notificationsState);
+                $governanceState = smart_marketing_governance_load($marketingSettings);
+                smart_marketing_governance_log($governanceState, 'optimization.manual_action', ['kind' => $kind, 'details' => $details], $admin);
+                smart_marketing_governance_save($governanceState);
+                smart_marketing_audit_log_append('optimization.manual', ['kind' => $kind], $admin);
+                $response = [
+                    'ok' => true,
+                    'optimization' => $optimizationState,
+                    'notifications' => $notificationsState,
+                    'governance' => $governanceState,
+                ];
+                break;
+
+            case 'governance-budget-lock':
+                $enabled = (bool) ($payload['enabled'] ?? false);
+                $cap = (float) ($payload['cap'] ?? ($marketingSettings['budget']['monthlyCap'] ?? 0));
+                if ($enabled) {
+                    $cap = min($cap, (float) ($marketingSettings['budget']['monthlyCap'] ?? $cap));
+                }
+                $governanceState = smart_marketing_governance_load($marketingSettings);
+                $governanceState['budgetLock']['enabled'] = $enabled;
+                $governanceState['budgetLock']['cap'] = $cap;
+                $governanceState['budgetLock']['updatedAt'] = ai_timestamp();
+                smart_marketing_governance_log($governanceState, 'governance.budget_lock', ['enabled' => $enabled, 'cap' => $cap], $admin);
+                smart_marketing_governance_save($governanceState);
+                smart_marketing_audit_log_append('governance.budget_lock', ['enabled' => $enabled], $admin);
+                $response = [
+                    'ok' => true,
+                    'governance' => $governanceState,
+                ];
+                break;
+
+            case 'governance-policy-save':
+                $policyInput = is_array($payload['policy'] ?? null) ? $payload['policy'] : [];
+                $governanceState = smart_marketing_governance_load($marketingSettings);
+                $policy = $governanceState['policyChecklist'];
+                $policy['pmSuryaClaims'] = (bool) ($policyInput['pmSuryaClaims'] ?? $policy['pmSuryaClaims']);
+                $policy['ethicalMessaging'] = (bool) ($policyInput['ethicalMessaging'] ?? $policy['ethicalMessaging']);
+                $policy['disclaimerPlaced'] = (bool) ($policyInput['disclaimerPlaced'] ?? $policy['disclaimerPlaced']);
+                $policy['dataAccuracy'] = (bool) ($policyInput['dataAccuracy'] ?? $policy['dataAccuracy']);
+                $policy['notes'] = trim((string) ($policyInput['notes'] ?? $policy['notes']));
+                $policy['lastReviewed'] = ai_timestamp();
+                $governanceState['policyChecklist'] = $policy;
+                smart_marketing_governance_log($governanceState, 'governance.policy_review', $policy, $admin);
+                smart_marketing_governance_save($governanceState);
+                smart_marketing_audit_log_append('governance.policy_review', [], $admin);
+                $response = [
+                    'ok' => true,
+                    'governance' => $governanceState,
+                ];
+                break;
+
+            case 'governance-emergency-stop':
+                $campaigns = smart_marketing_campaigns_load();
+                foreach ($campaigns as &$campaign) {
+                    if (($campaign['status'] ?? '') === 'launched') {
+                        $campaign['status'] = 'paused';
+                        $campaign['audit_trail'][] = [
+                            'timestamp' => ai_timestamp(),
+                            'action' => 'emergency_stop',
+                            'context' => [],
+                        ];
+                    }
+                }
+                unset($campaign);
+                smart_marketing_campaigns_save($campaigns);
+                $governanceState = smart_marketing_governance_load($marketingSettings);
+                $governanceState['emergencyStop'] = [
+                    'active' => true,
+                    'triggeredAt' => ai_timestamp(),
+                    'triggeredBy' => $admin['full_name'] ?? 'Admin',
+                ];
+                smart_marketing_governance_log($governanceState, 'governance.emergency_stop', [], $admin);
+                smart_marketing_governance_save($governanceState);
+                $marketingSettings['autonomy']['killSwitchEngaged'] = true;
+                smart_marketing_settings_save($marketingSettings);
+                $marketingSettings = smart_marketing_settings_load();
+                $notificationsState = smart_marketing_notifications_push($notificationsState, 'emergency_stop', 'Emergency stop activated across all channels.', ['email', 'whatsapp']);
+                smart_marketing_notifications_save($notificationsState);
+                smart_marketing_audit_log_append('governance.emergency_stop', [], $admin);
+                $response = [
+                    'ok' => true,
+                    'campaigns' => $campaigns,
+                    'settings' => $marketingSettings,
+                    'governance' => $governanceState,
+                    'notifications' => $notificationsState,
+                    'automationLog' => smart_marketing_automation_log_read(),
+                    'audit' => smart_marketing_audit_log_read(),
+                ];
+                break;
+
+            case 'governance-data-request':
+                $mode = strtolower((string) ($payload['mode'] ?? ''));
+                if (!in_array($mode, ['export', 'erase'], true)) {
+                    throw new RuntimeException('Unsupported data request mode.');
+                }
+                $governanceState = smart_marketing_governance_load($marketingSettings);
+                $download = null;
+                if ($mode === 'export') {
+                    $export = smart_marketing_data_export($governanceState, $marketingSettings);
+                    $download = basename($export['file']);
+                } else {
+                    smart_marketing_data_erase($governanceState);
+                }
+                smart_marketing_governance_save($governanceState);
+                $message = $mode === 'export' ? 'Data export generated for compliance review.' : 'Data erasure request queued for processing.';
+                $notificationsState = smart_marketing_notifications_push($notificationsState, 'data_' . $mode, $message, ['email']);
+                smart_marketing_notifications_save($notificationsState);
+                smart_marketing_audit_log_append('governance.data_' . $mode, [], $admin);
+                $response = [
+                    'ok' => true,
+                    'governance' => $governanceState,
+                    'notifications' => $notificationsState,
+                ];
+                if ($download) {
+                    $response['download'] = $download;
+                }
+                break;
+
+            case 'notifications-save':
+                $incoming = is_array($payload['notifications'] ?? null) ? $payload['notifications'] : [];
+                $notificationsState = smart_marketing_notifications_load();
+                if (isset($incoming['dailyDigest']) && is_array($incoming['dailyDigest'])) {
+                    $digest = $notificationsState['dailyDigest'];
+                    $digest['enabled'] = (bool) ($incoming['dailyDigest']['enabled'] ?? $digest['enabled']);
+                    $digest['time'] = trim((string) ($incoming['dailyDigest']['time'] ?? $digest['time']));
+                    if (isset($incoming['dailyDigest']['channels']) && is_array($incoming['dailyDigest']['channels'])) {
+                        $digest['channels']['email'] = trim((string) ($incoming['dailyDigest']['channels']['email'] ?? $digest['channels']['email']));
+                        $digest['channels']['whatsapp'] = trim((string) ($incoming['dailyDigest']['channels']['whatsapp'] ?? $digest['channels']['whatsapp']));
+                    }
+                    $notificationsState['dailyDigest'] = $digest;
+                }
+                if (isset($incoming['instant']) && is_array($incoming['instant'])) {
+                    $notificationsState['instant']['email'] = (bool) ($incoming['instant']['email'] ?? $notificationsState['instant']['email']);
+                    $notificationsState['instant']['whatsapp'] = (bool) ($incoming['instant']['whatsapp'] ?? $notificationsState['instant']['whatsapp']);
+                }
+                smart_marketing_notifications_save($notificationsState);
+                smart_marketing_audit_log_append('notifications.updated', [], $admin);
+                $response = [
+                    'ok' => true,
+                    'notifications' => $notificationsState,
+                ];
+                break;
+
+            case 'notifications-test':
+                $notificationsState = smart_marketing_notifications_load();
+                $notificationsState = smart_marketing_notifications_push($notificationsState, 'test', 'Test notification sent to configured channels.', ['email', 'whatsapp']);
+                smart_marketing_notifications_save($notificationsState);
+                smart_marketing_audit_log_append('notifications.test', [], $admin);
+                $response = [
+                    'ok' => true,
+                    'notifications' => $notificationsState,
+                ];
+                break;
+
+            case 'automation-run':
+                $campaigns = smart_marketing_campaigns_load();
+                $result = smart_marketing_run_automations($campaigns, $marketingSettings, true);
+                $automationLog = smart_marketing_automation_log_read();
+                $optimizationState = $result['optimization'];
+                $notificationsState = $result['notifications'];
+                $governanceState = $result['governance'];
+                $response = [
+                    'ok' => true,
+                    'automation' => $result['entries'],
+                    'automationLog' => $automationLog,
+                    'campaigns' => smart_marketing_campaigns_load(),
+                    'optimization' => $optimizationState,
+                    'notifications' => $notificationsState,
+                    'governance' => $governanceState,
                     'audit' => smart_marketing_audit_log_read(),
                 ];
                 break;
@@ -299,6 +567,10 @@ $pageState = [
     'connectors' => $connectors,
     'sitePages' => $sitePages,
     'campaignCatalog' => $campaignCatalog,
+    'analytics' => $analytics,
+    'optimization' => $optimizationState,
+    'governance' => $governanceState,
+    'notifications' => $notificationsState,
     'csrfToken' => $csrfToken,
     'defaults' => [
         'regions' => $defaultRegions,
@@ -373,6 +645,49 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
         </header>
         <p class="smart-marketing__hint">Connect ad accounts and messaging profiles to enable automated launches and lead sync.</p>
         <div class="smart-marketing__connectors" data-connector-list></div>
+      </article>
+
+      <article class="smart-marketing__card" aria-labelledby="analytics-heading">
+        <header class="smart-marketing__card-header">
+          <h2 id="analytics-heading"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Marketing Analytics</h2>
+          <p class="smart-marketing__status" data-analytics-updated>Last sync —</p>
+        </header>
+        <p class="smart-marketing__hint">KPIs refresh directly from connected ad platforms. All numbers in Asia/Kolkata timezone.</p>
+        <div class="smart-marketing__toolbar">
+          <button type="button" class="btn btn-ghost" data-analytics-refresh><i class="fa-solid fa-rotate" aria-hidden="true"></i> Refresh from connectors</button>
+        </div>
+        <section class="smart-marketing__analytics" data-analytics-kpis aria-live="polite"></section>
+        <section class="smart-marketing__analytics-cohorts" data-analytics-cohorts aria-live="polite"></section>
+        <section class="smart-marketing__analytics-funnel" data-analytics-funnel aria-live="polite"></section>
+        <section class="smart-marketing__analytics-creatives" data-analytics-creatives aria-live="polite"></section>
+        <section class="smart-marketing__analytics-budget" data-analytics-budget aria-live="polite"></section>
+        <div class="smart-marketing__alerts" data-analytics-alerts></div>
+      </article>
+
+      <article class="smart-marketing__card" aria-labelledby="optimization-heading">
+        <header class="smart-marketing__card-header">
+          <h2 id="optimization-heading"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Optimization Console</h2>
+          <button type="button" class="btn btn-primary" data-optimization-save><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save guardrails</button>
+        </header>
+        <p class="smart-marketing__hint">Auto rules keep budgets aligned to CPL guardrails. Manual playbooks let you steer experiments.</p>
+        <section class="smart-marketing__optimization" data-optimization-auto></section>
+        <form class="smart-marketing__optimization-form" data-optimization-manual>
+          <fieldset>
+            <legend>Manual playbook</legend>
+            <label>Action
+              <select name="kind" required>
+                <option value="promote_creative">Promote winning creative</option>
+                <option value="duplicate_campaign">Duplicate campaign</option>
+                <option value="schedule_test">Schedule A/B test</option>
+              </select>
+            </label>
+            <label>Details<textarea name="notes" rows="2" placeholder="Context or targeting notes"></textarea></label>
+            <div class="smart-marketing__optimization-details" data-optimization-manual-details></div>
+            <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i> Log manual action</button>
+          </fieldset>
+        </form>
+        <section class="smart-marketing__optimization-history" data-optimization-history aria-live="polite"></section>
+        <section class="smart-marketing__optimization-learning" data-optimization-learning aria-live="polite"></section>
       </article>
 
       <article class="smart-marketing__card" aria-labelledby="brain-heading">
@@ -590,6 +905,58 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
         <p class="smart-marketing__hint">Weekly creative refresh, budget shifts, negative keywords, and compliance sweeps log here.</p>
         <button type="button" class="btn btn-ghost" data-run-automations><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Run optimisation sweep</button>
         <section class="smart-marketing__automation" data-automation-log aria-live="polite"></section>
+      </article>
+
+      <article class="smart-marketing__card" aria-labelledby="governance-heading">
+        <header class="smart-marketing__card-header">
+          <h2 id="governance-heading"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Governance &amp; Safety</h2>
+        </header>
+        <section class="smart-marketing__governance" data-governance-controls>
+          <div>
+            <h3>Budget lock</h3>
+            <label><input type="checkbox" data-governance-budget-lock /> Enforce monthly cap</label>
+            <label>Monthly cap<input type="number" min="0" step="1000" data-governance-budget-cap /></label>
+            <button type="button" class="btn btn-ghost" data-governance-save-budget><i class="fa-solid fa-vault" aria-hidden="true"></i> Update lock</button>
+          </div>
+          <div>
+            <h3>Policy checklist</h3>
+            <ul data-governance-policy></ul>
+            <button type="button" class="btn btn-ghost" data-governance-save-policy><i class="fa-solid fa-clipboard-check" aria-hidden="true"></i> Save checklist</button>
+          </div>
+          <div>
+            <h3>Autonomy controls</h3>
+            <button type="button" class="btn btn-danger" data-governance-emergency><i class="fa-solid fa-stop" aria-hidden="true"></i> Emergency stop</button>
+            <p class="smart-marketing__hint smart-marketing__emergency-status" data-governance-emergency-status aria-live="polite"></p>
+            <button type="button" class="btn btn-ghost" data-governance-export><i class="fa-solid fa-file-export" aria-hidden="true"></i> Export logs</button>
+            <button type="button" class="btn btn-ghost" data-governance-erase><i class="fa-solid fa-trash" aria-hidden="true"></i> Queue erasure</button>
+          </div>
+        </section>
+        <section class="smart-marketing__governance-log" data-governance-log aria-live="polite"></section>
+      </article>
+
+      <article class="smart-marketing__card" aria-labelledby="notifications-heading">
+        <header class="smart-marketing__card-header">
+          <h2 id="notifications-heading"><i class="fa-solid fa-bell" aria-hidden="true"></i> Notifications</h2>
+        </header>
+        <form class="smart-marketing__notifications" data-notifications-form>
+          <fieldset>
+            <legend>Daily digest</legend>
+            <label><input type="checkbox" data-notifications-digest-enabled /> Send digest</label>
+            <label>Send at<input type="time" data-notifications-digest-time /></label>
+            <label>Email<input type="email" data-notifications-digest-email placeholder="ops@dakshayani.in" /></label>
+            <label>WhatsApp<input type="text" data-notifications-digest-whatsapp placeholder="+91-" /></label>
+          </fieldset>
+          <fieldset>
+            <legend>Instant alerts</legend>
+            <label><input type="checkbox" data-notifications-instant-email /> Email alerts</label>
+            <label><input type="checkbox" data-notifications-instant-whatsapp /> WhatsApp alerts</label>
+          </fieldset>
+          <div class="smart-marketing__toolbar">
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save notifications</button>
+            <button type="button" class="btn btn-ghost" data-notifications-test><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Send test</button>
+          </div>
+        </form>
+        <section class="smart-marketing__notifications-log" data-notifications-log aria-live="polite"></section>
       </article>
 
       <article class="smart-marketing__card" aria-labelledby="creative-heading">
