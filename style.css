@@ -12397,17 +12397,31 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 2.5rem 1.5rem 4rem;
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
+  padding: 1rem 1.5rem 2rem;
+  display: grid;
+  grid-auto-rows: min-content;
+  gap: 1.5rem;
+  min-height: 100vh;
+  box-sizing: border-box;
 }
 
 .smart-marketing__header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1.5rem;
+  padding: 1rem 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+[data-theme='dark'] .smart-marketing__header {
+  background: rgba(17, 24, 39, 0.85);
+  border-bottom-color: rgba(148, 163, 184, 0.2);
 }
 
 .smart-marketing__subtitle {
@@ -12420,19 +12434,22 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 }
 
 .smart-marketing__title {
-  font-size: 2rem;
+  font-size: 1.75rem;
+  font-weight: 600;
   margin: 0;
 }
 
 .smart-marketing__meta {
   margin: 0.35rem 0 0;
   color: #4a4d52;
+  font-size: 0.9rem;
 }
 
 .smart-marketing__actions {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
+  align-items: stretch;
 }
 
 .smart-marketing__banner {
@@ -12440,9 +12457,9 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin: -0.5rem 0 1.5rem;
+  margin: 0;
   padding: 0.85rem 1.1rem;
-  border-radius: 0.85rem;
+  border-radius: 1rem;
   border: 1px solid #fbbf24;
   background: #fef3c7;
   color: #92400e;
@@ -12475,17 +12492,25 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   white-space: nowrap;
 }
 
+.smart-marketing__card img,
+.smart-marketing__card canvas,
+.smart-marketing__card video,
+.smart-marketing__card svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .smart-marketing__health {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(1, minmax(0, 1fr));
   gap: 1rem;
 }
 
 .smart-marketing__panel {
   background: #fff;
   border-radius: 1rem;
-  padding: 1.5rem;
-  box-shadow: 0 12px 30px -20px rgba(0, 0, 0, 0.35);
+  padding: 1rem;
+  box-shadow: 0 10px 25px -20px rgba(15, 31, 62, 0.45);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -12493,7 +12518,8 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 
 .smart-marketing__panel h2 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
+  font-weight: 600;
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -12512,7 +12538,8 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
 }
 
 .smart-marketing__panel--audit ul li {
@@ -12564,25 +12591,44 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 
 .smart-marketing__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(1, minmax(0, 1fr));
   gap: 1.5rem;
 }
 
 .smart-marketing__card {
   background: #fff;
-  border-radius: 1.2rem;
-  padding: 1.5rem;
-  box-shadow: 0 18px 40px -30px rgba(15, 31, 62, 0.6);
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: 0 10px 25px -20px rgba(15, 31, 62, 0.45);
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.smart-marketing__card p,
+.smart-marketing__card label,
+.smart-marketing__card span,
+.smart-marketing__card li,
+.smart-marketing__card input,
+.smart-marketing__card select,
+.smart-marketing__card textarea {
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+[data-theme='dark'] .smart-marketing__panel,
+[data-theme='dark'] .smart-marketing__card {
+  background: #111827;
+  box-shadow: 0 10px 30px -25px rgba(15, 23, 42, 0.75);
 }
 
 .smart-marketing__toolbar {
   display: flex;
   gap: 0.75rem;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .smart-marketing__analytics-channel {
@@ -12898,10 +12944,12 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .smart-marketing__card-header h2 {
-  font-size: 1.4rem;
+  font-size: 1.125rem;
+  font-weight: 600;
   margin: 0;
   display: flex;
   align-items: center;
@@ -12912,6 +12960,7 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   font-size: 0.85rem;
   color: #4a4d52;
   margin: 0;
+  line-height: 1.5;
 }
 
 .smart-marketing__tabs {
@@ -13245,14 +13294,17 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 }
 
 .smart-marketing__hint {
-  font-size: 0.8rem;
-  color: #6b6f76;
+  font-size: 0.875rem;
+  color: #4a4d52;
   margin: 0;
+  line-height: 1.6;
 }
 
 .smart-marketing__error {
+  font-size: 0.875rem;
   color: #c12c3e;
   font-weight: 600;
+  line-height: 1.5;
 }
 
 .smart-marketing__runlog {
@@ -13385,16 +13437,26 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   border: 1px solid #e2e8f0;
   border-radius: 1rem;
   background: #ffffff;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 24px -18px rgba(15, 23, 42, 0.4);
   overflow: hidden;
+}
+
+[data-theme='dark'] .smart-settings__section {
+  background: #0f172a;
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: 0 14px 30px -22px rgba(15, 23, 42, 0.9);
 }
 
 .smart-settings__section-header {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  padding: 1.2rem 1.4rem;
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.05), rgba(14, 165, 233, 0.05));
+  padding: 1rem 1.25rem;
+  background: rgba(226, 232, 240, 0.4);
+}
+
+[data-theme='dark'] .smart-settings__section-header {
+  background: rgba(30, 41, 59, 0.6);
 }
 
 .smart-settings__toggle {
@@ -13404,11 +13466,15 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   width: 100%;
   background: none;
   border: none;
-  color: var(--base-700);
+  color: #1f2937;
   font-weight: 600;
   font-size: 1.05rem;
   cursor: pointer;
   padding: 0;
+}
+
+[data-theme='dark'] .smart-settings__toggle {
+  color: #e2e8f0;
 }
 
 .smart-settings__toggle::after {
@@ -13416,7 +13482,11 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   font-family: 'Font Awesome 6 Free';
   font-weight: 900;
   transition: transform 0.2s ease;
-  color: var(--base-400);
+  color: #64748b;
+}
+
+[data-theme='dark'] .smart-settings__toggle::after {
+  color: #cbd5f5;
 }
 
 .smart-settings__toggle[aria-expanded='true']::after {
@@ -13424,21 +13494,46 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 }
 
 .smart-settings__chips {
-  color: var(--base-400);
+  color: #64748b;
   font-size: 0.85rem;
   font-weight: 500;
 }
 
+[data-theme='dark'] .smart-settings__chips {
+  color: #94a3b8;
+}
+
 .smart-settings__updated {
   font-size: 0.75rem;
-  color: var(--base-300);
+  color: #94a3b8;
+}
+
+[data-theme='dark'] .smart-settings__updated {
+  color: #64748b;
 }
 
 .smart-settings__body {
-  padding: 1.25rem 1.4rem 1.5rem;
-  display: flex;
-  flex-direction: column;
+  padding: 0 1.25rem;
+  display: grid;
   gap: 1rem;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.35s ease, opacity 0.3s ease;
+}
+
+.smart-settings__body[hidden] {
+  display: block !important;
+  max-height: 0;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.smart-settings__body:not([hidden]) {
+  padding: 1rem 1.25rem 1.25rem;
+  max-height: 2000px;
+  opacity: 1;
+  visibility: visible;
 }
 
 .smart-settings__form {
@@ -13613,18 +13708,47 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   min-width: 10rem;
 }
 
+@media (min-width: 640px) {
+  .smart-marketing__shell {
+    padding: 1.25rem 1.75rem 2.25rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .smart-marketing__health {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+
+  .smart-marketing__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+}
+
 @media (max-width: 768px) {
   .smart-marketing__header {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .smart-marketing__grid {
-    grid-template-columns: 1fr;
+  .smart-marketing__actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
   }
 
   .smart-marketing__tabs {
     overflow-x: auto;
+  }
+
+  .smart-marketing__panel {
+    padding: 0.9rem;
+  }
+
+  .smart-marketing__card {
+    padding: 0.9rem;
   }
 
   .smart-settings__grid,
@@ -13640,5 +13764,23 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
   .smart-settings__inline-actions {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .smart-marketing__shell {
+    padding: 0.75rem 1rem 1.5rem;
+  }
+
+  .smart-marketing__title {
+    font-size: 1.5rem;
+  }
+
+  .smart-marketing__meta,
+  .smart-marketing__card p,
+  .smart-marketing__card label,
+  .smart-marketing__card span,
+  .smart-marketing__card li {
+    font-size: 0.85rem;
   }
 }
