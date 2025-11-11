@@ -13,6 +13,10 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 
 $aiSettings = ai_settings_load();
 $marketingSettings = smart_marketing_settings_load();
+$settingsSections = [];
+foreach (array_keys(smart_marketing_settings_sections()) as $sectionKey) {
+    $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
+}
 $aiHealth = smart_marketing_ai_health($aiSettings);
 $integrationsHealth = smart_marketing_integrations_health($marketingSettings);
 $brainRuns = smart_marketing_brain_runs_load();
@@ -26,6 +30,8 @@ $analytics = smart_marketing_analytics_load($marketingSettings);
 $optimizationState = smart_marketing_optimization_load($marketingSettings);
 $governanceState = smart_marketing_governance_load($marketingSettings);
 $notificationsState = smart_marketing_notifications_load();
+$settingsAuditTrail = smart_marketing_settings_audit_log();
+$connectorCatalog = smart_marketing_connector_catalog();
 $campaignCatalog = [];
 foreach (smart_marketing_campaign_catalog() as $key => $meta) {
     $campaignCatalog[] = ['id' => $key, 'label' => $meta['label']];
@@ -65,6 +71,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         switch ($action) {
             case 'save-settings':
+                $targetSection = (string) ($payload['section'] ?? '');
+                if ($targetSection !== '') {
+                    $updates = is_array($payload['settings'] ?? null) ? $payload['settings'] : [];
+                    $result = smart_marketing_settings_save_section($targetSection, $updates, $admin, $aiSettings);
+                    if (!$result['ok']) {
+                        $response = [
+                            'ok' => false,
+                            'section' => $result['section'],
+                            'messages' => $result['messages'],
+                            'data' => $result['data'],
+                            'audit' => smart_marketing_settings_audit_log(),
+                        ];
+                        break;
+                    }
+
+                    $marketingSettings = $result['settings'];
+                    $settingsSections = $result['sections'];
+                    $response = [
+                        'ok' => true,
+                        'section' => $result['section'],
+                        'messages' => $result['messages'],
+                        'data' => $result['data'],
+                        'settings' => $marketingSettings,
+                        'sections' => $settingsSections,
+                        'aiHealth' => smart_marketing_ai_health($aiSettings),
+                        'integrations' => smart_marketing_integrations_health($marketingSettings),
+                        'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                        'audit' => $result['audit'],
+                    ];
+                    break;
+                }
                 $updates = is_array($payload['settings'] ?? null) ? $payload['settings'] : [];
                 $merged = smart_marketing_collect_settings_payload($updates, $marketingSettings);
                 $governanceSnapshot = $governanceState ?? smart_marketing_governance_load($marketingSettings);
@@ -94,7 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!empty($errors)) {
                     throw new RuntimeException(implode('\n', $errors));
                 }
-
+                
                 $generation = smart_marketing_generate_brain_plan($inputs, $marketingSettings, $aiSettings);
                 $runs = smart_marketing_brain_runs_load();
                 $runId = smart_marketing_next_run_id($runs);
@@ -135,6 +172,101 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'campaigns' => $campaigns,
                     'automationLog' => $automationLog,
                     'autoLaunched' => $autoLaunched,
+                ];
+                break;
+
+            case 'revert-settings':
+                $targetSection = (string) ($payload['section'] ?? '');
+                if ($targetSection === '') {
+                    throw new RuntimeException('Section is required.');
+                }
+
+                $result = smart_marketing_settings_revert_section($targetSection);
+                $marketingSettings = $result['settings'];
+                $settingsSections = $result['sections'];
+                $response = [
+                    'ok' => true,
+                    'section' => $result['section'],
+                    'data' => $result['data'],
+                    'settings' => $marketingSettings,
+                    'sections' => $settingsSections,
+                    'aiHealth' => smart_marketing_ai_health($aiSettings),
+                    'integrations' => smart_marketing_integrations_health($marketingSettings),
+                    'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                    'audit' => $result['audit'],
+                ];
+                break;
+
+            case 'test-settings':
+                $targetSection = (string) ($payload['section'] ?? '');
+                if ($targetSection === '') {
+                    throw new RuntimeException('Section is required.');
+                }
+
+                $updates = is_array($payload['settings'] ?? null) ? $payload['settings'] : [];
+                $result = smart_marketing_settings_test_section($targetSection, $updates, $aiSettings);
+                $response = [
+                    'ok' => $result['ok'],
+                    'section' => $result['section'],
+                    'messages' => $result['messages'],
+                    'data' => $result['data'],
+                    'settings' => $result['settings'],
+                    'sections' => $result['sections'],
+                    'aiHealth' => smart_marketing_ai_health($aiSettings),
+                    'integrations' => smart_marketing_integrations_health($marketingSettings),
+                    'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                ];
+                break;
+
+            case 'sync-business-profile':
+                $profileSection = $settingsSections['business'] ?? smart_marketing_settings_section_defaults('business');
+                $companyName = trim((string) ($admin['company'] ?? ($admin['company_name'] ?? ($admin['organisation'] ?? ($admin['organization'] ?? '')))));
+                if ($companyName !== '') {
+                    $profileSection['companyName'] = $companyName;
+                }
+                $profileSection['autoSync']['lastSyncedAt'] = ai_timestamp();
+                $payloadProfile = $profileSection;
+                $result = smart_marketing_settings_save_section('business', $payloadProfile, $admin, $aiSettings);
+                if (!$result['ok']) {
+                    $response = [
+                        'ok' => false,
+                        'section' => 'business',
+                        'messages' => $result['messages'],
+                        'data' => $result['data'],
+                    ];
+                    break;
+                }
+
+                $marketingSettings = $result['settings'];
+                $settingsSections = $result['sections'];
+                $response = [
+                    'ok' => true,
+                    'section' => 'business',
+                    'data' => $result['data'],
+                    'settings' => $marketingSettings,
+                    'sections' => $settingsSections,
+                    'messages' => array_merge(['Synced from admin profile.'], $result['messages']),
+                    'aiHealth' => smart_marketing_ai_health($aiSettings),
+                    'integrations' => smart_marketing_integrations_health($marketingSettings),
+                    'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                    'audit' => $result['audit'],
+                ];
+                break;
+
+            case 'reload-settings':
+                $settingsSections = [];
+                foreach (array_keys(smart_marketing_settings_sections()) as $sectionKey) {
+                    $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
+                }
+                $marketingSettings = smart_marketing_settings_hydrate_legacy($settingsSections);
+                $response = [
+                    'ok' => true,
+                    'settings' => $marketingSettings,
+                    'sections' => $settingsSections,
+                    'aiHealth' => smart_marketing_ai_health($aiSettings),
+                    'integrations' => smart_marketing_integrations_health($marketingSettings),
+                    'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                    'audit' => smart_marketing_settings_audit_log(),
                 ];
                 break;
 
@@ -571,6 +703,9 @@ $pageState = [
     'optimization' => $optimizationState,
     'governance' => $governanceState,
     'notifications' => $notificationsState,
+    'settingsSections' => $settingsSections,
+    'settingsAudit' => $settingsAuditTrail,
+    'connectorCatalog' => $connectorCatalog,
     'csrfToken' => $csrfToken,
     'defaults' => [
         'regions' => $defaultRegions,
@@ -620,6 +755,16 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
         <a href="logout.php" class="btn btn-primary"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Log out</a>
       </div>
     </header>
+
+    <div class="smart-marketing__banner" data-integrations-banner role="status" aria-live="polite" hidden>
+      <div class="smart-marketing__banner-content">
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+        <p data-integrations-banner-message></p>
+      </div>
+      <button type="button" class="btn btn-ghost" data-integrations-banner-action>
+        <i class="fa-solid fa-plug-circle-exclamation" aria-hidden="true"></i> Review integrations
+      </button>
+    </div>
 
     <section class="smart-marketing__health" aria-label="Connection health">
       <div class="smart-marketing__panel">
@@ -791,110 +936,366 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
           <h2 id="settings-heading"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Smart Marketing Settings</h2>
           <p class="smart-marketing__status" data-settings-status aria-live="polite"></p>
         </header>
-        <nav class="smart-marketing__tabs" data-settings-tabs>
-          <button type="button" data-tab="business">Business Profile</button>
-          <button type="button" data-tab="audiences">Audiences</button>
-          <button type="button" data-tab="products">Products & Offers</button>
-          <button type="button" data-tab="budget">Budget & Pacing</button>
-          <button type="button" data-tab="autonomy">Autonomy</button>
-          <button type="button" data-tab="legal">Legal & Compliance</button>
-          <button type="button" data-tab="integrations">Integrations</button>
-        </nav>
-        <div class="smart-marketing__tab-panels" data-settings-panels>
-          <section data-tab-panel="business">
-            <label>Brand name<input type="text" data-setting="businessProfile.brandName" /></label>
-            <label>Tagline<input type="text" data-setting="businessProfile.tagline" /></label>
-            <label>About<textarea rows="3" data-setting="businessProfile.about"></textarea></label>
-            <label>Primary contact<input type="text" data-setting="businessProfile.primaryContact" /></label>
-            <label>Support email<input type="email" data-setting="businessProfile.supportEmail" /></label>
-            <label>WhatsApp number<input type="text" data-setting="businessProfile.whatsappNumber" /></label>
-            <label>Service regions<textarea rows="2" data-setting="businessProfile.serviceRegions" placeholder="Jharkhand, Ranchi"></textarea></label>
-          </section>
-          <section data-tab-panel="audiences">
-            <label>Primary segments<textarea rows="3" data-setting="audiences.primarySegments" placeholder="Segment per line"></textarea></label>
-            <label>Remarketing notes<textarea rows="3" data-setting="audiences.remarketingNotes"></textarea></label>
-            <label>Exclusions<textarea rows="3" data-setting="audiences.exclusions"></textarea></label>
-          </section>
-          <section data-tab-panel="products">
-            <label>Product portfolio<textarea rows="4" data-setting="products.portfolio" placeholder="One product per line"></textarea></label>
-            <label>Offers<textarea rows="3" data-setting="products.offers"></textarea></label>
-          </section>
-          <section data-tab-panel="budget">
-            <label>Daily cap<input type="number" step="100" data-setting="budget.dailyCap" /></label>
-            <label>Monthly cap<input type="number" step="100" data-setting="budget.monthlyCap" /></label>
-            <label>Minimum bid<input type="number" step="1" data-setting="budget.minBid" /></label>
-            <label>Target CPL<input type="number" step="1" data-setting="budget.targetCpl" /></label>
-            <label>Currency<input type="text" data-setting="budget.currency" /></label>
-          </section>
-          <section data-tab-panel="autonomy">
-            <label>Default autonomy mode
-              <select data-setting="autonomy.mode">
-                <option value="auto">Auto</option>
-                <option value="review">Review-before-launch</option>
-                <option value="draft">Draft-only</option>
-              </select>
-            </label>
-            <label>Review recipients<textarea rows="2" data-setting="autonomy.reviewRecipients" placeholder="Emails or names"></textarea></label>
-            <label class="smart-marketing__toggle"><input type="checkbox" data-setting="autonomy.killSwitchEngaged" /> Emergency kill switch engaged</label>
-            <button type="button" class="btn btn-danger" data-kill-switch><i class="fa-solid fa-stop-circle" aria-hidden="true"></i> Trigger kill switch</button>
-          </section>
-          <section data-tab-panel="legal">
-            <label><input type="checkbox" data-setting="compliance.policyChecks" /> Platform policy checks</label>
-            <label><input type="checkbox" data-setting="compliance.brandTone" /> Brand tone control</label>
-            <label><input type="checkbox" data-setting="compliance.legalDisclaimers" /> Legal disclaimers required</label>
-            <label>PM Surya Ghar disclaimer<textarea rows="3" data-setting="compliance.pmSuryaDisclaimer"></textarea></label>
-            <label>Notes<textarea rows="3" data-setting="compliance.notes"></textarea></label>
-          </section>
-          <section data-tab-panel="integrations">
-            <div class="smart-marketing__integration" data-integration="googleAds">
-              <h3>Google Ads</h3>
-              <label>Status
-                <select data-setting="integrations.googleAds.status">
-                  <option value="connected">Connected</option>
-                  <option value="warning">Warning</option>
-                  <option value="error">Error</option>
-                  <option value="unknown">Unknown</option>
-                </select>
-              </label>
-              <label>Account<input type="text" data-setting="integrations.googleAds.account" /></label>
+        <div class="smart-settings" data-settings-root>
+          <article class="smart-settings__section" data-settings-section="business">
+            <header class="smart-settings__section-header">
+              <button type="button" class="smart-settings__toggle" data-settings-toggle="business" aria-expanded="true">
+                <span class="smart-settings__title">Business Profile</span>
+                <span class="smart-settings__chips" data-settings-summary="business"></span>
+              </button>
+              <p class="smart-settings__updated" data-settings-updated="business"></p>
+            </header>
+            <div class="smart-settings__body" data-settings-body="business">
+              <div class="smart-settings__alert" data-settings-alert="business" role="alert" hidden></div>
+              <form class="smart-settings__form" data-settings-form="business">
+                <div class="smart-settings__grid">
+                  <label>Company name
+                    <input type="text" data-setting-field="companyName" placeholder="Dakshayani Enterprises" />
+                  </label>
+                  <label>Brand tone
+                    <select data-setting-field="brandTone">
+                      <option value="friendly">Friendly</option>
+                      <option value="professional">Professional</option>
+                      <option value="government-aligned">Government-aligned</option>
+                      <option value="aggressive">Aggressive Sales</option>
+                    </select>
+                  </label>
+                  <label>Time zone
+                    <select data-setting-field="timeZone">
+                      <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                      <option value="Asia/Calcutta">Asia/Calcutta (legacy)</option>
+                    </select>
+                  </label>
+                </div>
+                <fieldset class="smart-settings__fieldset">
+                  <legend>Default languages</legend>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="English" data-setting-field="defaultLanguages" data-setting-type="array" /> English</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Hindi" data-setting-field="defaultLanguages" data-setting-type="array" /> Hindi</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Hinglish" data-setting-field="defaultLanguages" data-setting-type="array" /> Hinglish</label>
+                </fieldset>
+                <label>Base locations
+                  <textarea rows="2" data-setting-field="baseLocations" data-setting-type="tags" placeholder="Jharkhand, Ranchi, Bokaro"></textarea>
+                </label>
+                <label>Brand summary (optional)
+                  <textarea rows="3" data-setting-field="summary" placeholder="Brand positioning, elevator pitch"></textarea>
+                </label>
+                <div class="smart-settings__actions">
+                  <button type="button" class="btn btn-primary" data-settings-save="business"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
+                  <button type="button" class="btn btn-ghost" data-settings-revert="business"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Revert</button>
+                  <button type="button" class="btn btn-ghost" data-settings-test="business"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i> Test</button>
+                  <button type="button" class="btn btn-ghost" data-settings-sync="business"><i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i> Auto-sync profile</button>
+                </div>
+              </form>
+              <div class="smart-settings__history" data-settings-history="business"></div>
             </div>
-            <div class="smart-marketing__integration" data-integration="meta">
-              <h3>Meta</h3>
-              <label>Status
-                <select data-setting="integrations.meta.status">
-                  <option value="connected">Connected</option>
-                  <option value="warning">Warning</option>
-                  <option value="error">Error</option>
-                  <option value="unknown">Unknown</option>
-                </select>
-              </label>
-              <label>Account<input type="text" data-setting="integrations.meta.account" /></label>
+          </article>
+
+          <article class="smart-settings__section" data-settings-section="goals">
+            <header class="smart-settings__section-header">
+              <button type="button" class="smart-settings__toggle" data-settings-toggle="goals" aria-expanded="false">
+                <span class="smart-settings__title">Goals &amp; Strategy</span>
+                <span class="smart-settings__chips" data-settings-summary="goals"></span>
+              </button>
+              <p class="smart-settings__updated" data-settings-updated="goals"></p>
+            </header>
+            <div class="smart-settings__body" data-settings-body="goals" hidden>
+              <div class="smart-settings__alert" data-settings-alert="goals" role="alert" hidden></div>
+              <form class="smart-settings__form" data-settings-form="goals">
+                <label>Goal type
+                  <select data-setting-field="goalType">
+                    <option value="Leads">Leads</option>
+                    <option value="Awareness">Awareness</option>
+                    <option value="Remarketing">Remarketing</option>
+                    <option value="Retention">Retention</option>
+                    <option value="AMC Renewal">AMC Renewal</option>
+                    <option value="Offer Blast">Offer Blast</option>
+                  </select>
+                </label>
+                <fieldset class="smart-settings__fieldset">
+                  <legend>Target products</legend>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Rooftop 1 kW" data-setting-field="targetProducts" data-setting-type="array" /> Rooftop 1 kW</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Rooftop 3 kW" data-setting-field="targetProducts" data-setting-type="array" /> Rooftop 3 kW</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Rooftop 5 kW" data-setting-field="targetProducts" data-setting-type="array" /> Rooftop 5 kW</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Rooftop 10 kW" data-setting-field="targetProducts" data-setting-type="array" /> Rooftop 10 kW</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="C&I 20-50 kW" data-setting-field="targetProducts" data-setting-type="array" /> C&amp;I 20–50 kW</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Off-grid" data-setting-field="targetProducts" data-setting-type="array" /> Off-grid</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Hybrid" data-setting-field="targetProducts" data-setting-type="array" /> Hybrid</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="PM Surya Ghar" data-setting-field="targetProducts" data-setting-type="array" /> PM Surya Ghar</label>
+                  <label class="smart-settings__checkbox"><input type="checkbox" value="Non-Scheme" data-setting-field="targetProducts" data-setting-type="array" /> Non-Scheme</label>
+                </fieldset>
+                <fieldset class="smart-settings__fieldset">
+                  <legend>Core focus</legend>
+                  <label class="smart-settings__radio"><input type="radio" name="goals_focus" value="Residential" data-setting-field="coreFocus" /> Residential</label>
+                  <label class="smart-settings__radio"><input type="radio" name="goals_focus" value="Institutional" data-setting-field="coreFocus" /> Institutional</label>
+                  <label class="smart-settings__radio"><input type="radio" name="goals_focus" value="Industrial" data-setting-field="coreFocus" /> Industrial</label>
+                </fieldset>
+                <label>Offer messaging
+                  <textarea rows="3" data-setting-field="offerMessaging" placeholder="Ad headline seed, offer promise"></textarea>
+                </label>
+                <div class="smart-settings__grid smart-settings__grid--compact">
+                  <label>Start date
+                    <input type="date" data-setting-field="campaignDuration.start" />
+                  </label>
+                  <label>End date
+                    <input type="date" data-setting-field="campaignDuration.end" />
+                  </label>
+                </div>
+                <fieldset class="smart-settings__fieldset">
+                  <legend>Autonomy mode</legend>
+                  <label class="smart-settings__radio"><input type="radio" name="goals_autonomy" value="auto" data-setting-field="autonomyMode" /> Auto — full AI control</label>
+                  <label class="smart-settings__radio"><input type="radio" name="goals_autonomy" value="review" data-setting-field="autonomyMode" /> Review-before-launch</label>
+                  <label class="smart-settings__radio"><input type="radio" name="goals_autonomy" value="draft" data-setting-field="autonomyMode" /> Draft-only</label>
+                </fieldset>
+                <div class="smart-settings__actions">
+                  <button type="button" class="btn btn-primary" data-settings-save="goals"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
+                  <button type="button" class="btn btn-ghost" data-settings-revert="goals"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Revert</button>
+                  <button type="button" class="btn btn-ghost" data-settings-test="goals"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i> Test</button>
+                </div>
+              </form>
+              <div class="smart-settings__history" data-settings-history="goals"></div>
             </div>
-            <div class="smart-marketing__integration" data-integration="email">
-              <h3>Email</h3>
-              <label>Status
-                <select data-setting="integrations.email.status">
-                  <option value="connected">Connected</option>
-                  <option value="warning">Warning</option>
-                  <option value="error">Error</option>
-                  <option value="unknown">Unknown</option>
-                </select>
-              </label>
-              <label>Provider<input type="text" data-setting="integrations.email.provider" /></label>
+          </article>
+
+          <article class="smart-settings__section" data-settings-section="budget">
+            <header class="smart-settings__section-header">
+              <button type="button" class="smart-settings__toggle" data-settings-toggle="budget" aria-expanded="false">
+                <span class="smart-settings__title">Budget &amp; Pacing</span>
+                <span class="smart-settings__chips" data-settings-summary="budget"></span>
+              </button>
+              <p class="smart-settings__updated" data-settings-updated="budget"></p>
+            </header>
+            <div class="smart-settings__body" data-settings-body="budget" hidden>
+              <div class="smart-settings__alert" data-settings-alert="budget" role="alert" hidden></div>
+              <form class="smart-settings__form" data-settings-form="budget">
+                <div class="smart-settings__grid smart-settings__grid--compact">
+                  <label>Daily budget (₹)
+                    <input type="number" min="0" step="100" data-setting-field="dailyBudget" data-setting-type="number" />
+                  </label>
+                  <label>Monthly cap (₹)
+                    <input type="number" min="0" step="100" data-setting-field="monthlyCap" data-setting-type="number" />
+                  </label>
+                  <label>Currency
+                    <select data-setting-field="currency">
+                      <option value="INR">INR</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </label>
+                </div>
+                <fieldset class="smart-settings__fieldset">
+                  <legend>Platform split (%)</legend>
+                  <div class="smart-settings__grid smart-settings__grid--compact">
+                    <label>Meta
+                      <input type="number" min="0" max="100" step="1" data-setting-field="platformSplit.meta" data-setting-type="number" />
+                    </label>
+                    <label>Google
+                      <input type="number" min="0" max="100" step="1" data-setting-field="platformSplit.google" data-setting-type="number" />
+                    </label>
+                    <label>YouTube
+                      <input type="number" min="0" max="100" step="1" data-setting-field="platformSplit.youtube" data-setting-type="number" />
+                    </label>
+                    <label>WhatsApp
+                      <input type="number" min="0" max="100" step="1" data-setting-field="platformSplit.whatsapp" data-setting-type="number" />
+                    </label>
+                    <label>Email/SMS
+                      <input type="number" min="0" max="100" step="1" data-setting-field="platformSplit.emailSms" data-setting-type="number" />
+                    </label>
+                  </div>
+                </fieldset>
+                <label>Bid strategy
+                  <select data-setting-field="bidStrategy">
+                    <option value="cpc">CPC</option>
+                    <option value="cpl">CPL</option>
+                    <option value="max conversions">Max Conversions</option>
+                  </select>
+                </label>
+                <label class="smart-settings__toggle">
+                  <input type="checkbox" data-setting-field="autoScaling" data-setting-type="boolean" /> Auto-scaling (allow AI to redistribute spend daily)
+                </label>
+                <div class="smart-settings__meter">
+                  <p>Today's spend <strong data-settings-budget-spend>—</strong></p>
+                  <p>Remaining cap <strong data-settings-budget-remaining>—</strong></p>
+                </div>
+                <div class="smart-settings__inline-actions">
+                  <button type="button" class="btn btn-danger" data-governance-emergency><i class="fa-solid fa-stop" aria-hidden="true"></i> Emergency stop</button>
+                  <p class="smart-settings__hint">Emergency stop halts all live campaigns instantly.</p>
+                </div>
+                <div class="smart-settings__actions">
+                  <button type="button" class="btn btn-primary" data-settings-save="budget"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
+                  <button type="button" class="btn btn-ghost" data-settings-revert="budget"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Revert</button>
+                  <button type="button" class="btn btn-ghost" data-settings-test="budget"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i> Test</button>
+                </div>
+              </form>
+              <div class="smart-settings__history" data-settings-history="budget"></div>
             </div>
-            <div class="smart-marketing__integration" data-integration="whatsapp">
-              <h3>WhatsApp</h3>
-              <label>Status
-                <select data-setting="integrations.whatsapp.status">
-                  <option value="connected">Connected</option>
-                  <option value="warning">Warning</option>
-                  <option value="error">Error</option>
-                  <option value="unknown">Unknown</option>
-                </select>
-              </label>
-              <label>Number<input type="text" data-setting="integrations.whatsapp.number" /></label>
+          </article>
+
+          <article class="smart-settings__section" data-settings-section="audience">
+            <header class="smart-settings__section-header">
+              <button type="button" class="smart-settings__toggle" data-settings-toggle="audience" aria-expanded="false">
+                <span class="smart-settings__title">Audience &amp; Targeting</span>
+                <span class="smart-settings__chips" data-settings-summary="audience"></span>
+              </button>
+              <p class="smart-settings__updated" data-settings-updated="audience"></p>
+            </header>
+            <div class="smart-settings__body" data-settings-body="audience" hidden>
+              <div class="smart-settings__alert" data-settings-alert="audience" role="alert" hidden></div>
+              <form class="smart-settings__form" data-settings-form="audience">
+                <label>Primary locations
+                  <textarea rows="3" data-setting-field="locations" data-setting-type="tags" placeholder="Jharkhand, Ranchi, Bokaro"></textarea>
+                </label>
+                <div class="smart-settings__grid smart-settings__grid--compact">
+                  <label>Minimum age
+                    <input type="number" min="18" max="75" data-setting-field="ageRange.min" data-setting-type="number" />
+                  </label>
+                  <label>Maximum age
+                    <input type="number" min="18" max="80" data-setting-field="ageRange.max" data-setting-type="number" />
+                  </label>
+                </div>
+                <label>Interest tags
+                  <textarea rows="3" data-setting-field="interestTags" data-setting-type="tags" placeholder="homeowners, solar, renewable energy"></textarea>
+                </label>
+                <label>Custom exclusions
+                  <textarea rows="3" data-setting-field="exclusions" placeholder="existing customers, vendors"></textarea>
+                </label>
+                <fieldset class="smart-settings__fieldset">
+                  <legend>Language split (%)</legend>
+                  <div class="smart-settings__grid smart-settings__grid--compact">
+                    <label>English
+                      <input type="number" min="0" max="100" step="1" data-setting-field="languageSplit" data-setting-type="language" data-language="English" />
+                    </label>
+                    <label>Hindi
+                      <input type="number" min="0" max="100" step="1" data-setting-field="languageSplit" data-setting-type="language" data-language="Hindi" />
+                    </label>
+                    <label>Hinglish
+                      <input type="number" min="0" max="100" step="1" data-setting-field="languageSplit" data-setting-type="language" data-language="Hinglish" />
+                    </label>
+                  </div>
+                </fieldset>
+                <fieldset class="smart-settings__fieldset">
+                  <legend>Device priorities (%)</legend>
+                  <div class="smart-settings__grid smart-settings__grid--compact">
+                    <label>Mobile
+                      <input type="number" min="0" max="100" step="1" data-setting-field="devicePriorities.mobile" data-setting-type="number" />
+                    </label>
+                    <label>Desktop
+                      <input type="number" min="0" max="100" step="1" data-setting-field="devicePriorities.desktop" data-setting-type="number" />
+                    </label>
+                  </div>
+                </fieldset>
+                <label>Time-of-day scheduling
+                  <textarea rows="3" data-setting-field="schedule" data-setting-type="schedule" placeholder="Mon 09:00-18:00&#10;Sat 10:00-14:00"></textarea>
+                  <span class="smart-settings__hint">Use one slot per line (day HH:MM-HH:MM). Leave blank for always-on.</span>
+                </label>
+                <div class="smart-settings__actions">
+                  <button type="button" class="btn btn-primary" data-settings-save="audience"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
+                  <button type="button" class="btn btn-ghost" data-settings-revert="audience"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Revert</button>
+                  <button type="button" class="btn btn-ghost" data-settings-test="audience"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i> Test</button>
+                </div>
+              </form>
+              <div class="smart-settings__history" data-settings-history="audience"></div>
             </div>
-          </section>
+          </article>
+
+          <article class="smart-settings__section" data-settings-section="compliance">
+            <header class="smart-settings__section-header">
+              <button type="button" class="smart-settings__toggle" data-settings-toggle="compliance" aria-expanded="false">
+                <span class="smart-settings__title">Compliance &amp; Policy</span>
+                <span class="smart-settings__chips" data-settings-summary="compliance"></span>
+              </button>
+              <p class="smart-settings__updated" data-settings-updated="compliance"></p>
+            </header>
+            <div class="smart-settings__body" data-settings-body="compliance" hidden>
+              <div class="smart-settings__alert" data-settings-alert="compliance" role="alert" hidden></div>
+              <form class="smart-settings__form" data-settings-form="compliance">
+                <label class="smart-settings__toggle">
+                  <input type="checkbox" data-setting-field="autoDisclaimer" data-setting-type="boolean" /> Auto-enable subsidy disclaimer on ads
+                </label>
+                <label>Disclaimer text
+                  <textarea rows="3" data-setting-field="disclaimerText" placeholder="Subsidy subject to MNRE / DISCOM approval."></textarea>
+                </label>
+                <label class="smart-settings__toggle">
+                  <input type="checkbox" data-setting-field="policyChecks" data-setting-type="boolean" /> Auto-check against Meta &amp; Google policies
+                </label>
+                <div class="smart-settings__actions">
+                  <button type="button" class="btn btn-primary" data-settings-save="compliance"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
+                  <button type="button" class="btn btn-ghost" data-settings-revert="compliance"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Revert</button>
+                  <button type="button" class="btn btn-ghost" data-settings-test="compliance"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i> Test</button>
+                </div>
+              </form>
+              <div class="smart-settings__history" data-settings-history="compliance"></div>
+              <section class="smart-settings__flagged" data-compliance-flagged hidden>
+                <h4>Flagged creatives</h4>
+                <ul data-compliance-flagged-list></ul>
+              </section>
+            </div>
+          </article>
+
+          <article class="smart-settings__section" data-settings-section="integrations">
+            <header class="smart-settings__section-header">
+              <button type="button" class="smart-settings__toggle" data-settings-toggle="integrations" aria-expanded="false">
+                <span class="smart-settings__title">Integrations &amp; API Health</span>
+                <span class="smart-settings__chips" data-settings-summary="integrations"></span>
+              </button>
+              <p class="smart-settings__updated" data-settings-updated="integrations"></p>
+            </header>
+            <div class="smart-settings__body" data-settings-body="integrations" hidden>
+              <div class="smart-settings__alert" data-settings-alert="integrations" role="alert" hidden></div>
+              <div class="smart-settings__gemini" data-settings-gemini></div>
+              <form class="smart-settings__form" data-settings-form="integrations">
+                <div class="smart-settings__integrations-table">
+                  <div class="smart-settings__integrations-header">
+                    <span>Platform</span>
+                    <span>Status</span>
+                    <span>Configuration</span>
+                  </div>
+<?php foreach ($connectorCatalog as $connectorKey => $connectorMeta): ?>
+                  <div class="smart-settings__integration-row" data-integration-row="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>">
+                    <div>
+                      <strong><?= htmlspecialchars($connectorMeta['label'] ?? smart_marketing_integration_label($connectorKey), ENT_QUOTES) ?></strong>
+                      <p><?= htmlspecialchars($connectorMeta['description'] ?? '', ENT_QUOTES) ?></p>
+                    </div>
+                    <div>
+                      <select data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.status">
+                        <option value="connected">✅ Connected</option>
+                        <option value="warning">⚠️ Warning</option>
+                        <option value="error">❌ Error</option>
+                        <option value="unknown">Unknown</option>
+                      </select>
+                      <p class="smart-settings__meta">Last sync <span data-settings-integration-last="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>">—</span></p>
+                    </div>
+                    <div>
+<?php
+    $defaults = smart_marketing_default_connector_settings();
+    $fields = array_keys(array_diff_key($defaults[$connectorKey], array_flip(['status', 'connectedAt', 'lastTested', 'lastTestResult'])));
+    foreach ($fields as $field):
+        $label = ucwords(str_replace(['_', 'Id'], [' ', ' ID'], $field));
+?>
+                      <label><?= htmlspecialchars($label, ENT_QUOTES) ?>
+                        <input type="text" data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.<?= htmlspecialchars($field, ENT_QUOTES) ?>" />
+                      </label>
+<?php endforeach; ?>
+                      <div class="smart-settings__inline-actions">
+                        <button type="button" class="btn btn-ghost" data-settings-connect="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-link" aria-hidden="true"></i> Connect</button>
+                        <button type="button" class="btn btn-ghost" data-settings-refresh="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh token</button>
+                      </div>
+                    </div>
+                  </div>
+<?php endforeach; ?>
+                </div>
+                <div class="smart-settings__actions">
+                  <button type="button" class="btn btn-primary" data-settings-save="integrations"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
+                  <button type="button" class="btn btn-ghost" data-settings-revert="integrations"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Revert</button>
+                  <button type="button" class="btn btn-ghost" data-settings-test="integrations"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i> Test</button>
+                  <button type="button" class="btn btn-ghost" data-settings-revalidate-all><i class="fa-solid fa-wave-square" aria-hidden="true"></i> Revalidate all</button>
+                </div>
+              </form>
+              <div class="smart-settings__history" data-settings-history="integrations"></div>
+            </div>
+          </article>
+
+          <footer class="smart-settings__footer">
+            <button type="button" class="btn btn-ghost" data-settings-reload><i class="fa-solid fa-rotate" aria-hidden="true"></i> Reload settings</button>
+          </footer>
         </div>
       </article>
 

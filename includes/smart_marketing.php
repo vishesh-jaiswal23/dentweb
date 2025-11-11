@@ -13,9 +13,141 @@ function smart_marketing_storage_dir(): string
     return $path;
 }
 
+function smart_marketing_settings_root(): string
+{
+    $path = __DIR__ . '/../ai/smart-marketing/settings';
+    if (!is_dir($path)) {
+        mkdir($path, 0775, true);
+    }
+
+    return $path;
+}
+
+function smart_marketing_settings_section_file(string $section): string
+{
+    $sections = smart_marketing_settings_sections();
+    if (!isset($sections[$section])) {
+        throw new InvalidArgumentException('Unknown Smart Marketing settings section: ' . $section);
+    }
+
+    return smart_marketing_settings_root() . '/' . $sections[$section];
+}
+
+function smart_marketing_settings_sections(): array
+{
+    return [
+        'business' => 'business.json',
+        'goals' => 'goals.json',
+        'budget' => 'budget.json',
+        'audience' => 'audience.json',
+        'compliance' => 'compliance.json',
+        'integrations' => 'integrations.json',
+    ];
+}
+
+function smart_marketing_settings_audit_file(): string
+{
+    return smart_marketing_settings_root() . '/settings_audit.json';
+}
+
 function smart_marketing_settings_file(): string
 {
     return smart_marketing_storage_dir() . '/settings.json';
+}
+
+function smart_marketing_settings_section_defaults(string $section): array
+{
+    $today = new DateTimeImmutable('now', new DateTimeZone('Asia/Kolkata'));
+    $defaults = [
+        'business' => [
+            'companyName' => 'Dakshayani Enterprises',
+            'brandTone' => 'friendly',
+            'defaultLanguages' => ['English', 'Hindi'],
+            'baseLocations' => ['Jharkhand'],
+            'timeZone' => 'Asia/Kolkata',
+            'autoSync' => [
+                'enabled' => true,
+                'lastSyncedAt' => null,
+            ],
+            'summary' => '',
+            'lastUpdatedAt' => null,
+            'lastUpdatedBy' => null,
+        ],
+        'goals' => [
+            'goalType' => 'Leads',
+            'targetProducts' => [
+                'Rooftop 3 kW',
+                'Rooftop 5 kW',
+                'PM Surya Ghar',
+            ],
+            'coreFocus' => 'Residential',
+            'offerMessaging' => 'Book a free subsidy audit today.',
+            'campaignDuration' => [
+                'start' => $today->format('Y-m-d'),
+                'end' => $today->modify('+30 days')->format('Y-m-d'),
+            ],
+            'autonomyMode' => 'review',
+            'lastUpdatedAt' => null,
+            'lastUpdatedBy' => null,
+        ],
+        'budget' => [
+            'currency' => 'INR',
+            'dailyBudget' => 15000.0,
+            'monthlyCap' => 450000.0,
+            'platformSplit' => [
+                'meta' => 40,
+                'google' => 30,
+                'youtube' => 15,
+                'whatsapp' => 10,
+                'emailSms' => 5,
+            ],
+            'bidStrategy' => 'cpc',
+            'autoScaling' => true,
+            'emergencyStopEngaged' => false,
+            'lastUpdatedAt' => null,
+            'lastUpdatedBy' => null,
+        ],
+        'audience' => [
+            'locations' => ['Jharkhand'],
+            'ageRange' => ['min' => 24, 'max' => 60],
+            'interestTags' => ['homeowners', 'solar', 'renewable energy'],
+            'exclusions' => 'existing customers',
+            'languageSplit' => [
+                ['language' => 'English', 'percent' => 60],
+                ['language' => 'Hindi', 'percent' => 40],
+            ],
+            'devicePriorities' => ['mobile' => 70, 'desktop' => 30],
+            'schedule' => [],
+            'lastUpdatedAt' => null,
+            'lastUpdatedBy' => null,
+        ],
+        'compliance' => [
+            'autoDisclaimer' => true,
+            'disclaimerText' => 'Subsidy subject to MNRE / DISCOM approval.',
+            'policyChecks' => true,
+            'warnings' => [],
+            'flaggedCreatives' => [],
+            'lastUpdatedAt' => null,
+            'lastUpdatedBy' => null,
+        ],
+        'integrations' => [
+            'channels' => smart_marketing_default_connector_settings(),
+            'gemini' => [
+                'validated' => false,
+                'message' => 'Validation pending',
+                'lastValidatedAt' => null,
+                'models' => [],
+            ],
+            'lastUpdatedAt' => null,
+            'lastUpdatedBy' => null,
+        ],
+    ];
+
+    if (!isset($defaults[$section])) {
+        throw new InvalidArgumentException('Unknown Smart Marketing defaults for section: ' . $section);
+    }
+
+    return $defaults[$section];
 }
 
 function smart_marketing_settings_lock_file(): string
@@ -254,8 +386,50 @@ function smart_marketing_settings_defaults(): array
 
 function smart_marketing_settings_load(): array
 {
-    $defaults = smart_marketing_settings_defaults();
-    $file = smart_marketing_settings_file();
+    $legacyFile = smart_marketing_settings_file();
+    $sections = [];
+    foreach (array_keys(smart_marketing_settings_sections()) as $section) {
+        $sections[$section] = smart_marketing_settings_section_read($section);
+    }
+
+    $settings = smart_marketing_settings_hydrate_legacy($sections);
+
+    if (!is_file($legacyFile)) {
+        return $settings;
+    }
+
+    $legacyContents = file_get_contents($legacyFile);
+    if ($legacyContents === false || trim($legacyContents) === '') {
+        return $settings;
+    }
+
+    try {
+        $legacyDecoded = json_decode($legacyContents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        $legacyDecoded = [];
+    }
+
+    if (is_array($legacyDecoded) && !empty($legacyDecoded)) {
+        $settings = array_replace_recursive($settings, $legacyDecoded);
+    }
+
+    return $settings;
+}
+
+function smart_marketing_settings_save(array $settings): void
+{
+    $sections = smart_marketing_settings_extract_sections($settings);
+    foreach ($sections as $section => $data) {
+        smart_marketing_settings_section_write($section, $data);
+    }
+
+    smart_marketing_settings_write_snapshot($sections);
+}
+
+function smart_marketing_settings_section_read(string $section): array
+{
+    $defaults = smart_marketing_settings_section_defaults($section);
+    $file = smart_marketing_settings_section_file($section);
 
     if (!is_file($file)) {
         return $defaults;
@@ -269,7 +443,7 @@ function smart_marketing_settings_load(): array
     try {
         $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
     } catch (Throwable $exception) {
-        error_log('smart_marketing_settings_load decode failed: ' . $exception->getMessage());
+        error_log('smart_marketing_settings_section_read decode failed for ' . $section . ': ' . $exception->getMessage());
         return $defaults;
     }
 
@@ -277,58 +451,702 @@ function smart_marketing_settings_load(): array
         return $defaults;
     }
 
-    $settings = array_replace_recursive($defaults, $decoded);
-    $settings['updatedAt'] = is_string($settings['updatedAt'] ?? null) ? $settings['updatedAt'] : null;
+    return smart_marketing_settings_normalize_section($section, $decoded + ['lastUpdatedAt' => null, 'lastUpdatedBy' => null]);
+}
 
-    if (!isset($settings['businessProfile']['serviceRegions']) || !is_array($settings['businessProfile']['serviceRegions'])) {
-        $settings['businessProfile']['serviceRegions'] = $defaults['businessProfile']['serviceRegions'];
+function smart_marketing_settings_section_write(string $section, array $data): void
+{
+    $payload = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($payload === false) {
+        throw new RuntimeException('Unable to encode Smart Marketing settings section: ' . $section);
     }
 
-    if (!isset($settings['products']['portfolio']) || !is_array($settings['products']['portfolio'])) {
-        $settings['products']['portfolio'] = $defaults['products']['portfolio'];
+    $file = smart_marketing_settings_section_file($section);
+    if (file_put_contents($file, $payload, LOCK_EX) === false) {
+        throw new RuntimeException('Unable to write Smart Marketing settings section: ' . $section);
+    }
+}
+
+function smart_marketing_settings_normalize_section(string $section, array $data): array
+{
+    $defaults = smart_marketing_settings_section_defaults($section);
+    $normalized = array_replace_recursive($defaults, $data);
+
+    switch ($section) {
+        case 'business':
+            $normalized['companyName'] = trim((string) ($normalized['companyName'] ?? '')) ?: $defaults['companyName'];
+            $tone = strtolower((string) ($normalized['brandTone'] ?? 'friendly'));
+            $tone = str_replace([' ', '_'], '-', $tone);
+            if ($tone === 'aggressive-sales') {
+                $tone = 'aggressive';
+            }
+            $normalized['brandTone'] = in_array($tone, ['friendly', 'professional', 'government-aligned', 'aggressive'], true)
+                ? $tone
+                : 'friendly';
+            $languages = is_array($normalized['defaultLanguages'] ?? null) ? $normalized['defaultLanguages'] : [];
+            $normalized['defaultLanguages'] = array_values(array_unique(array_map('strval', $languages)));
+            $locations = is_array($normalized['baseLocations'] ?? null) ? $normalized['baseLocations'] : [];
+            if (is_string($locations)) {
+                $locations = preg_split('/\s*,\s*/', $locations, -1, PREG_SPLIT_NO_EMPTY);
+            }
+            $normalized['baseLocations'] = array_values(array_unique(array_map('strval', $locations)));
+            $normalized['timeZone'] = trim((string) ($normalized['timeZone'] ?? 'Asia/Kolkata')) ?: 'Asia/Kolkata';
+            $normalized['autoSync']['enabled'] = (bool) ($normalized['autoSync']['enabled'] ?? true);
+            $normalized['autoSync']['lastSyncedAt'] = smart_marketing_normalize_datetime($normalized['autoSync']['lastSyncedAt']);
+            break;
+
+        case 'goals':
+            $normalized['goalType'] = smart_marketing_normalize_enum(
+                $normalized['goalType'] ?? 'Leads',
+                ['Leads', 'Awareness', 'Remarketing', 'Retention', 'AMC Renewal', 'Offer Blast']
+            );
+            $products = $normalized['targetProducts'] ?? [];
+            if (is_string($products)) {
+                $products = preg_split('/\s*,\s*/', $products, -1, PREG_SPLIT_NO_EMPTY);
+            }
+            $normalized['targetProducts'] = array_values(array_unique(array_map('strval', is_array($products) ? $products : [])));
+            $normalized['coreFocus'] = smart_marketing_normalize_enum(
+                $normalized['coreFocus'] ?? 'Residential',
+                ['Residential', 'Institutional', 'Industrial']
+            );
+            $normalized['offerMessaging'] = trim((string) ($normalized['offerMessaging'] ?? ''));
+            $duration = $normalized['campaignDuration'] ?? [];
+            $normalized['campaignDuration'] = [
+                'start' => smart_marketing_normalize_date($duration['start'] ?? null),
+                'end' => smart_marketing_normalize_date($duration['end'] ?? null),
+            ];
+            $mode = strtolower((string) ($normalized['autonomyMode'] ?? 'review'));
+            if (!in_array($mode, ['auto', 'review', 'draft'], true)) {
+                $mode = 'review';
+            }
+            $normalized['autonomyMode'] = $mode;
+            break;
+
+        case 'budget':
+            $normalized['currency'] = strtoupper(trim((string) ($normalized['currency'] ?? 'INR')) ?: 'INR');
+            $normalized['dailyBudget'] = max(0.0, (float) ($normalized['dailyBudget'] ?? 0));
+            $normalized['monthlyCap'] = max(0.0, (float) ($normalized['monthlyCap'] ?? 0));
+            $split = is_array($normalized['platformSplit'] ?? null) ? $normalized['platformSplit'] : [];
+            $normalized['platformSplit'] = smart_marketing_normalize_platform_split($split);
+            $normalized['bidStrategy'] = smart_marketing_normalize_enum(
+                strtolower((string) ($normalized['bidStrategy'] ?? 'cpc')),
+                ['cpc', 'cpl', 'max conversions']
+            );
+            $normalized['autoScaling'] = (bool) ($normalized['autoScaling'] ?? false);
+            $normalized['emergencyStopEngaged'] = (bool) ($normalized['emergencyStopEngaged'] ?? false);
+            break;
+
+        case 'audience':
+            $locations = $normalized['locations'] ?? [];
+            if (is_string($locations)) {
+                $locations = preg_split('/\s*,\s*/', $locations, -1, PREG_SPLIT_NO_EMPTY);
+            }
+            $normalized['locations'] = array_values(array_filter(array_map('strval', is_array($locations) ? $locations : [])));
+            if (empty($normalized['locations'])) {
+                $normalized['locations'] = ['Jharkhand'];
+            }
+            $age = $normalized['ageRange'] ?? [];
+            $minAge = max(18, (int) ($age['min'] ?? 24));
+            $maxAge = max($minAge, (int) ($age['max'] ?? 60));
+            $normalized['ageRange'] = ['min' => $minAge, 'max' => $maxAge];
+            $tags = $normalized['interestTags'] ?? [];
+            if (is_string($tags)) {
+                $tags = preg_split('/\s*,\s*/', $tags, -1, PREG_SPLIT_NO_EMPTY);
+            }
+            $normalized['interestTags'] = array_values(array_unique(array_map('strval', is_array($tags) ? $tags : [])));
+            $normalized['exclusions'] = trim((string) ($normalized['exclusions'] ?? ''));
+            $normalized['languageSplit'] = smart_marketing_normalize_language_split($normalized['languageSplit'] ?? []);
+            $normalized['devicePriorities'] = smart_marketing_normalize_device_split($normalized['devicePriorities'] ?? []);
+            $normalized['schedule'] = smart_marketing_normalize_schedule($normalized['schedule'] ?? []);
+            break;
+
+        case 'compliance':
+            $normalized['autoDisclaimer'] = (bool) ($normalized['autoDisclaimer'] ?? true);
+            $normalized['disclaimerText'] = trim((string) ($normalized['disclaimerText'] ?? 'Subsidy subject to MNRE / DISCOM approval.'));
+            $normalized['policyChecks'] = (bool) ($normalized['policyChecks'] ?? true);
+            $normalized['warnings'] = array_values(array_map('strval', $normalized['warnings'] ?? []));
+            $normalized['flaggedCreatives'] = array_values(array_map('strval', $normalized['flaggedCreatives'] ?? []));
+            break;
+
+        case 'integrations':
+            $channels = $normalized['channels'] ?? [];
+            $defaultChannels = smart_marketing_default_connector_settings();
+            $hydrated = [];
+            foreach ($defaultChannels as $key => $defaultsChannel) {
+                $entry = array_merge($defaultsChannel, $channels[$key] ?? []);
+                $entry['status'] = smart_marketing_normalize_enum(
+                    strtolower((string) ($entry['status'] ?? 'unknown')),
+                    ['connected', 'warning', 'error', 'unknown']
+                );
+                $entry['connectedAt'] = smart_marketing_normalize_datetime($entry['connectedAt'] ?? null);
+                $entry['lastTested'] = smart_marketing_normalize_datetime($entry['lastTested'] ?? null);
+                $entry['lastTestResult'] = smart_marketing_normalize_enum(
+                    strtolower((string) ($entry['lastTestResult'] ?? 'unknown')),
+                    ['passed', 'failed', 'unknown']
+                );
+                $hydrated[$key] = $entry;
+            }
+            $normalized['channels'] = $hydrated;
+            $normalized['gemini']['validated'] = (bool) ($normalized['gemini']['validated'] ?? false);
+            $normalized['gemini']['message'] = trim((string) ($normalized['gemini']['message'] ?? '')) ?: 'Validation pending';
+            $normalized['gemini']['lastValidatedAt'] = smart_marketing_normalize_datetime($normalized['gemini']['lastValidatedAt'] ?? null);
+            $normalized['gemini']['models'] = array_values(array_map('strval', $normalized['gemini']['models'] ?? []));
+            break;
     }
 
-    $connectorDefaults = smart_marketing_default_connector_settings();
-    if (!isset($settings['integrations']) || !is_array($settings['integrations'])) {
-        $settings['integrations'] = $connectorDefaults;
-    } else {
-        foreach ($connectorDefaults as $connectorKey => $connectorDefault) {
-            $current = is_array($settings['integrations'][$connectorKey] ?? null) ? $settings['integrations'][$connectorKey] : [];
-            $settings['integrations'][$connectorKey] = array_merge($connectorDefault, $current);
+    $normalized['lastUpdatedAt'] = smart_marketing_normalize_datetime($normalized['lastUpdatedAt'] ?? null);
+    $normalized['lastUpdatedBy'] = is_string($normalized['lastUpdatedBy'] ?? null) ? trim((string) $normalized['lastUpdatedBy']) : null;
+
+    return $normalized;
+}
+
+function smart_marketing_settings_extract_sections(array $settings): array
+{
+    $sections = [];
+    foreach (array_keys(smart_marketing_settings_sections()) as $section) {
+        $key = $section;
+        if ($section === 'audience') {
+            $key = 'audience';
+        }
+        if (isset($settings[$key])) {
+            $sections[$section] = smart_marketing_settings_normalize_section($section, $settings[$key]);
         }
     }
 
-    return $settings;
-}
-
-function smart_marketing_settings_save(array $settings): void
-{
-    $settings['updatedAt'] = ai_timestamp();
-
-    $payload = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    if ($payload === false) {
-        throw new RuntimeException('Unable to encode Smart Marketing settings.');
+    if (isset($settings['businessProfile'])) {
+        $business = $sections['business'] ?? smart_marketing_settings_section_defaults('business');
+        $business['companyName'] = $settings['businessProfile']['brandName'] ?? $business['companyName'];
+        $business['baseLocations'] = $settings['businessProfile']['serviceRegions'] ?? $business['baseLocations'];
+        $sections['business'] = smart_marketing_settings_normalize_section('business', $business);
     }
 
-    $lockHandle = fopen(smart_marketing_settings_lock_file(), 'c+');
-    if ($lockHandle === false) {
-        throw new RuntimeException('Unable to open Smart Marketing settings lock.');
+    if (isset($settings['budget'])) {
+        $budget = $sections['budget'] ?? smart_marketing_settings_section_defaults('budget');
+        $budget['dailyBudget'] = $settings['budget']['dailyCap'] ?? $budget['dailyBudget'];
+        $budget['monthlyCap'] = $settings['budget']['monthlyCap'] ?? $budget['monthlyCap'];
+        $budget['currency'] = $settings['budget']['currency'] ?? $budget['currency'];
+        $sections['budget'] = smart_marketing_settings_normalize_section('budget', $budget);
+    }
+
+    if (isset($settings['autonomy'])) {
+        $goals = $sections['goals'] ?? smart_marketing_settings_section_defaults('goals');
+        $goals['autonomyMode'] = $settings['autonomy']['mode'] ?? $goals['autonomyMode'];
+        $sections['goals'] = smart_marketing_settings_normalize_section('goals', $goals);
+    }
+
+    if (isset($settings['compliance'])) {
+        $compliance = $sections['compliance'] ?? smart_marketing_settings_section_defaults('compliance');
+        $compliance['policyChecks'] = $settings['compliance']['policyChecks'] ?? $compliance['policyChecks'];
+        $compliance['autoDisclaimer'] = $settings['compliance']['legalDisclaimers'] ?? $compliance['autoDisclaimer'];
+        $compliance['disclaimerText'] = $settings['compliance']['pmSuryaDisclaimer'] ?? $compliance['disclaimerText'];
+        $sections['compliance'] = smart_marketing_settings_normalize_section('compliance', $compliance);
+    }
+
+    if (isset($settings['integrations'])) {
+        $integrations = $sections['integrations'] ?? smart_marketing_settings_section_defaults('integrations');
+        $integrations['channels'] = array_merge($integrations['channels'], $settings['integrations']);
+        $sections['integrations'] = smart_marketing_settings_normalize_section('integrations', $integrations);
+    }
+
+    return $sections;
+}
+
+function smart_marketing_settings_hydrate_legacy(array $sections): array
+{
+    $business = $sections['business'];
+    $goals = $sections['goals'];
+    $budget = $sections['budget'];
+    $audience = $sections['audience'];
+    $compliance = $sections['compliance'];
+    $integrations = $sections['integrations'];
+
+    return [
+        'business' => $business,
+        'goals' => $goals,
+        'budgeting' => $budget,
+        'audience' => $audience,
+        'complianceCenter' => $compliance,
+        'integrationsHub' => $integrations,
+        'businessProfile' => [
+            'brandName' => $business['companyName'],
+            'tagline' => $business['summary'],
+            'about' => $business['summary'],
+            'primaryContact' => '',
+            'supportEmail' => '',
+            'whatsappNumber' => '',
+            'serviceRegions' => $business['baseLocations'],
+        ],
+        'audiences' => [
+            'primarySegments' => $audience['interestTags'],
+            'remarketingNotes' => '',
+            'exclusions' => $audience['exclusions'],
+        ],
+        'products' => [
+            'portfolio' => $goals['targetProducts'],
+            'offers' => $goals['offerMessaging'],
+        ],
+        'budget' => [
+            'dailyCap' => $budget['dailyBudget'],
+            'monthlyCap' => $budget['monthlyCap'],
+            'minBid' => 0,
+            'targetCpl' => 0,
+            'currency' => $budget['currency'],
+        ],
+        'autonomy' => [
+            'mode' => $goals['autonomyMode'],
+            'reviewRecipients' => '',
+            'killSwitchEngaged' => $budget['emergencyStopEngaged'],
+        ],
+        'compliance' => [
+            'policyChecks' => $compliance['policyChecks'],
+            'brandTone' => $business['brandTone'] !== 'aggressive',
+            'legalDisclaimers' => $compliance['autoDisclaimer'],
+            'pmSuryaDisclaimer' => $compliance['disclaimerText'],
+            'notes' => '',
+        ],
+        'integrations' => $integrations['channels'],
+        'updatedAt' => smart_marketing_latest_update($sections),
+    ];
+}
+
+function smart_marketing_latest_update(array $sections): ?string
+{
+    $timestamps = [];
+    foreach ($sections as $section) {
+        $value = $section['lastUpdatedAt'] ?? null;
+        if ($value) {
+            $timestamps[] = $value;
+        }
+    }
+
+    if (empty($timestamps)) {
+        return null;
+    }
+
+    rsort($timestamps);
+
+    return $timestamps[0];
+}
+
+function smart_marketing_settings_write_snapshot(array $sections): void
+{
+    $snapshot = smart_marketing_settings_hydrate_legacy($sections);
+    $snapshot['updatedAt'] = ai_timestamp();
+
+    $payload = json_encode($snapshot, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($payload !== false) {
+        file_put_contents(smart_marketing_settings_file(), $payload, LOCK_EX);
+    }
+}
+
+function smart_marketing_settings_audit_log(): array
+{
+    $file = smart_marketing_settings_audit_file();
+    if (!is_file($file)) {
+        return [];
+    }
+
+    $contents = file_get_contents($file);
+    if ($contents === false || trim($contents) === '') {
+        return [];
     }
 
     try {
-        if (!flock($lockHandle, LOCK_EX)) {
-            throw new RuntimeException('Unable to acquire Smart Marketing lock.');
-        }
-
-        if (file_put_contents(smart_marketing_settings_file(), $payload, LOCK_EX) === false) {
-            throw new RuntimeException('Unable to write Smart Marketing settings.');
-        }
-
-        fflush($lockHandle);
-        flock($lockHandle, LOCK_UN);
-    } finally {
-        fclose($lockHandle);
+        $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        return [];
     }
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function smart_marketing_settings_audit_append(string $section, array $changes, array $admin): void
+{
+    $log = smart_marketing_settings_audit_log();
+    $entry = [
+        'timestamp' => ai_timestamp(),
+        'section' => $section,
+        'user' => [
+            'id' => (int) ($admin['id'] ?? 0),
+            'name' => (string) ($admin['full_name'] ?? ($admin['name'] ?? 'Admin')),
+            'email' => (string) ($admin['email'] ?? ''),
+        ],
+        'changes' => array_values($changes),
+    ];
+
+    $log[] = $entry;
+    $log = array_slice($log, -100);
+
+    $payload = json_encode($log, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($payload !== false) {
+        file_put_contents(smart_marketing_settings_audit_file(), $payload, LOCK_EX);
+    }
+}
+
+function smart_marketing_settings_validate_section(string $section, array $data, array $aiSettings, array $allSections): array
+{
+    $messages = [];
+    $ok = true;
+
+    switch ($section) {
+        case 'business':
+            if (trim((string) ($data['companyName'] ?? '')) === '') {
+                $ok = false;
+                $messages[] = 'Company name is required.';
+            }
+            if (empty($data['baseLocations'])) {
+                $ok = false;
+                $messages[] = 'At least one base location must be specified.';
+            }
+            if (strtolower((string) ($data['timeZone'] ?? '')) !== 'asia/kolkata') {
+                $messages[] = 'Timezone adjusted to Asia/Kolkata to keep analytics consistent.';
+                $data['timeZone'] = 'Asia/Kolkata';
+            }
+            break;
+
+        case 'goals':
+            $duration = $data['campaignDuration'] ?? [];
+            if (($duration['start'] ?? null) && ($duration['end'] ?? null)) {
+                try {
+                    $start = new DateTimeImmutable($duration['start']);
+                    $end = new DateTimeImmutable($duration['end']);
+                    if ($start > $end) {
+                        $ok = false;
+                        $messages[] = 'Campaign end date must be after start date.';
+                    }
+                } catch (Throwable $exception) {
+                    $ok = false;
+                    $messages[] = 'Campaign duration dates are invalid.';
+                }
+            }
+            break;
+
+        case 'budget':
+            $daily = (float) ($data['dailyBudget'] ?? 0);
+            $monthly = (float) ($data['monthlyCap'] ?? 0);
+            if ($daily <= 0 || $monthly <= 0) {
+                $ok = false;
+                $messages[] = 'Daily and monthly budgets must be greater than zero.';
+            }
+            if ($monthly < $daily * 5) {
+                $messages[] = 'Monthly cap is lower than 5x daily budget; pacing may be constrained.';
+            }
+            if ($monthly < $daily) {
+                $ok = false;
+                $messages[] = 'Monthly cap cannot be lower than the daily budget.';
+            }
+            break;
+
+        case 'audience':
+            $split = $data['languageSplit'] ?? [];
+            $total = array_sum(array_map(static fn($row) => (int) ($row['percent'] ?? 0), $split));
+            if ($total !== 100) {
+                $messages[] = 'Language split has been normalised to 100%.';
+            }
+            break;
+
+        case 'compliance':
+            if ($data['autoDisclaimer'] && trim((string) ($data['disclaimerText'] ?? '')) === '') {
+                $ok = false;
+                $messages[] = 'Disclaimer text is required when auto disclaimer is enabled.';
+            }
+            break;
+
+        case 'integrations':
+            $gemini = smart_marketing_ai_health($aiSettings);
+            if (!$gemini['connected']) {
+                $ok = false;
+                $messages[] = 'Gemini API key missing. Add it in AI Studio.';
+            } else {
+                $messages[] = 'Gemini models ready: ' . implode(', ', array_filter($gemini['models'] ?? []));
+            }
+
+            foreach ($data['channels'] as $key => $channel) {
+                if (($channel['status'] ?? 'unknown') === 'error') {
+                    $ok = false;
+                    $messages[] = sprintf('%s connector reporting errors. Refresh the token.', smart_marketing_integration_label($key));
+                }
+            }
+            break;
+    }
+
+    return ['ok' => $ok, 'messages' => $messages, 'data' => $data];
+}
+
+function smart_marketing_settings_save_section(string $section, array $payload, array $admin, array $aiSettings): array
+{
+    $section = strtolower($section);
+    $sections = [];
+    foreach (array_keys(smart_marketing_settings_sections()) as $key) {
+        $sections[$key] = smart_marketing_settings_section_read($key);
+    }
+
+    if (!isset($sections[$section])) {
+        throw new InvalidArgumentException('Unknown Smart Marketing settings section: ' . $section);
+    }
+
+    $current = $sections[$section];
+    $normalized = smart_marketing_settings_normalize_section($section, array_replace_recursive($current, $payload));
+    $validation = smart_marketing_settings_validate_section($section, $normalized, $aiSettings, $sections);
+    if (!$validation['ok']) {
+        return [
+            'ok' => false,
+            'section' => $section,
+            'messages' => $validation['messages'],
+            'data' => $current,
+        ];
+    }
+
+    $normalized = $validation['data'];
+    $normalized['lastUpdatedAt'] = ai_timestamp();
+    $normalized['lastUpdatedBy'] = (string) ($admin['email'] ?? ($admin['full_name'] ?? 'Admin'));
+
+    $diff = smart_marketing_settings_diff($current, $normalized);
+
+    $sections[$section] = $normalized;
+    smart_marketing_settings_section_write($section, $normalized);
+    smart_marketing_settings_write_snapshot($sections);
+
+    if (!empty($diff)) {
+        smart_marketing_settings_audit_append($section, $diff, $admin);
+        smart_marketing_audit_log_append('settings.section_saved', ['section' => $section, 'fields' => $diff], $admin);
+    }
+
+    return [
+        'ok' => true,
+        'section' => $section,
+        'messages' => $validation['messages'],
+        'data' => $normalized,
+        'settings' => smart_marketing_settings_hydrate_legacy($sections),
+        'sections' => $sections,
+        'audit' => smart_marketing_settings_audit_log(),
+    ];
+}
+
+function smart_marketing_settings_diff(array $before, array $after, string $prefix = ''): array
+{
+    $changes = [];
+    foreach ($after as $key => $value) {
+        $path = $prefix === '' ? $key : $prefix . '.' . $key;
+        if (!array_key_exists($key, $before)) {
+            $changes[] = $path;
+            continue;
+        }
+
+        $beforeValue = $before[$key];
+        if (is_array($value) && is_array($beforeValue)) {
+            $nested = smart_marketing_settings_diff($beforeValue, $value, $path);
+            foreach ($nested as $item) {
+                $changes[] = $item;
+            }
+            continue;
+        }
+
+        if ($beforeValue !== $value) {
+            $changes[] = $path;
+        }
+    }
+
+    return array_values(array_unique($changes));
+}
+
+function smart_marketing_settings_revert_section(string $section): array
+{
+    $section = strtolower($section);
+    $sections = [];
+    foreach (array_keys(smart_marketing_settings_sections()) as $key) {
+        $sections[$key] = smart_marketing_settings_section_read($key);
+    }
+
+    if (!isset($sections[$section])) {
+        throw new InvalidArgumentException('Unknown Smart Marketing settings section: ' . $section);
+    }
+
+    return [
+        'ok' => true,
+        'section' => $section,
+        'data' => $sections[$section],
+        'settings' => smart_marketing_settings_hydrate_legacy($sections),
+        'sections' => $sections,
+        'audit' => smart_marketing_settings_audit_log(),
+    ];
+}
+
+function smart_marketing_settings_test_section(string $section, array $payload, array $aiSettings): array
+{
+    $section = strtolower($section);
+    $sections = [];
+    foreach (array_keys(smart_marketing_settings_sections()) as $key) {
+        $sections[$key] = smart_marketing_settings_section_read($key);
+    }
+
+    if (!isset($sections[$section])) {
+        throw new InvalidArgumentException('Unknown Smart Marketing settings section: ' . $section);
+    }
+
+    $candidate = smart_marketing_settings_normalize_section($section, array_replace_recursive($sections[$section], $payload));
+    $validation = smart_marketing_settings_validate_section($section, $candidate, $aiSettings, $sections);
+
+    return [
+        'ok' => $validation['ok'],
+        'section' => $section,
+        'messages' => $validation['messages'],
+        'data' => $candidate,
+        'settings' => smart_marketing_settings_hydrate_legacy($sections),
+        'sections' => $sections,
+    ];
+}
+
+function smart_marketing_normalize_datetime($value): ?string
+{
+    if (!is_string($value) || trim($value) === '') {
+        return null;
+    }
+
+    try {
+        $date = new DateTimeImmutable($value);
+        return $date->format(DateTimeInterface::ATOM);
+    } catch (Throwable $exception) {
+        return null;
+    }
+}
+
+function smart_marketing_normalize_date($value): ?string
+{
+    if (!is_string($value) || trim($value) === '') {
+        return null;
+    }
+
+    try {
+        $date = new DateTimeImmutable($value);
+        return $date->format('Y-m-d');
+    } catch (Throwable $exception) {
+        return null;
+    }
+}
+
+function smart_marketing_normalize_enum($value, array $allowed): string
+{
+    $value = is_string($value) ? trim((string) $value) : '';
+    foreach ($allowed as $option) {
+        if (strcasecmp($value, $option) === 0) {
+            return $option;
+        }
+    }
+
+    return $allowed[0];
+}
+
+function smart_marketing_normalize_platform_split(array $split): array
+{
+    $defaults = smart_marketing_settings_section_defaults('budget')['platformSplit'];
+    $total = 0;
+    $normalized = [];
+    foreach ($defaults as $key => $percent) {
+        $value = isset($split[$key]) ? (int) $split[$key] : $percent;
+        $value = max(0, min(100, $value));
+        $normalized[$key] = $value;
+        $total += $value;
+    }
+
+    if ($total === 0) {
+        return $defaults;
+    }
+
+    $scale = 100 / $total;
+    foreach ($normalized as $key => $value) {
+        $normalized[$key] = (int) round($value * $scale);
+    }
+
+    $difference = 100 - array_sum($normalized);
+    if ($difference !== 0) {
+        $firstKey = array_key_first($normalized);
+        $normalized[$firstKey] += $difference;
+    }
+
+    return $normalized;
+}
+
+function smart_marketing_normalize_language_split($value): array
+{
+    $entries = [];
+    if (is_array($value)) {
+        foreach ($value as $row) {
+            if (is_array($row) && isset($row['language'])) {
+                $entries[] = [
+                    'language' => (string) $row['language'],
+                    'percent' => (int) ($row['percent'] ?? 0),
+                ];
+            } elseif (is_string($row)) {
+                $entries[] = ['language' => $row, 'percent' => 0];
+            }
+        }
+    }
+
+    if (empty($entries)) {
+        return smart_marketing_settings_section_defaults('audience')['languageSplit'];
+    }
+
+    $total = array_sum(array_column($entries, 'percent')) ?: 1;
+    foreach ($entries as &$entry) {
+        $entry['percent'] = max(0, min(100, (int) round(($entry['percent'] / $total) * 100)));
+    }
+
+    $difference = 100 - array_sum(array_column($entries, 'percent'));
+    if ($difference !== 0) {
+        $entries[0]['percent'] += $difference;
+    }
+
+    return $entries;
+}
+
+function smart_marketing_normalize_device_split($value): array
+{
+    $defaults = smart_marketing_settings_section_defaults('audience')['devicePriorities'];
+    if (!is_array($value) || empty($value)) {
+        return $defaults;
+    }
+
+    $mobile = max(0, min(100, (int) ($value['mobile'] ?? $defaults['mobile'])));
+    $desktop = 100 - $mobile;
+
+    return ['mobile' => $mobile, 'desktop' => $desktop];
+}
+
+function smart_marketing_normalize_schedule($value): array
+{
+    if (!is_array($value)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($value as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $day = smart_marketing_normalize_enum($entry['day'] ?? 'monday', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']);
+        $start = smart_marketing_normalize_time($entry['start'] ?? '00:00');
+        $end = smart_marketing_normalize_time($entry['end'] ?? '23:59');
+        $normalized[] = ['day' => $day, 'start' => $start, 'end' => $end];
+    }
+
+    return $normalized;
+}
+
+function smart_marketing_normalize_time($value): string
+{
+    if (!is_string($value)) {
+        return '00:00';
+    }
+
+    if (!preg_match('/^(\d{2}):(\d{2})$/', $value, $matches)) {
+        return '00:00';
+    }
+
+    $hour = max(0, min(23, (int) $matches[1]));
+    $minute = max(0, min(59, (int) $matches[2]));
+
+    return sprintf('%02d:%02d', $hour, $minute);
 }
 
 function smart_marketing_brain_runs_load(): array
