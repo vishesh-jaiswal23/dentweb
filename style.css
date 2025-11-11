@@ -12394,8 +12394,9 @@ body[data-dashboard-theme='dark'] .compliance-flags li {
 }
 
 .smart-marketing__shell {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 2.5rem 1.5rem 4rem;
   display: flex;
   flex-direction: column;
