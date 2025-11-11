@@ -2,12 +2,17 @@
   'use strict';
 
   const state = window.SmartMarketingState || {};
+  state.settingsSections = state.settingsSections || {};
+  state.settingsAudit = state.settingsAudit || [];
   const csrfToken = state.csrfToken || document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
   const elements = {
     aiHealth: document.querySelector('[data-ai-health]'),
     aiModels: document.querySelector('[data-ai-models]'),
     integrations: document.querySelector('[data-integrations-list]'),
+    integrationBanner: document.querySelector('[data-integrations-banner]'),
+    integrationBannerMessage: document.querySelector('[data-integrations-banner-message]'),
+    integrationBannerAction: document.querySelector('[data-integrations-banner-action]'),
     audit: document.querySelector('[data-audit-log]'),
     brainForm: document.querySelector('[data-brain-form]'),
     goalsGroup: document.querySelector('[data-checkbox-group="goals"]'),
@@ -27,6 +32,7 @@
     tabs: document.querySelector('[data-settings-tabs]'),
     panels: document.querySelector('[data-settings-panels]'),
     settingsStatus: document.querySelector('[data-settings-status]'),
+    settingsRoot: document.querySelector('[data-settings-root]'),
     killSwitchButton: document.querySelector('[data-kill-switch]'),
     creativeTextCategory: document.querySelector('[data-creative-text-category]'),
     creativeTextBrief: document.querySelector('[data-creative-text-brief]'),
@@ -101,6 +107,8 @@
     { key: 'sales', label: 'Sales', format: formatNumber },
   ];
 
+  const settingsViews = {};
+
   const optimizationRuleConfig = {
     pauseUnderperforming: {
       label: 'Pause underperforming ads',
@@ -159,8 +167,8 @@
     return `${(number * 100).toFixed(number >= 1 ? 0 : 1)}%`;
   }
 
-  function formatCurrency(value) {
-    const currency = state.settings?.budget?.currency || 'INR';
+  function formatCurrency(value, currencyOverride) {
+    const currency = currencyOverride || state.settings?.budget?.currency || 'INR';
     const amount = Number(value || 0);
     if (!Number.isFinite(amount)) {
       return `${currency} ${value}`;
@@ -169,6 +177,92 @@
       minimumFractionDigits: amount >= 1000 ? 0 : 2,
       maximumFractionDigits: 2,
     })}`;
+  }
+
+  function getNestedValue(object, path) {
+    if (!object) return undefined;
+    return path.split('.').reduce((acc, key) => {
+      if (acc && Object.prototype.hasOwnProperty.call(acc, key)) {
+        return acc[key];
+      }
+      return undefined;
+    }, object);
+  }
+
+  function setNestedValue(object, path, value) {
+    const keys = path.split('.');
+    let ref = object;
+    keys.forEach((key, index) => {
+      if (index === keys.length - 1) {
+        ref[key] = value;
+      } else {
+        if (!ref[key] || typeof ref[key] !== 'object') {
+          ref[key] = {};
+        }
+        ref = ref[key];
+      }
+    });
+  }
+
+  function parseTags(text) {
+    if (!text) return [];
+    return text
+      .split(/[\n,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  function parseScheduleText(text) {
+    if (!text) return [];
+    return text
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const match = line.match(/^([A-Za-z]{2,})\s+(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})$/);
+        if (!match) return null;
+        const [, day, start, end] = match;
+        return { day: day.toLowerCase(), start, end };
+      })
+      .filter(Boolean);
+  }
+
+  function scheduleToText(entries) {
+    if (!Array.isArray(entries) || !entries.length) return '';
+    return entries
+      .map((entry) => {
+        if (!entry || !entry.day) return null;
+        const day = String(entry.day).slice(0, 3).toUpperCase();
+        const start = entry.start || '00:00';
+        const end = entry.end || '23:59';
+        return `${day.charAt(0)}${day.slice(1).toLowerCase()} ${start}-${end}`;
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  function formatTone(value) {
+    switch (String(value)) {
+      case 'professional':
+        return 'Professional';
+      case 'government-aligned':
+        return 'Government-aligned';
+      case 'aggressive':
+        return 'Aggressive Sales';
+      default:
+        return 'Friendly';
+    }
+  }
+
+  function formatAutonomy(value) {
+    switch (String(value)) {
+      case 'auto':
+        return 'Auto';
+      case 'review':
+        return 'Review-before-launch';
+      default:
+        return 'Draft-only';
+    }
   }
 
   function showToast(message, variant = 'info') {
@@ -265,6 +359,45 @@
     }
   }
 
+  function renderIntegrationBanner() {
+    if (!elements.integrationBanner) return;
+    const entries = Object.entries(state.integrations || {}).map(([id, entry]) => ({
+      id,
+      ...(entry || {}),
+    }));
+
+    const critical = entries.filter((entry) => entry.status === 'error');
+    const warnings = entries.filter((entry) => entry.status === 'warning');
+
+    if (!critical.length && !warnings.length) {
+      elements.integrationBanner.hidden = true;
+      elements.integrationBanner.dataset.variant = '';
+      if (elements.integrationBannerMessage) {
+        elements.integrationBannerMessage.textContent = '';
+      }
+      return;
+    }
+
+    const affected = critical.length ? critical : warnings;
+    const names = affected
+      .map((entry) => entry.label || entry.id || '')
+      .filter(Boolean);
+    const summary = names.length
+      ? names.join(', ')
+      : `${affected.length} integration${affected.length > 1 ? 's' : ''}`;
+
+    const variant = critical.length ? 'error' : 'warning';
+    const message = critical.length
+      ? `Critical integrations offline: ${summary}. Campaign automation is paused until reconnection.`
+      : `Integrations need attention: ${summary}. Review before the next AI run.`;
+
+    elements.integrationBanner.hidden = false;
+    elements.integrationBanner.dataset.variant = variant;
+    if (elements.integrationBannerMessage) {
+      elements.integrationBannerMessage.textContent = message;
+    }
+  }
+
   function renderIntegrations() {
     if (!elements.integrations) return;
     const integrations = state.integrations || {};
@@ -282,6 +415,8 @@
           .join(' · ')}</small>`;
       elements.integrations.appendChild(li);
     });
+
+    renderIntegrationBanner();
   }
 
   function renderAnalytics() {
@@ -1719,6 +1854,592 @@
     return `<ul>${items.map((item) => `<li>${escapeHtml(String(item))}</li>`).join('')}</ul>`;
   }
 
+  function summariseList(list, limit = 2) {
+    if (!Array.isArray(list) || !list.length) return '—';
+    const values = list
+      .map((item) => (typeof item === 'string' ? item : String(item || '')))
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!values.length) return '—';
+    const preview = values.slice(0, limit);
+    const extra = values.length - preview.length;
+    return preview.join(', ') + (extra > 0 ? ` +${extra}` : '');
+  }
+
+  function formatUpdatedLabel(data) {
+    if (!data || !data.lastUpdatedAt) {
+      return 'Never updated';
+    }
+    const user = data.lastUpdatedBy || 'Admin';
+    return `Last updated on ${formatDate(data.lastUpdatedAt)} by ${escapeHtml(user)}`;
+  }
+
+  function renderComplianceFlags(data) {
+    const view = settingsViews.compliance;
+    if (!view || !view.flagged || !view.flaggedList) return;
+    const items = Array.isArray(data?.flaggedCreatives) ? data.flaggedCreatives : [];
+    if (!items.length) {
+      view.flagged.hidden = true;
+      view.flaggedList.innerHTML = '';
+      return;
+    }
+    view.flagged.hidden = false;
+    view.flaggedList.innerHTML = items
+      .map((item) => `<li>${escapeHtml(String(item))}</li>`)
+      .join('');
+  }
+
+  function updateBudgetUsage() {
+    const view = settingsViews.budget;
+    if (!view || !view.budgetSpend || !view.budgetRemaining) return;
+    const analyticsBudget = state.analytics?.budget || {};
+    const section = state.settingsSections?.budget || {};
+    const currency = section.currency || state.settings?.budget?.currency || 'INR';
+    const todaySpend = analyticsBudget.burnRate || analyticsBudget.dailySpend || 0;
+    const remaining = Math.max(0, (section.monthlyCap || 0) - (analyticsBudget.spendToDate || 0));
+    view.budgetSpend.textContent = formatCurrency(todaySpend, currency);
+    view.budgetRemaining.textContent = formatCurrency(remaining, currency);
+  }
+
+  function renderSettingsHistory(section) {
+    const view = settingsViews[section];
+    if (!view || !view.history) return;
+    const entries = (state.settingsAudit || [])
+      .filter((entry) => entry.section === section)
+      .slice(-5)
+      .reverse();
+    if (!entries.length) {
+      view.history.innerHTML = '<p class="smart-settings__hint">No changes logged yet.</p>';
+      return;
+    }
+    const list = document.createElement('ul');
+    entries.forEach((entry) => {
+      const li = document.createElement('li');
+      const when = formatDate(entry.timestamp);
+      const actor = escapeHtml(entry.user?.email || entry.user?.name || 'Admin');
+      const fields = (entry.changes || []).slice(0, 3).map((item) => escapeHtml(String(item))).join(', ');
+      li.innerHTML = `<strong>${when}</strong> · ${actor}${fields ? ` · ${fields}` : ''}`;
+      list.appendChild(li);
+    });
+    view.history.innerHTML = '';
+    view.history.appendChild(list);
+  }
+
+  function buildSectionSummary(section, data) {
+    if (!data) return '';
+    switch (section) {
+      case 'business': {
+        const tone = formatTone(data.brandTone);
+        const languages = summariseList(data.defaultLanguages, 3);
+        const locations = summariseList(data.baseLocations, 2);
+        return `Tone ${tone} · Lang ${languages} · ${locations}`;
+      }
+      case 'goals': {
+        const goal = data.goalType || 'Leads';
+        const autonomy = formatAutonomy(data.autonomyMode);
+        const products = summariseList(data.targetProducts, 2);
+        return `${goal} · ${autonomy} · ${products}`;
+      }
+      case 'budget': {
+        const daily = formatCurrency(data.dailyBudget || 0, data.currency);
+        const monthly = formatCurrency(data.monthlyCap || 0, data.currency);
+        const autoScaling = data.autoScaling ? 'Auto-scaling ON' : 'Auto-scaling OFF';
+        return `${daily}/day · ${monthly}/mo · ${autoScaling}`;
+      }
+      case 'audience': {
+        const locations = summariseList(data.locations, 2);
+        const ages = `${data.ageRange?.min || 18}-${data.ageRange?.max || 65}`;
+        const languageSummary = summariseList((data.languageSplit || []).map((entry) => `${entry.language || ''} ${entry.percent || 0}%`), 2);
+        return `${locations} · Ages ${ages} · ${languageSummary}`;
+      }
+      case 'compliance': {
+        const disclaimer = data.autoDisclaimer ? 'Disclaimer ON' : 'Disclaimer OFF';
+        const checks = data.policyChecks ? 'Policy checks ON' : 'Policy checks OFF';
+        return `${disclaimer} · ${checks}`;
+      }
+      case 'integrations': {
+        const channels = data.channels || {};
+        const total = Object.keys(channels).length;
+        const connected = Object.values(channels).filter((item) => item.status === 'connected').length;
+        const failing = Object.values(channels).filter((item) => item.status === 'error').length;
+        if (failing) {
+          return `${connected}/${total} connected · ${failing} failing`;
+        }
+        return `${connected}/${total} connected`;
+      }
+      default:
+        return '';
+    }
+  }
+
+  function setSectionAlert(section, messages, variant = 'info') {
+    const view = settingsViews[section];
+    if (!view || !view.alert) return;
+    if (!messages || !messages.length) {
+      view.alert.hidden = true;
+      view.alert.textContent = '';
+      view.alert.dataset.variant = '';
+      return;
+    }
+    const list = Array.isArray(messages) ? messages : [messages];
+    view.alert.hidden = false;
+    view.alert.dataset.variant = variant;
+    view.alert.innerHTML = `<ul>${list
+      .map((message) => `<li>${escapeHtml(String(message))}</li>`)
+      .join('')}</ul>`;
+  }
+
+  function setSectionBusy(section, busy, message) {
+    const view = settingsViews[section];
+    if (!view) return;
+    const buttons = [view.saveBtn, view.revertBtn, view.testBtn, view.syncBtn, view.revalidateBtn];
+    buttons.forEach((button) => {
+      if (button) button.disabled = busy;
+    });
+    if (busy && message) {
+      setSaving('pending', message);
+    } else {
+      evaluateSettingsStatus();
+    }
+  }
+
+  function populateSection(section, data) {
+    const view = settingsViews[section];
+    if (!view || !view.form) return;
+    const fields = Array.from(view.form.querySelectorAll('[data-setting-field]'));
+    const grouped = new Map();
+    fields.forEach((field) => {
+      const path = field.dataset.settingField;
+      if (!path) return;
+      if (!grouped.has(path)) grouped.set(path, []);
+      grouped.get(path).push(field);
+    });
+
+    grouped.forEach((inputs, path) => {
+      const primary = inputs[0];
+      const type = primary.dataset.settingType || primary.type;
+      const value = getNestedValue(data, path);
+
+      if (type === 'array') {
+        const selected = Array.isArray(value) ? value.map(String) : [];
+        inputs.forEach((input) => {
+          input.checked = selected.includes(input.value);
+        });
+      } else if (type === 'boolean') {
+        inputs[0].checked = Boolean(value);
+      } else if (type === 'language') {
+        const split = Array.isArray(value) ? value : [];
+        inputs.forEach((input) => {
+          const entry = split.find((item) => item.language === input.dataset.language);
+          input.value = entry ? entry.percent : 0;
+        });
+      } else if (type === 'schedule') {
+        inputs[0].value = scheduleToText(Array.isArray(value) ? value : []);
+      } else if (type === 'tags') {
+        inputs[0].value = Array.isArray(value) ? value.join('\n') : value || '';
+      } else if (primary.type === 'radio') {
+        inputs.forEach((input) => {
+          input.checked = input.value === String(value || '');
+        });
+      } else if (primary.type === 'number' || type === 'number') {
+        inputs[0].value = value !== undefined && value !== null ? value : '';
+      } else {
+        inputs[0].value = value !== undefined && value !== null ? value : '';
+      }
+    });
+
+    if (view.summary) {
+      view.summary.textContent = buildSectionSummary(section, data);
+    }
+    if (view.updated) {
+      view.updated.innerHTML = formatUpdatedLabel(data);
+    }
+    renderSettingsHistory(section);
+
+    if (section === 'budget') {
+      updateBudgetUsage();
+    } else if (section === 'compliance') {
+      renderComplianceFlags(data);
+    } else if (section === 'integrations' && view.gemini) {
+      const status = state.aiHealth || {};
+      const connected = status.connected ? 'Gemini key validated' : 'Add Gemini key in AI Studio';
+      const models = Array.isArray(status.models) ? status.models : Object.values(status.models || {});
+      const modelsText = models && models.length ? `Models: ${models.filter(Boolean).join(', ')}` : '';
+      view.gemini.textContent = `${connected}${modelsText ? ` · ${modelsText}` : ''}`;
+    }
+  }
+
+  function collectSectionData(section) {
+    const view = settingsViews[section];
+    if (!view || !view.form) return {};
+    const fields = Array.from(view.form.querySelectorAll('[data-setting-field]'));
+    const grouped = new Map();
+    fields.forEach((field) => {
+      const path = field.dataset.settingField;
+      if (!path) return;
+      if (!grouped.has(path)) grouped.set(path, []);
+      grouped.get(path).push(field);
+    });
+
+    const payload = {};
+    grouped.forEach((inputs, path) => {
+      const primary = inputs[0];
+      const type = primary.dataset.settingType || primary.type;
+      let value;
+
+      if (type === 'array') {
+        value = inputs.filter((input) => input.checked).map((input) => input.value);
+      } else if (type === 'boolean') {
+        value = Boolean(primary.checked);
+      } else if (type === 'language') {
+        value = inputs
+          .map((input) => ({
+            language: input.dataset.language,
+            percent: parseInt(input.value, 10) || 0,
+          }))
+          .filter((entry) => entry.language);
+      } else if (type === 'schedule') {
+        value = parseScheduleText(primary.value);
+      } else if (type === 'tags') {
+        value = parseTags(primary.value);
+      } else if (primary.type === 'radio') {
+        const selected = inputs.find((input) => input.checked);
+        value = selected ? selected.value : inputs[0].value;
+      } else if (primary.type === 'number' || type === 'number') {
+        const numeric = parseFloat(primary.value);
+        value = Number.isFinite(numeric) ? numeric : 0;
+      } else {
+        value = primary.value;
+      }
+
+      setNestedValue(payload, path, value);
+    });
+
+    return payload;
+  }
+
+  function renderSettingsSection(section) {
+    const data = state.settingsSections?.[section] || {};
+    populateSection(section, data);
+  }
+
+  function renderSettingsSections() {
+    Object.keys(settingsViews).forEach((section) => {
+      renderSettingsSection(section);
+    });
+  }
+
+  function renderSettingsAudit() {
+    Object.keys(settingsViews).forEach((section) => renderSettingsHistory(section));
+  }
+
+  function evaluateSettingsStatus() {
+    if (!elements.settingsStatus) return;
+    const channels = state.settingsSections?.integrations?.channels || {};
+    const values = Object.values(channels);
+    const failing = values.filter((entry) => entry.status === 'error');
+    const warning = values.filter((entry) => entry.status === 'warning');
+    if (failing.length) {
+      setSaving('error', `${failing.length} integration${failing.length > 1 ? 's' : ''} require attention`);
+    } else if (warning.length) {
+      setSaving('pending', `${warning.length} integration${warning.length > 1 ? 's' : ''} in warning`);
+    } else {
+      setSaving('saved', 'Smart Marketing brain is in sync');
+    }
+  }
+
+  function handleSaveSection(section) {
+    const payload = collectSectionData(section);
+    handleSaveSectionWith(section, payload, 'Settings updated');
+  }
+
+  function handleSaveSectionWith(section, payload, successMessage) {
+    setSectionBusy(section, true, 'Saving…');
+    setSectionAlert(section, []);
+    apiRequest('save-settings', { section, settings: payload })
+      .then((data) => {
+        if (!data.ok) {
+          const messages = data.messages && data.messages.length ? data.messages : [data.error || 'Unable to save section'];
+          if (data.data) {
+            state.settingsSections[section] = data.data;
+            populateSection(section, data.data);
+          }
+          setSectionAlert(section, messages, 'error');
+          showToast(messages[0], 'error');
+          return;
+        }
+
+        if (data.settings) state.settings = data.settings;
+        if (data.sections) state.settingsSections = data.sections;
+        if (data.audit) state.settingsAudit = data.audit;
+        if (data.aiHealth) state.aiHealth = data.aiHealth;
+        if (data.integrations) state.integrations = data.integrations;
+        if (data.connectors) state.connectors = data.connectors;
+
+        renderAiHealth();
+        renderIntegrations();
+        renderConnectors();
+        renderSettingsSection(section);
+        renderSettingsAudit();
+        evaluateSettingsStatus();
+
+        if (data.messages && data.messages.length) {
+          setSectionAlert(section, data.messages, 'info');
+        } else {
+          setSectionAlert(section, []);
+        }
+
+        showToast(successMessage || 'Settings saved', 'success');
+      })
+      .catch((error) => {
+        setSectionAlert(section, [error.message], 'error');
+        showToast(error.message, 'error');
+      })
+      .finally(() => {
+        setSectionBusy(section, false);
+        updateBudgetUsage();
+      });
+  }
+
+  function handleRevertSection(section) {
+    setSectionBusy(section, true, 'Reverting…');
+    setSectionAlert(section, []);
+    apiRequest('revert-settings', { section })
+      .then((data) => {
+        if (!data.ok) throw new Error(data.error || 'Unable to revert');
+        if (data.settings) state.settings = data.settings;
+        if (data.sections) state.settingsSections = data.sections;
+        if (data.audit) state.settingsAudit = data.audit;
+        if (data.aiHealth) state.aiHealth = data.aiHealth;
+        if (data.integrations) state.integrations = data.integrations;
+        if (data.connectors) state.connectors = data.connectors;
+        renderSettingsSection(section);
+        renderSettingsAudit();
+        renderAiHealth();
+        renderIntegrations();
+        renderConnectors();
+        evaluateSettingsStatus();
+        showToast('Reverted to last saved state', 'info');
+      })
+      .catch((error) => {
+        setSectionAlert(section, [error.message], 'error');
+        showToast(error.message, 'error');
+      })
+      .finally(() => {
+        setSectionBusy(section, false);
+      });
+  }
+
+  function handleTestSection(section) {
+    const payload = collectSectionData(section);
+    setSectionBusy(section, true, 'Testing…');
+    setSectionAlert(section, []);
+    apiRequest('test-settings', { section, settings: payload })
+      .then((data) => {
+        const messages = data.messages && data.messages.length ? data.messages : [data.ok ? 'Validation successful' : 'Validation failed'];
+        const variant = data.ok ? 'info' : 'error';
+        setSectionAlert(section, messages, variant);
+        showToast(messages[0], data.ok ? 'success' : 'error');
+        if (data.sections) {
+          state.settingsSections = data.sections;
+          renderSettingsSection(section);
+        }
+        if (data.settings) state.settings = data.settings;
+        if (data.aiHealth) state.aiHealth = data.aiHealth;
+        if (data.integrations) state.integrations = data.integrations;
+        if (data.connectors) state.connectors = data.connectors;
+        renderAiHealth();
+        renderIntegrations();
+        renderConnectors();
+        evaluateSettingsStatus();
+      })
+      .catch((error) => {
+        setSectionAlert(section, [error.message], 'error');
+        showToast(error.message, 'error');
+      })
+      .finally(() => {
+        setSectionBusy(section, false);
+      });
+  }
+
+  function handleSyncBusiness() {
+    setSectionBusy('business', true, 'Syncing…');
+    setSectionAlert('business', []);
+    apiRequest('sync-business-profile')
+      .then((data) => {
+        if (!data.ok) throw new Error(data.messages?.[0] || data.error || 'Unable to sync profile');
+        if (data.settings) state.settings = data.settings;
+        if (data.sections) state.settingsSections = data.sections;
+        if (data.audit) state.settingsAudit = data.audit;
+        if (data.aiHealth) state.aiHealth = data.aiHealth;
+        if (data.integrations) state.integrations = data.integrations;
+        if (data.connectors) state.connectors = data.connectors;
+        renderSettingsSection('business');
+        renderSettingsAudit();
+        renderAiHealth();
+        renderIntegrations();
+        renderConnectors();
+        evaluateSettingsStatus();
+        const messages = data.messages && data.messages.length ? data.messages : ['Business profile synced'];
+        setSectionAlert('business', messages, 'info');
+        showToast(messages[0], 'success');
+      })
+      .catch((error) => {
+        setSectionAlert('business', [error.message], 'error');
+        showToast(error.message, 'error');
+      })
+      .finally(() => {
+        setSectionBusy('business', false);
+      });
+  }
+
+  function handleRevalidateAll() {
+    handleTestSection('integrations');
+  }
+
+  function connectorLabel(key) {
+    return state.connectorCatalog?.[key]?.label || key;
+  }
+
+  function handleConnectIntegration(key) {
+    const payload = {
+      channels: {
+        [key]: {
+          status: 'connected',
+          connectedAt: new Date().toISOString(),
+          lastTested: new Date().toISOString(),
+          lastTestResult: 'passed',
+        },
+      },
+    };
+    handleSaveSectionWith('integrations', payload, `${connectorLabel(key)} connected`);
+  }
+
+  function handleRefreshIntegration(key) {
+    const payload = {
+      channels: {
+        [key]: {
+          lastTested: new Date().toISOString(),
+          lastTestResult: 'passed',
+        },
+      },
+    };
+    handleSaveSectionWith('integrations', payload, `${connectorLabel(key)} token refreshed`);
+  }
+
+  function handleReloadSettings() {
+    setSaving('pending', 'Reloading settings…');
+    apiRequest('reload-settings')
+      .then((data) => {
+        if (!data.ok) throw new Error(data.error || 'Unable to reload');
+        if (data.settings) state.settings = data.settings;
+        if (data.sections) state.settingsSections = data.sections;
+        if (data.audit) state.settingsAudit = data.audit;
+        if (data.aiHealth) state.aiHealth = data.aiHealth;
+        if (data.integrations) state.integrations = data.integrations;
+        if (data.connectors) state.connectors = data.connectors;
+        renderSettingsSections();
+        renderSettingsAudit();
+        renderAiHealth();
+        renderIntegrations();
+        renderConnectors();
+        evaluateSettingsStatus();
+        showToast('Settings reloaded', 'info');
+      })
+      .catch((error) => {
+        showToast(error.message, 'error');
+      })
+      .finally(() => {
+        evaluateSettingsStatus();
+      });
+  }
+
+  function initSmartSettings() {
+    if (!elements.settingsRoot) return;
+    const sectionsData = state.settingsSections || {};
+    const sectionNodes = elements.settingsRoot.querySelectorAll('[data-settings-section]');
+
+    sectionNodes.forEach((sectionEl, index) => {
+      const key = sectionEl.dataset.settingsSection;
+      const view = {
+        key,
+        section: sectionEl,
+        toggle: sectionEl.querySelector('[data-settings-toggle]'),
+        body: sectionEl.querySelector('[data-settings-body]'),
+        form: sectionEl.querySelector('[data-settings-form]'),
+        summary: sectionEl.querySelector('[data-settings-summary]'),
+        updated: sectionEl.querySelector('[data-settings-updated]'),
+        alert: sectionEl.querySelector('[data-settings-alert]'),
+        history: sectionEl.querySelector('[data-settings-history]'),
+        saveBtn: sectionEl.querySelector('[data-settings-save]'),
+        revertBtn: sectionEl.querySelector('[data-settings-revert]'),
+        testBtn: sectionEl.querySelector('[data-settings-test]'),
+        syncBtn: sectionEl.querySelector('[data-settings-sync]'),
+        revalidateBtn: sectionEl.querySelector('[data-settings-revalidate-all]'),
+        budgetSpend: sectionEl.querySelector('[data-settings-budget-spend]'),
+        budgetRemaining: sectionEl.querySelector('[data-settings-budget-remaining]'),
+        flagged: sectionEl.querySelector('[data-compliance-flagged]'),
+        flaggedList: sectionEl.querySelector('[data-compliance-flagged-list]'),
+        gemini: sectionEl.querySelector('[data-settings-gemini]'),
+      };
+
+      settingsViews[key] = view;
+
+      if (view.saveBtn) view.saveBtn.addEventListener('click', () => handleSaveSection(key));
+      if (view.revertBtn) view.revertBtn.addEventListener('click', () => handleRevertSection(key));
+      if (view.testBtn) view.testBtn.addEventListener('click', () => handleTestSection(key));
+      if (view.syncBtn) view.syncBtn.addEventListener('click', handleSyncBusiness);
+      if (view.revalidateBtn) view.revalidateBtn.addEventListener('click', handleRevalidateAll);
+
+      if (view.toggle && view.body) {
+        const expanded = index === 0;
+        view.toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        view.body.hidden = !expanded;
+      }
+
+      populateSection(key, sectionsData[key] || {});
+    });
+
+    elements.settingsRoot.addEventListener('click', (event) => {
+      const toggle = event.target.closest('[data-settings-toggle]');
+      if (!toggle) return;
+      const section = toggle.dataset.settingsToggle;
+      const view = settingsViews[section];
+      if (!view || !view.body) return;
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      view.body.hidden = expanded;
+    });
+
+    elements.settingsRoot.querySelectorAll('[data-settings-reload]').forEach((button) => {
+      button.addEventListener('click', handleReloadSettings);
+    });
+
+    elements.settingsRoot.querySelectorAll('[data-settings-connect]').forEach((button) => {
+      button.addEventListener('click', () => handleConnectIntegration(button.dataset.settingsConnect));
+    });
+
+    elements.settingsRoot.querySelectorAll('[data-settings-refresh]').forEach((button) => {
+      button.addEventListener('click', () => handleRefreshIntegration(button.dataset.settingsRefresh));
+    });
+
+    renderSettingsSections();
+    renderSettingsAudit();
+    evaluateSettingsStatus();
+  }
+
+  function expandSettingsSection(section) {
+    const view = settingsViews[section];
+    if (!view) return;
+    if (view.toggle) {
+      view.toggle.setAttribute('aria-expanded', 'true');
+    }
+    if (view.body) {
+      view.body.hidden = false;
+      view.body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
   function setSaving(status, message) {
     if (!elements.settingsStatus) return;
     elements.settingsStatus.textContent = message || '';
@@ -1930,6 +2651,13 @@
     });
   }
 
+  function initIntegrationBanner() {
+    if (!elements.integrationBannerAction) return;
+    elements.integrationBannerAction.addEventListener('click', () => {
+      expandSettingsSection('integrations');
+    });
+  }
+
   function getValueFromPath(obj, path) {
     return path.split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
   }
@@ -2126,6 +2854,8 @@
     renderOptimization();
     renderGovernance();
     renderNotifications();
+    initSmartSettings();
+    initIntegrationBanner();
     applyDefaultSelections();
     initTabs();
     initSettingsBindings();
@@ -2140,7 +2870,7 @@
     initOptimizationSection();
     initGovernanceSection();
     initNotificationsSection();
-    setSaving('saved', 'All changes saved');
+    evaluateSettingsStatus();
   }
 
   document.addEventListener('DOMContentLoaded', init);
