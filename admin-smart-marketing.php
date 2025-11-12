@@ -34,6 +34,107 @@ $notificationsState = smart_marketing_notifications_load();
 $settingsAuditTrail = smart_marketing_settings_audit_log();
 $connectorCatalog = smart_marketing_connector_catalog();
 $integrationsAudit = smart_marketing_integrations_audit_read();
+
+$connectorFieldHelp = [
+    'meta' => [
+        'businessManagerId' => [
+            'Business Manager ID → Go to Business Settings → Business Info → ID',
+        ],
+        'adAccountId' => [
+            'Ad Account ID → Ads Manager → Account Dropdown → ID below name',
+        ],
+        'pageId' => [
+            'Page ID → Facebook Page → About section → Page ID',
+        ],
+        'appId' => [
+            'App ID → Meta Developers → Select your app → Dashboard',
+        ],
+        'appSecret' => [
+            'App Secret → Meta Developers → Your App → Settings → Basic',
+        ],
+        'systemUserToken' => [
+            'System User Token → Business Settings → Users → System Users → Generate Token',
+        ],
+        'pixelId' => [
+            'Pixel ID → Events Manager → Data Sources → Pixels → ID column',
+        ],
+        'whatsappNumberId' => [
+            'WhatsApp Number ID → WhatsApp Manager → Numbers → ID column',
+        ],
+    ],
+    'googleAds' => [
+        'managerId' => [
+            'Customer ID → Top right of Ads Manager',
+        ],
+        'oauthClientId' => [
+            'OAuth Client ID → Google Cloud Console → Credentials → OAuth client',
+        ],
+        'oauthClientSecret' => [
+            'OAuth Client Secret → Google Cloud Console → Credentials → OAuth client',
+        ],
+        'refreshToken' => [
+            'Refresh Token → Generated via OAuth consent flow for the Google Ads app',
+        ],
+        'developerToken' => [
+            'Developer Token → Google Ads Manager → Tools & Settings → API Center',
+        ],
+        'conversionTrackingId' => [
+            'Conversion Tracking ID → Tools & Settings → Measurement → Conversions',
+        ],
+        'linkedYoutubeChannelId' => [
+            'YouTube Channel ID → YouTube Studio → Settings → Advanced Settings',
+        ],
+    ],
+    'whatsapp' => [
+        'wabaId' => [
+            'WABA ID → WhatsApp Manager → Overview',
+        ],
+        'phoneNumberId' => [
+            'Phone Number ID → WhatsApp Manager → Numbers → ID column',
+        ],
+        'accessToken' => [
+            'Access Token → WhatsApp Cloud API → Configuration tab',
+        ],
+        'bspName' => [
+            'BSP Name → Provided by your Business Solution Provider account manager',
+        ],
+        'bspKey' => [
+            'BSP Key → Issued by your Business Solution Provider',
+        ],
+        'templateNamespace' => [
+            'Template Namespace → WhatsApp Manager → Message Templates → Namespace',
+        ],
+        'adminSandboxNumber' => [
+            'Admin Sandbox Number → WhatsApp Cloud API → Sandbox panel',
+        ],
+    ],
+    'email' => [
+        'provider' => [
+            'Provider → Choose the delivery service configured for Smart Marketing',
+        ],
+        'apiKey' => [
+            'API Key → Provider dashboard → API keys',
+        ],
+        'senderId' => [
+            'Sender ID / From Email → Provider dashboard → Sender identities',
+        ],
+        'smtpHost' => [
+            'SMTP Host → Provider dashboard → SMTP settings',
+        ],
+        'smtpPort' => [
+            'SMTP Port → Provider dashboard → SMTP settings',
+        ],
+        'smtpUsername' => [
+            'SMTP Username → Provider dashboard → SMTP settings',
+        ],
+        'smtpPassword' => [
+            'SMTP Password → Provider dashboard → SMTP settings',
+        ],
+        'sandboxRecipient' => [
+            'Sandbox Recipient → Test inbox or phone number for dry runs',
+        ],
+    ],
+];
 $campaignCatalog = [];
 foreach (smart_marketing_campaign_catalog() as $key => $meta) {
     $campaignCatalog[] = ['id' => $key, 'label' => $meta['label']];
@@ -891,6 +992,7 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
 </head>
 <body class="admin-smart-marketing" data-theme="light">
   <main class="smart-marketing__shell">
+    <div class="smart-marketing__integration-bar" data-integration-bar aria-live="polite"></div>
     <header class="smart-marketing__header">
       <div>
         <p class="smart-marketing__subtitle">Admin smart automation suite</p>
@@ -898,6 +1000,9 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
         <p class="smart-marketing__meta">Signed in as <strong><?= htmlspecialchars($admin['full_name'] ?? 'Administrator', ENT_QUOTES) ?></strong></p>
       </div>
       <div class="smart-marketing__actions">
+        <button type="button" class="btn btn-secondary" data-start-guide-open>
+          <i class="fa-solid fa-compass" aria-hidden="true"></i> Start Guide
+        </button>
         <a href="admin-dashboard.php" class="btn btn-ghost"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Overview</a>
         <a href="logout.php" class="btn btn-primary"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i> Log out</a>
       </div>
@@ -941,7 +1046,7 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
 
       <article class="smart-marketing__card" aria-labelledby="analytics-heading">
         <header class="smart-marketing__card-header">
-          <h2 id="analytics-heading"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Marketing Analytics</h2>
+          <h2 id="analytics-heading" tabindex="-1"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> Marketing Analytics</h2>
           <p class="smart-marketing__status" data-analytics-updated>Last sync —</p>
         </header>
         <p class="smart-marketing__hint">KPIs refresh directly from connected ad platforms. All numbers in Asia/Kolkata timezone.</p>
@@ -984,7 +1089,7 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
 
       <article class="smart-marketing__card" aria-labelledby="brain-heading">
         <header class="smart-marketing__card-header">
-          <h2 id="brain-heading"><i class="fa-solid fa-brain" aria-hidden="true"></i> Marketing Brain</h2>
+          <h2 id="brain-heading" tabindex="-1"><i class="fa-solid fa-brain" aria-hidden="true"></i> Marketing Brain</h2>
           <div class="smart-marketing__modes" data-autonomy-mode></div>
         </header>
         <form class="smart-marketing__form" data-brain-form>
@@ -1420,27 +1525,38 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
     $label = $fieldMeta['label'] ?? ucwords(str_replace(['_', 'Id'], [' ', ' ID'], $fieldKey));
     $isSecret = !empty($fieldMeta['secret']);
     $fieldType = $fieldMeta['type'] ?? ($isSecret ? 'secret' : 'text');
+    $helpList = $connectorFieldHelp[$connectorKey][$fieldKey] ?? ['Check the platform admin console for this credential.'];
 ?>
-                      <label class="smart-settings__integration-field<?= $isSecret ? ' smart-settings__integration-field--secret' : '' ?>">
-                        <span><?= htmlspecialchars($label, ENT_QUOTES) ?><?= !empty($fieldMeta['required']) ? ' <span class="smart-settings__required" aria-hidden="true">*</span>' : '' ?></span>
+                      <div class="smart-settings__integration-input">
+                        <label class="smart-settings__integration-field<?= $isSecret ? ' smart-settings__integration-field--secret' : '' ?>">
+                          <span><?= htmlspecialchars($label, ENT_QUOTES) ?><?= !empty($fieldMeta['required']) ? ' <span class="smart-settings__required" aria-hidden="true">*</span>' : '' ?></span>
 <?php if ($fieldType === 'select'): ?>
-                        <select data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.<?= htmlspecialchars($fieldKey, ENT_QUOTES) ?>">
-                          <option value="">Select…</option>
+                          <select data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.<?= htmlspecialchars($fieldKey, ENT_QUOTES) ?>">
+                            <option value="">Select…</option>
 <?php foreach (($fieldMeta['options'] ?? []) as $option): ?>
-                          <option value="<?= htmlspecialchars((string) $option, ENT_QUOTES) ?>"><?= htmlspecialchars(ucwords(str_replace(['_', '-'], ' ', (string) $option)), ENT_QUOTES) ?></option>
+                            <option value="<?= htmlspecialchars((string) $option, ENT_QUOTES) ?>"><?= htmlspecialchars(ucwords(str_replace(['_', '-'], ' ', (string) $option)), ENT_QUOTES) ?></option>
 <?php endforeach; ?>
-                        </select>
+                          </select>
 <?php else: ?>
-                        <input
-                          type="<?= $isSecret ? 'password' : 'text' ?>"
-                          data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.<?= htmlspecialchars($fieldKey, ENT_QUOTES) ?>"
-                          data-setting-type="<?= $isSecret ? 'secret' : 'text' ?>"
-                          data-secret-has-value="0"
-                          autocomplete="<?= $isSecret ? 'new-password' : 'off' ?>"
-                          placeholder="<?= htmlspecialchars($fieldMeta['placeholder'] ?? '', ENT_QUOTES) ?>"
-                        />
+                          <input
+                            type="<?= $isSecret ? 'password' : 'text' ?>"
+                            data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.<?= htmlspecialchars($fieldKey, ENT_QUOTES) ?>"
+                            data-setting-type="<?= $isSecret ? 'secret' : 'text' ?>"
+                            data-secret-has-value="0"
+                            autocomplete="<?= $isSecret ? 'new-password' : 'off' ?>"
+                            placeholder="<?= htmlspecialchars($fieldMeta['placeholder'] ?? '', ENT_QUOTES) ?>"
+                          />
 <?php endif; ?>
-                      </label>
+                        </label>
+                        <details class="smart-help" data-credential-help>
+                          <summary>Where to find this?</summary>
+                          <ul>
+<?php foreach ($helpList as $helpLine): ?>
+                            <li><?= htmlspecialchars($helpLine, ENT_QUOTES) ?></li>
+<?php endforeach; ?>
+                          </ul>
+                        </details>
+                      </div>
 <?php endforeach; ?>
                       <div class="smart-settings__inline-actions">
                         <button type="button" class="btn btn-primary" data-integration-save="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
@@ -1568,6 +1684,133 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
         <section class="smart-marketing__assets" aria-live="polite" data-assets-list></section>
       </article>
     </section>
+
+    <aside class="smart-guide" data-start-guide hidden>
+      <div class="smart-guide__backdrop" data-start-guide-close></div>
+      <div class="smart-guide__dialog" role="dialog" aria-modal="true" aria-labelledby="start-guide-heading">
+        <header class="smart-guide__header">
+          <div>
+            <p class="smart-guide__eyebrow">Quick onboarding</p>
+            <h2 id="start-guide-heading">Smart Marketing Start Guide</h2>
+          </div>
+          <button type="button" class="btn btn-ghost" data-start-guide-close aria-label="Close start guide">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
+        </header>
+
+        <nav class="smart-guide__tabs" role="tablist">
+          <button type="button" role="tab" aria-controls="start-guide-step-1" aria-selected="true" data-start-guide-tab="1">1. Connect Platforms</button>
+          <button type="button" role="tab" aria-controls="start-guide-step-2" aria-selected="false" data-start-guide-tab="2">2. Tell the AI Your Goal</button>
+          <button type="button" role="tab" aria-controls="start-guide-step-3" aria-selected="false" data-start-guide-tab="3">3. Launch &amp; Monitor</button>
+        </nav>
+
+        <section class="smart-guide__panel" id="start-guide-step-1" role="tabpanel" data-start-guide-panel="1">
+          <p>Connect the channels where you want the AI to plan and launch campaigns. Each card has a shortcut back to its credentials.</p>
+          <div class="smart-guide__platforms">
+            <article class="smart-guide__platform" data-tooltip="Facebook &amp; Instagram Ads" tabindex="0">
+              <header>
+                <h3>Meta</h3>
+                <span class="smart-guide__chip">Awareness &amp; leads</span>
+              </header>
+              <p>Facebook/Instagram Ads for awareness &amp; lead capture.</p>
+              <ul>
+                <li>Sync Business Manager, Page, Pixel, and System User token.</li>
+                <li>Enable WhatsApp number if you want instant replies.</li>
+              </ul>
+              <button type="button" class="btn btn-secondary" data-guide-target="meta">Go to Credentials</button>
+            </article>
+            <article class="smart-guide__platform" data-tooltip="Search, Display, YouTube" tabindex="0">
+              <header>
+                <h3>Google Ads</h3>
+                <span class="smart-guide__chip">Full funnel</span>
+              </header>
+              <p>Search, Display, and YouTube campaigns under one budget.</p>
+              <ul>
+                <li>Link MCC, OAuth client, refresh token, and developer token.</li>
+                <li>Add conversion tracking so AI can optimise CPL.</li>
+              </ul>
+              <button type="button" class="btn btn-secondary" data-guide-target="googleAds">Go to Credentials</button>
+            </article>
+            <article class="smart-guide__platform" data-tooltip="Conversations that convert" tabindex="0">
+              <header>
+                <h3>WhatsApp</h3>
+                <span class="smart-guide__chip">Follow-ups</span>
+              </header>
+              <p>Auto replies, lead follow-ups, and remarketing templates.</p>
+              <ul>
+                <li>Map your WABA, phone number ID, and access token.</li>
+                <li>Optional: add BSP details for template analytics.</li>
+              </ul>
+              <button type="button" class="btn btn-secondary" data-guide-target="whatsapp">Go to Credentials</button>
+            </article>
+            <article class="smart-guide__platform" data-tooltip="Drip, nurture, and alerts" tabindex="0">
+              <header>
+                <h3>Email / SMS</h3>
+                <span class="smart-guide__chip">Nurture</span>
+              </header>
+              <p>Email/SMS journeys for reminders and long-term nurturing.</p>
+              <ul>
+                <li>Choose the sending provider and confirm sender identity.</li>
+                <li>Set a sandbox recipient for safe test launches.</li>
+              </ul>
+              <button type="button" class="btn btn-secondary" data-guide-target="email">Go to Credentials</button>
+            </article>
+          </div>
+        </section>
+
+        <section class="smart-guide__panel" id="start-guide-step-2" role="tabpanel" data-start-guide-panel="2" hidden>
+          <p>The AI plans the entire campaign mix once it understands your objective. Be as specific as possible.</p>
+          <div class="smart-guide__callout">
+            <h3>Example brief</h3>
+            <p><strong>“I want to increase 3–5 kW residential solar leads in Ranchi under PM Surya Ghar with ₹20 000 budget.”</strong></p>
+            <p>The AI will interpret your goal, confirm targeting and budgets, and prepare a launch-ready plan with creatives, bids, and pacing.</p>
+          </div>
+          <div class="smart-guide__autonomy">
+            <h3>Autonomy modes</h3>
+            <ul>
+              <li><strong>Draft-only</strong> – Generates plans you can copy into platforms manually.</li>
+              <li><strong>Review</strong> – Requires your approval before launch.</li>
+              <li><strong>Auto</strong> – Launches instantly once validations pass.</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="smart-guide__panel" id="start-guide-step-3" role="tabpanel" data-start-guide-panel="3" hidden>
+          <p>Once goals are set, Smart Marketing executes the same repeatable workflow every time.</p>
+          <ol class="smart-guide__workflow">
+            <li>Generate Plan – Brain drafts campaigns and budget split.</li>
+            <li>Approve (or Auto-launch) – Review and launch instantly.</li>
+            <li>View Analytics – Monitor CPL, CTR, and conversions.</li>
+            <li>Pause/Resume anytime – Use the kill switch or plan controls.</li>
+            <li>Check Leads in CRM – Leads sync straight to the CRM view.</li>
+          </ol>
+          <div class="smart-guide__cta-grid">
+            <button type="button" class="btn btn-secondary" data-guide-scroll="brain">Open AI Command Box</button>
+            <button type="button" class="btn btn-secondary" data-guide-scroll="analytics">View Analytics Dashboard</button>
+            <button type="button" class="btn btn-secondary" data-guide-action="pause">Pause All Campaigns</button>
+          </div>
+        </section>
+
+        <details class="smart-guide__glossary">
+          <summary>Glossary – What the AI refers to</summary>
+          <ul>
+            <li><strong>Campaign</strong>: The top-level objective, budget, and geo.</li>
+            <li><strong>Ad Set</strong>: Targeting bundle with placements and bids.</li>
+            <li><strong>Creative</strong>: The actual ad copy, image, or video.</li>
+            <li><strong>CTR</strong>: Click-through rate, clicks divided by impressions.</li>
+            <li><strong>CPL</strong>: Cost per lead, spend divided by qualified leads.</li>
+            <li><strong>Attribution</strong>: How conversions are credited to channels.</li>
+            <li><strong>Optimization</strong>: Continuous bid/budget adjustments.</li>
+          </ul>
+        </details>
+
+        <footer class="smart-guide__footer">
+          <button type="button" class="btn btn-ghost" data-guide-prev disabled>Back</button>
+          <div class="smart-guide__step-indicator" data-start-guide-indicator>Step 1 of 3</div>
+          <button type="button" class="btn btn-primary" data-guide-next>Next</button>
+        </footer>
+      </div>
+    </aside>
   </main>
 
   <script src="admin-smart-marketing.js" defer></script>
