@@ -4,7 +4,10 @@
   const state = window.SmartMarketingState || {};
   state.settingsSections = state.settingsSections || {};
   state.settingsAudit = state.settingsAudit || [];
+  state.integrationsAudit = state.integrationsAudit || [];
   const csrfToken = state.csrfToken || document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+  const SECRET_SENTINEL = '__SECRET_PRESENT__';
+  const SECRET_PLACEHOLDER = '••••••••';
 
   const elements = {
     aiHealth: document.querySelector('[data-ai-health]'),
@@ -204,6 +207,39 @@
     });
   }
 
+  function escapeSelector(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+      return window.CSS.escape(value);
+    }
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+  }
+
+  function setupSecretInput(input) {
+    if (!input || input.dataset.secretBound === '1') return;
+    input.dataset.secretBound = '1';
+    input.addEventListener('focus', () => {
+      if (input.dataset.secretHasValue === '1' && input.dataset.secretDirty !== '1' && input.value === SECRET_PLACEHOLDER) {
+        input.value = '';
+      }
+    });
+    const markDirty = () => {
+      input.dataset.secretDirty = '1';
+      if (input.value && input.value !== SECRET_PLACEHOLDER) {
+        input.dataset.secretHasValue = '1';
+      }
+    };
+    input.addEventListener('input', markDirty);
+    input.addEventListener('change', markDirty);
+    input.addEventListener('blur', () => {
+      if (input.dataset.secretHasValue === '1' && input.dataset.secretDirty !== '1' && !input.value) {
+        input.value = SECRET_PLACEHOLDER;
+      }
+      if (input.dataset.secretDirty === '1' && !input.value) {
+        input.dataset.secretHasValue = '0';
+      }
+    });
+  }
+
   function parseTags(text) {
     if (!text) return [];
     return text
@@ -277,6 +313,23 @@
       toast.classList.remove('is-visible');
       toast.addEventListener('transitionend', () => toast.remove(), { once: true });
     }, 4000);
+  }
+
+  function setButtonLoading(button, loading, label) {
+    if (!button) return;
+    if (loading) {
+      if (!button.dataset.originalLabel) {
+        button.dataset.originalLabel = button.innerHTML;
+      }
+      button.disabled = true;
+      button.innerHTML = `<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> ${label || 'Working…'}`;
+    } else {
+      button.disabled = false;
+      if (button.dataset.originalLabel) {
+        button.innerHTML = button.dataset.originalLabel;
+        delete button.dataset.originalLabel;
+      }
+    }
   }
 
   function apiRequest(action, body = {}) {
@@ -354,6 +407,10 @@
         return 'status status--warn';
       case 'error':
         return 'status status--error';
+      case 'disabled':
+        return 'status status--warn';
+      case 'disconnected':
+        return 'status status--neutral';
       default:
         return 'status status--neutral';
     }
@@ -367,7 +424,9 @@
     }));
 
     const critical = entries.filter((entry) => entry.status === 'error');
-    const warnings = entries.filter((entry) => entry.status === 'warning');
+    const warnings = entries.filter(
+      (entry) => entry.status !== 'error' && ['warning', 'disconnected', 'disabled'].includes(entry.status)
+    );
 
     if (!critical.length && !warnings.length) {
       elements.integrationBanner.hidden = true;
@@ -401,22 +460,278 @@
   function renderIntegrations() {
     if (!elements.integrations) return;
     const integrations = state.integrations || {};
+    const catalogOrder = Object.keys(state.connectorCatalog || {});
+    const keys = catalogOrder.length ? catalogOrder : Object.keys(integrations);
     elements.integrations.innerHTML = '';
-    Object.keys(integrations).forEach((key) => {
-      const entry = integrations[key];
-      const li = document.createElement('li');
-      const status = entry.status || 'unknown';
-      li.innerHTML = `
-        <span class="${statusBadgeClass(status)}">${status.toUpperCase()}</span>
-        <strong>${entry.label || key}</strong>
-        <small>${Object.entries(entry.details || {})
-          .filter(([k]) => k !== 'status')
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(' · ')}</small>`;
-      elements.integrations.appendChild(li);
-    });
 
+    if (!keys.length) {
+      const empty = document.createElement('li');
+      empty.textContent = 'No integrations configured yet.';
+      elements.integrations.appendChild(empty);
+    } else {
+      keys.forEach((key) => {
+        const entry = integrations[key] || {};
+        const status = entry.status || 'unknown';
+        const details = entry.details || {};
+        const label = entry.label || state.connectorCatalog?.[key]?.label || key;
+        const summaryParts = [];
+        if (details.message) {
+          summaryParts.push(details.message);
+        }
+        if (details.lastValidatedAt) {
+          summaryParts.push(`Validated ${formatDate(details.lastValidatedAt)}`);
+        }
+        if (details.validatedBy) {
+          summaryParts.push(`By ${details.validatedBy}`);
+        }
+        const channels = Array.isArray(details.channels) ? details.channels : [];
+        if (channels.length) {
+          summaryParts.push(`Channels: ${channels.slice(0, 3).join(', ')}`);
+        }
+        const detailText = summaryParts.join(' · ');
+
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <span class="${statusBadgeClass(status)}">${status.toUpperCase()}</span>
+          <strong>${escapeHtml(label)}</strong>
+          <small>${escapeHtml(detailText || 'No validation run yet.')}</small>`;
+        elements.integrations.appendChild(li);
+      });
+    }
+
+    updateIntegrationSummaryViews();
     renderIntegrationBanner();
+  }
+
+  function getIntegrationRow(key) {
+    if (!elements.settingsRoot) return null;
+    return elements.settingsRoot.querySelector(
+      `[data-integration-row="${escapeSelector(key)}"]`
+    );
+  }
+
+  function updateIntegrationSummaryViews() {
+    const integrationsData = state.integrations || {};
+    const sectionChannels = state.settingsSections?.integrations?.channels || {};
+    const catalogKeys = Object.keys(state.connectorCatalog || integrationsData);
+    catalogKeys.forEach((key) => {
+      const row = getIntegrationRow(key);
+      if (!row) return;
+
+      const integration = integrationsData[key] || {};
+      const channel = sectionChannels[key] || {};
+      const status = integration.status || channel.status || 'unknown';
+      const details = integration.details || {};
+      const statusEl = row.querySelector(`[data-integration-status="${escapeSelector(key)}"]`);
+      if (statusEl) {
+        statusEl.textContent = status.replace(/_/g, ' ').toUpperCase();
+        statusEl.className = statusBadgeClass(status);
+      }
+
+      const validatedAt = details.lastValidatedAt || channel.lastValidatedAt || channel.lastTested || '';
+      const validatedEl = row.querySelector(`[data-integration-validated="${escapeSelector(key)}"]`);
+      if (validatedEl) {
+        validatedEl.textContent = validatedAt ? formatDate(validatedAt) : '—';
+      }
+
+      const validatedBy = details.validatedBy || channel.validatedBy || '';
+      const validatedByEl = row.querySelector(`[data-integration-validated-by="${escapeSelector(key)}"]`);
+      if (validatedByEl) {
+        validatedByEl.textContent = validatedBy ? validatedBy : '—';
+      }
+
+      const message = details.message || channel.message || '';
+      const messageEl = row.querySelector(`[data-integration-message="${escapeSelector(key)}"]`);
+      if (messageEl) {
+        messageEl.textContent = message || '';
+        messageEl.hidden = !message;
+      }
+    });
+  }
+
+  function setIntegrationRowBusy(key, busy, activeButton) {
+    const row = getIntegrationRow(key);
+    if (!row) return;
+    row.querySelectorAll('button').forEach((button) => {
+      if (button === activeButton) return;
+      button.disabled = busy;
+    });
+  }
+
+  function collectIntegrationCredentials(platform) {
+    const row = getIntegrationRow(platform);
+    if (!row) return {};
+    const inputs = Array.from(row.querySelectorAll('[data-setting-field]'));
+    const prefix = `channels.${platform}.`;
+    const payload = {};
+    inputs.forEach((input) => {
+      const path = input.dataset.settingField || '';
+      if (!path.startsWith(prefix)) return;
+      const fieldKey = path.slice(prefix.length);
+      const type = input.dataset.settingType || input.type;
+      if (type === 'secret') {
+        const dirty = input.dataset.secretDirty === '1';
+        const hasExisting = input.dataset.secretHasValue === '1';
+        const raw = input.value;
+        if (!dirty && hasExisting) {
+          return;
+        }
+        if (!dirty && !hasExisting && raw === '') {
+          return;
+        }
+        if (!dirty && raw === SECRET_PLACEHOLDER) {
+          return;
+        }
+        const cleaned = raw === SECRET_PLACEHOLDER ? '' : raw;
+        if (!dirty && cleaned === '') {
+          return;
+        }
+        payload[fieldKey] = cleaned;
+        return;
+      }
+      let value = input.value;
+      if (typeof value === 'string') {
+        value = value.trim();
+      }
+      payload[fieldKey] = value;
+    });
+    return payload;
+  }
+
+  function formatIntegrationAuditContext(context) {
+    if (!context || typeof context !== 'object') return '';
+    const parts = [];
+    Object.entries(context).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') {
+        return;
+      }
+      let text;
+      if (typeof value === 'object') {
+        const keys = Object.keys(value);
+        if (!keys.length) {
+          return;
+        }
+        try {
+          text = JSON.stringify(value);
+        } catch (error) {
+          text = String(value);
+        }
+      } else {
+        text = String(value);
+      }
+      parts.push(`${key}: ${text}`);
+    });
+    return parts.slice(0, 3).join(' · ');
+  }
+
+  function applyIntegrationStatePatch(data, platform, entryKey = 'integration') {
+    if (data.settings) {
+      state.settings = data.settings;
+    }
+    if (data.sections) {
+      state.settingsSections = data.sections;
+    } else if (platform && data[entryKey]) {
+      state.settingsSections = state.settingsSections || {};
+      const current = state.settingsSections.integrations || { channels: {} };
+      current.channels = current.channels || {};
+      current.channels[platform] = data[entryKey];
+      state.settingsSections.integrations = current;
+    }
+    if (data.integrations) state.integrations = data.integrations;
+    if (data.connectors) state.connectors = data.connectors;
+    if (data.audit) state.audit = data.audit;
+    if (data.integrationsAudit) state.integrationsAudit = data.integrationsAudit;
+    if (data.aiHealth) state.aiHealth = data.aiHealth;
+
+    if (settingsViews.integrations) {
+      renderSettingsSection('integrations');
+    }
+
+    renderAiHealth();
+    renderIntegrations();
+    renderConnectors();
+    renderSettingsHistory('integrations');
+    renderAudit();
+    evaluateSettingsStatus();
+  }
+
+  function integrationRequest(action, platform, credentials, button, workingLabel) {
+    if (!platform) {
+      showToast('Integration platform missing.', 'error');
+      return Promise.reject(new Error('Integration platform missing.'));
+    }
+
+    const payload = { platform };
+    if (action === 'save') {
+      payload.credentials = credentials || {};
+    }
+
+    setSectionAlert('integrations', []);
+    setButtonLoading(button, true, workingLabel);
+    setIntegrationRowBusy(platform, true, button);
+
+    return apiRequest(`integration-${action}`, payload)
+      .then((data) => {
+        applyIntegrationStatePatch(data, platform, 'integration');
+        const defaults = {
+          save: 'Credentials saved',
+          test: data.ok ? 'Validation successful' : 'Validation failed',
+          disable: 'Integration disabled',
+          delete: 'Credentials deleted',
+        };
+        const messages = Array.isArray(data?.messages) && data.messages.length
+          ? data.messages
+          : [defaults[action] || 'Action completed'];
+        const success = data.ok !== false;
+        const variant = success ? 'info' : 'error';
+        setSectionAlert('integrations', messages, variant);
+        showToast(messages[0], success ? 'success' : 'error');
+        return data;
+      })
+      .catch((error) => {
+        setSectionAlert('integrations', [error.message], 'error');
+        showToast(error.message, 'error');
+        throw error;
+      })
+      .finally(() => {
+        setIntegrationRowBusy(platform, false);
+        setButtonLoading(button, false);
+      });
+  }
+
+  function initIntegrationActions() {
+    const view = settingsViews.integrations;
+    if (!view || !view.form) return;
+    view.form.addEventListener('click', (event) => {
+      const saveBtn = event.target.closest('[data-integration-save]');
+      if (saveBtn) {
+        const platform = saveBtn.dataset.integrationSave;
+        const credentials = collectIntegrationCredentials(platform);
+        integrationRequest('save', platform, credentials, saveBtn, 'Saving…').catch(() => {});
+        return;
+      }
+      const testBtn = event.target.closest('[data-integration-test]');
+      if (testBtn) {
+        const platform = testBtn.dataset.integrationTest;
+        integrationRequest('test', platform, {}, testBtn, 'Testing…').catch(() => {});
+        return;
+      }
+      const disableBtn = event.target.closest('[data-integration-disable]');
+      if (disableBtn) {
+        const platform = disableBtn.dataset.integrationDisable;
+        if (!platform) return;
+        if (!confirm(`Disable ${connectorLabel(platform)} integration?`)) return;
+        integrationRequest('disable', platform, {}, disableBtn, 'Disabling…').catch(() => {});
+        return;
+      }
+      const deleteBtn = event.target.closest('[data-integration-delete]');
+      if (deleteBtn) {
+        const platform = deleteBtn.dataset.integrationDelete;
+        if (!platform) return;
+        if (!confirm(`Delete ${connectorLabel(platform)} credentials?`)) return;
+        integrationRequest('delete', platform, {}, deleteBtn, 'Deleting…').catch(() => {});
+      }
+    });
   }
 
   function renderAnalytics() {
@@ -1075,9 +1390,8 @@
         payload.fields = collectConnectorFields(card);
       }
 
-      const original = button.innerHTML;
-      button.disabled = true;
-      button.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Working…';
+      const workingLabel = action === 'connect' ? 'Connecting…' : 'Testing…';
+      setButtonLoading(button, true, workingLabel);
 
       fetch('admin-smart-marketing.php', {
         method: 'POST',
@@ -1088,22 +1402,18 @@
       })
         .then((response) => response.json())
         .then((data) => {
-          if (!data.ok) throw new Error(data.error || 'Connector update failed');
-          if (data.settings) state.settings = data.settings;
-          if (data.integrations) state.integrations = data.integrations;
-          if (data.connectors) state.connectors = data.connectors;
-          if (data.audit) state.audit = data.audit;
-          renderIntegrations();
-          renderConnectors();
-          renderAudit();
+          applyIntegrationStatePatch(data, connectorId, 'connector');
           renderSettingsKillSwitch();
+          const success = data.ok !== false;
+          const connectorEntry = data.connector || {};
+          const message = connectorEntry.message || (success ? 'Connector updated' : 'Connector validation failed');
+          showToast(message, success ? 'success' : 'error');
         })
         .catch((error) => {
-          alert(error.message);
+          showToast(error.message, 'error');
         })
         .finally(() => {
-          button.disabled = false;
-          button.innerHTML = original;
+          setButtonLoading(button, false);
         });
     });
   }
@@ -1904,6 +2214,34 @@
   function renderSettingsHistory(section) {
     const view = settingsViews[section];
     if (!view || !view.history) return;
+    if (section === 'integrations') {
+      const entries = (state.integrationsAudit || []).slice(-8).reverse();
+      if (!entries.length) {
+        view.history.innerHTML = '<p class="smart-settings__hint">No integration activity recorded yet.</p>';
+        return;
+      }
+      const list = document.createElement('ul');
+      entries.forEach((entry) => {
+        const li = document.createElement('li');
+        const when = formatDate(entry.timestamp);
+        const platformLabel = connectorLabel(entry.platform || '') || entry.platform || 'Integration';
+        const actionLabel = (entry.action || 'update').replace(/_/g, ' ').toUpperCase();
+        const actor = escapeHtml(entry.admin?.email || entry.admin?.name || 'Admin');
+        const developerMessage = entry.developer_message ? escapeHtml(entry.developer_message) : '';
+        const contextTextRaw = formatIntegrationAuditContext(entry.context);
+        const contextText = contextTextRaw ? escapeHtml(contextTextRaw) : '';
+        const detailSegments = [developerMessage, contextText].filter(Boolean).join(' · ');
+        li.innerHTML = `<strong>${when}</strong> · ${escapeHtml(platformLabel)} · ${escapeHtml(actionLabel)} · ${actor}`;
+        if (detailSegments) {
+          li.innerHTML += `<small>${detailSegments}</small>`;
+        }
+        list.appendChild(li);
+      });
+      view.history.innerHTML = '';
+      view.history.appendChild(list);
+      return;
+    }
+
     const entries = (state.settingsAudit || [])
       .filter((entry) => entry.section === section)
       .slice(-5)
@@ -2037,6 +2375,14 @@
         inputs[0].value = scheduleToText(Array.isArray(value) ? value : []);
       } else if (type === 'tags') {
         inputs[0].value = Array.isArray(value) ? value.join('\n') : value || '';
+      } else if (type === 'secret') {
+        const hasValue = value === SECRET_SENTINEL || (typeof value === 'string' && value !== '');
+        inputs.forEach((input) => {
+          input.value = hasValue ? SECRET_PLACEHOLDER : '';
+          input.dataset.secretHasValue = hasValue ? '1' : '0';
+          input.dataset.secretDirty = '0';
+          setupSecretInput(input);
+        });
       } else if (primary.type === 'radio') {
         inputs.forEach((input) => {
           input.checked = input.value === String(value || '');
@@ -2060,12 +2406,15 @@
       updateBudgetUsage();
     } else if (section === 'compliance') {
       renderComplianceFlags(data);
-    } else if (section === 'integrations' && view.gemini) {
-      const status = state.aiHealth || {};
-      const connected = status.connected ? 'Gemini key validated' : 'Add Gemini key in AI Studio';
-      const models = Array.isArray(status.models) ? status.models : Object.values(status.models || {});
-      const modelsText = models && models.length ? `Models: ${models.filter(Boolean).join(', ')}` : '';
-      view.gemini.textContent = `${connected}${modelsText ? ` · ${modelsText}` : ''}`;
+    } else if (section === 'integrations') {
+      updateIntegrationSummaryViews();
+      if (view.gemini) {
+        const status = state.aiHealth || {};
+        const connected = status.connected ? 'Gemini key validated' : 'Add Gemini key in AI Studio';
+        const models = Array.isArray(status.models) ? status.models : Object.values(status.models || {});
+        const modelsText = models && models.length ? `Models: ${models.filter(Boolean).join(', ')}` : '';
+        view.gemini.textContent = `${connected}${modelsText ? ` · ${modelsText}` : ''}`;
+      }
     }
   }
 
@@ -2102,6 +2451,24 @@
         value = parseScheduleText(primary.value);
       } else if (type === 'tags') {
         value = parseTags(primary.value);
+      } else if (type === 'secret') {
+        const dirty = primary.dataset.secretDirty === '1';
+        const hasExisting = primary.dataset.secretHasValue === '1';
+        const raw = primary.value;
+        if (!dirty && hasExisting) {
+          return;
+        }
+        if (!dirty && !hasExisting && raw === '') {
+          return;
+        }
+        if (!dirty && raw === SECRET_PLACEHOLDER) {
+          return;
+        }
+        const cleaned = raw === SECRET_PLACEHOLDER ? '' : raw;
+        if (!dirty && cleaned === '') {
+          return;
+        }
+        value = cleaned;
       } else if (primary.type === 'radio') {
         const selected = inputs.find((input) => input.checked);
         value = selected ? selected.value : inputs[0].value;
@@ -2135,14 +2502,16 @@
 
   function evaluateSettingsStatus() {
     if (!elements.settingsStatus) return;
-    const channels = state.settingsSections?.integrations?.channels || {};
-    const values = Object.values(channels);
+    const values = Object.values(state.integrations || {});
     const failing = values.filter((entry) => entry.status === 'error');
     const warning = values.filter((entry) => entry.status === 'warning');
+    const offline = values.filter((entry) => ['disconnected', 'disabled'].includes(entry.status));
     if (failing.length) {
       setSaving('error', `${failing.length} integration${failing.length > 1 ? 's' : ''} require attention`);
     } else if (warning.length) {
       setSaving('pending', `${warning.length} integration${warning.length > 1 ? 's' : ''} in warning`);
+    } else if (offline.length) {
+      setSaving('pending', `${offline.length} integration${offline.length > 1 ? 's' : ''} offline`);
     } else {
       setSaving('saved', 'Smart Marketing brain is in sync');
     }
@@ -2175,6 +2544,7 @@
         if (data.aiHealth) state.aiHealth = data.aiHealth;
         if (data.integrations) state.integrations = data.integrations;
         if (data.connectors) state.connectors = data.connectors;
+        if (data.integrationsAudit) state.integrationsAudit = data.integrationsAudit;
 
         renderAiHealth();
         renderIntegrations();
@@ -2213,6 +2583,7 @@
         if (data.aiHealth) state.aiHealth = data.aiHealth;
         if (data.integrations) state.integrations = data.integrations;
         if (data.connectors) state.connectors = data.connectors;
+        if (data.integrationsAudit) state.integrationsAudit = data.integrationsAudit;
         renderSettingsSection(section);
         renderSettingsAudit();
         renderAiHealth();
@@ -2248,6 +2619,7 @@
         if (data.aiHealth) state.aiHealth = data.aiHealth;
         if (data.integrations) state.integrations = data.integrations;
         if (data.connectors) state.connectors = data.connectors;
+        if (data.integrationsAudit) state.integrationsAudit = data.integrationsAudit;
         renderAiHealth();
         renderIntegrations();
         renderConnectors();
@@ -2274,6 +2646,7 @@
         if (data.aiHealth) state.aiHealth = data.aiHealth;
         if (data.integrations) state.integrations = data.integrations;
         if (data.connectors) state.connectors = data.connectors;
+        if (data.integrationsAudit) state.integrationsAudit = data.integrationsAudit;
         renderSettingsSection('business');
         renderSettingsAudit();
         renderAiHealth();
@@ -2301,32 +2674,6 @@
     return state.connectorCatalog?.[key]?.label || key;
   }
 
-  function handleConnectIntegration(key) {
-    const payload = {
-      channels: {
-        [key]: {
-          status: 'connected',
-          connectedAt: new Date().toISOString(),
-          lastTested: new Date().toISOString(),
-          lastTestResult: 'passed',
-        },
-      },
-    };
-    handleSaveSectionWith('integrations', payload, `${connectorLabel(key)} connected`);
-  }
-
-  function handleRefreshIntegration(key) {
-    const payload = {
-      channels: {
-        [key]: {
-          lastTested: new Date().toISOString(),
-          lastTestResult: 'passed',
-        },
-      },
-    };
-    handleSaveSectionWith('integrations', payload, `${connectorLabel(key)} token refreshed`);
-  }
-
   function handleReloadSettings() {
     setSaving('pending', 'Reloading settings…');
     apiRequest('reload-settings')
@@ -2338,6 +2685,7 @@
         if (data.aiHealth) state.aiHealth = data.aiHealth;
         if (data.integrations) state.integrations = data.integrations;
         if (data.connectors) state.connectors = data.connectors;
+        if (data.integrationsAudit) state.integrationsAudit = data.integrationsAudit;
         renderSettingsSections();
         renderSettingsAudit();
         renderAiHealth();
@@ -2415,14 +2763,6 @@
       button.addEventListener('click', handleReloadSettings);
     });
 
-    elements.settingsRoot.querySelectorAll('[data-settings-connect]').forEach((button) => {
-      button.addEventListener('click', () => handleConnectIntegration(button.dataset.settingsConnect));
-    });
-
-    elements.settingsRoot.querySelectorAll('[data-settings-refresh]').forEach((button) => {
-      button.addEventListener('click', () => handleRefreshIntegration(button.dataset.settingsRefresh));
-    });
-
     renderSettingsSections();
     renderSettingsAudit();
     evaluateSettingsStatus();
@@ -2469,6 +2809,9 @@
         state.integrations = data.integrations;
         state.aiHealth = data.aiHealth;
         state.audit = data.audit;
+        if (data.integrationsAudit) {
+          state.integrationsAudit = data.integrationsAudit;
+        }
         if (data.connectors) {
           state.connectors = data.connectors;
         }
@@ -2484,6 +2827,7 @@
         renderConnectors();
         renderAutonomyMode();
         renderAudit();
+        renderSettingsHistory('integrations');
         setSaving('saved', 'Saved');
       })
       .catch((error) => {
@@ -2855,6 +3199,7 @@
     renderGovernance();
     renderNotifications();
     initSmartSettings();
+    initIntegrationActions();
     initIntegrationBanner();
     applyDefaultSelections();
     initTabs();

@@ -17,6 +17,7 @@ $settingsSections = [];
 foreach (array_keys(smart_marketing_settings_sections()) as $sectionKey) {
     $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
 }
+$settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
 $aiHealth = smart_marketing_ai_health($aiSettings);
 $integrationsHealth = smart_marketing_integrations_health($marketingSettings);
 $brainRuns = smart_marketing_brain_runs_load();
@@ -32,6 +33,7 @@ $governanceState = smart_marketing_governance_load($marketingSettings);
 $notificationsState = smart_marketing_notifications_load();
 $settingsAuditTrail = smart_marketing_settings_audit_log();
 $connectorCatalog = smart_marketing_connector_catalog();
+$integrationsAudit = smart_marketing_integrations_audit_read();
 $campaignCatalog = [];
 foreach (smart_marketing_campaign_catalog() as $key => $meta) {
     $campaignCatalog[] = ['id' => $key, 'label' => $meta['label']];
@@ -80,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'ok' => false,
                             'section' => $result['section'],
                             'messages' => $result['messages'],
-                            'data' => $result['data'],
+                            'data' => smart_marketing_settings_mask_section($result['section'], $result['data']),
                             'audit' => smart_marketing_settings_audit_log(),
                         ];
                         break;
@@ -88,17 +90,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $marketingSettings = $result['settings'];
                     $settingsSections = $result['sections'];
+                    $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
                     $response = [
                         'ok' => true,
                         'section' => $result['section'],
                         'messages' => $result['messages'],
-                        'data' => $result['data'],
-                        'settings' => $marketingSettings,
-                        'sections' => $settingsSections,
+                        'data' => smart_marketing_settings_mask_section($result['section'], $result['data']),
+                        'settings' => smart_marketing_settings_redact($marketingSettings),
+                        'sections' => $settingsSectionsMasked,
                         'aiHealth' => smart_marketing_ai_health($aiSettings),
                         'integrations' => smart_marketing_integrations_health($marketingSettings),
                         'connectors' => smart_marketing_channel_connectors($marketingSettings),
                         'audit' => $result['audit'],
+                        'integrationsAudit' => smart_marketing_integrations_audit_read(),
                     ];
                     break;
                 }
@@ -115,13 +119,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 smart_marketing_audit_log_append('settings.updated', ['keys' => array_keys($updates)], $admin);
                 $marketingSettings = smart_marketing_settings_load();
                 $governanceState = smart_marketing_governance_load($marketingSettings);
+                $settingsSections = [];
+                foreach (array_keys(smart_marketing_settings_sections()) as $sectionKey) {
+                    $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
+                }
+                $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
                 $response = [
                     'ok' => true,
-                    'settings' => $marketingSettings,
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
+                    'sections' => $settingsSectionsMasked,
                     'aiHealth' => smart_marketing_ai_health($aiSettings),
                     'integrations' => smart_marketing_integrations_health($marketingSettings),
                     'audit' => smart_marketing_audit_log_read(),
                     'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
                 ];
                 break;
 
@@ -184,16 +195,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $result = smart_marketing_settings_revert_section($targetSection);
                 $marketingSettings = $result['settings'];
                 $settingsSections = $result['sections'];
+                $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
                 $response = [
                     'ok' => true,
                     'section' => $result['section'],
-                    'data' => $result['data'],
-                    'settings' => $marketingSettings,
-                    'sections' => $settingsSections,
+                    'data' => smart_marketing_settings_mask_section($result['section'], $result['data']),
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
+                    'sections' => $settingsSectionsMasked,
                     'aiHealth' => smart_marketing_ai_health($aiSettings),
                     'integrations' => smart_marketing_integrations_health($marketingSettings),
                     'connectors' => smart_marketing_channel_connectors($marketingSettings),
                     'audit' => $result['audit'],
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
                 ];
                 break;
 
@@ -209,12 +222,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'ok' => $result['ok'],
                     'section' => $result['section'],
                     'messages' => $result['messages'],
-                    'data' => $result['data'],
-                    'settings' => $result['settings'],
-                    'sections' => $result['sections'],
+                    'data' => smart_marketing_settings_mask_section($result['section'], $result['data']),
+                    'settings' => smart_marketing_settings_redact($result['settings']),
+                    'sections' => smart_marketing_settings_mask_sections($result['sections']),
                     'aiHealth' => smart_marketing_ai_health($aiSettings),
                     'integrations' => smart_marketing_integrations_health($marketingSettings),
                     'connectors' => smart_marketing_channel_connectors($marketingSettings),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
                 ];
                 break;
 
@@ -232,24 +246,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'ok' => false,
                         'section' => 'business',
                         'messages' => $result['messages'],
-                        'data' => $result['data'],
+                        'data' => smart_marketing_settings_mask_section('business', $result['data']),
                     ];
                     break;
                 }
 
                 $marketingSettings = $result['settings'];
                 $settingsSections = $result['sections'];
+                $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
                 $response = [
                     'ok' => true,
                     'section' => 'business',
-                    'data' => $result['data'],
-                    'settings' => $marketingSettings,
-                    'sections' => $settingsSections,
+                    'data' => smart_marketing_settings_mask_section('business', $result['data']),
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
+                    'sections' => $settingsSectionsMasked,
                     'messages' => array_merge(['Synced from admin profile.'], $result['messages']),
                     'aiHealth' => smart_marketing_ai_health($aiSettings),
                     'integrations' => smart_marketing_integrations_health($marketingSettings),
                     'connectors' => smart_marketing_channel_connectors($marketingSettings),
                     'audit' => $result['audit'],
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
                 ];
                 break;
 
@@ -259,14 +275,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
                 }
                 $marketingSettings = smart_marketing_settings_hydrate_legacy($settingsSections);
+                $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
                 $response = [
                     'ok' => true,
-                    'settings' => $marketingSettings,
-                    'sections' => $settingsSections,
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
+                    'sections' => $settingsSectionsMasked,
                     'aiHealth' => smart_marketing_ai_health($aiSettings),
                     'integrations' => smart_marketing_integrations_health($marketingSettings),
                     'connectors' => smart_marketing_channel_connectors($marketingSettings),
                     'audit' => smart_marketing_settings_audit_log(),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
                 ];
                 break;
 
@@ -359,31 +377,159 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'connector-connect':
                 $connectorKey = (string) ($payload['connector'] ?? '');
                 $fields = is_array($payload['fields'] ?? null) ? $payload['fields'] : [];
-                $entry = smart_marketing_connector_connect($marketingSettings, $connectorKey, $fields);
+                $entry = smart_marketing_connector_connect($marketingSettings, $connectorKey, $fields, $admin);
                 smart_marketing_settings_save($marketingSettings);
                 smart_marketing_audit_log_append('connector.connected', ['connector' => $connectorKey], $admin);
+                smart_marketing_integrations_audit_append($connectorKey, 'save', $admin, $entry, $entry['message'] ?? null);
+                $marketingSettings = smart_marketing_settings_load();
                 $response = [
                     'ok' => true,
-                    'connector' => $entry,
-                    'settings' => $marketingSettings,
+                    'connector' => smart_marketing_settings_mask_section('integrations', ['channels' => [$connectorKey => $entry]])['channels'][$connectorKey],
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
                     'integrations' => smart_marketing_integrations_health($marketingSettings),
                     'connectors' => smart_marketing_channel_connectors($marketingSettings),
                     'audit' => smart_marketing_audit_log_read(),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
                 ];
                 break;
 
             case 'connector-test':
                 $connectorKey = (string) ($payload['connector'] ?? '');
-                $entry = smart_marketing_connector_test($marketingSettings, $connectorKey);
+                $entry = smart_marketing_connector_test($marketingSettings, $connectorKey, $admin);
                 smart_marketing_settings_save($marketingSettings);
                 smart_marketing_audit_log_append('connector.tested', ['connector' => $connectorKey, 'result' => $entry['lastTestResult'] ?? 'unknown'], $admin);
+                smart_marketing_integrations_audit_append($connectorKey, 'test', $admin, $entry, $entry['message'] ?? null);
+                $marketingSettings = smart_marketing_settings_load();
                 $response = [
-                    'ok' => true,
-                    'connector' => $entry,
-                    'settings' => $marketingSettings,
+                    'ok' => $entry['status'] === 'connected',
+                    'connector' => smart_marketing_settings_mask_section('integrations', ['channels' => [$connectorKey => $entry]])['channels'][$connectorKey],
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
                     'integrations' => smart_marketing_integrations_health($marketingSettings),
                     'connectors' => smart_marketing_channel_connectors($marketingSettings),
                     'audit' => smart_marketing_audit_log_read(),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
+                ];
+                break;
+
+            case 'integration-save':
+                $platform = (string) ($payload['platform'] ?? '');
+                if ($platform === '') {
+                    throw new RuntimeException('Integration platform is required.');
+                }
+                $credentials = is_array($payload['credentials'] ?? null) ? $payload['credentials'] : [];
+                $entry = smart_marketing_connector_connect($marketingSettings, $platform, $credentials, $admin);
+                smart_marketing_settings_save($marketingSettings);
+                smart_marketing_integrations_audit_append($platform, 'save', $admin, $entry, $entry['message'] ?? null);
+                smart_marketing_audit_log_append('connector.connected', ['connector' => $platform], $admin);
+                $marketingSettings = smart_marketing_settings_load();
+                $integrationsHealth = smart_marketing_integrations_health($marketingSettings);
+                $connectors = smart_marketing_channel_connectors($marketingSettings);
+                $settingsSections = [];
+                foreach (array_keys(smart_marketing_settings_sections()) as $sectionKey) {
+                    $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
+                }
+                $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
+                $response = [
+                    'ok' => true,
+                    'platform' => $platform,
+                    'messages' => [$entry['message'] ?? 'Connected Successfully ✅'],
+                    'integration' => smart_marketing_settings_mask_section('integrations', ['channels' => [$platform => $entry]])['channels'][$platform],
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
+                    'sections' => $settingsSectionsMasked,
+                    'integrations' => $integrationsHealth,
+                    'connectors' => $connectors,
+                    'audit' => smart_marketing_audit_log_read(),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
+                ];
+                break;
+
+            case 'integration-test':
+                $platform = (string) ($payload['platform'] ?? '');
+                if ($platform === '') {
+                    throw new RuntimeException('Integration platform is required.');
+                }
+                $entry = smart_marketing_connector_test($marketingSettings, $platform, $admin);
+                smart_marketing_settings_save($marketingSettings);
+                smart_marketing_integrations_audit_append($platform, 'test', $admin, $entry, $entry['message'] ?? null);
+                $marketingSettings = smart_marketing_settings_load();
+                $integrationsHealth = smart_marketing_integrations_health($marketingSettings);
+                $connectors = smart_marketing_channel_connectors($marketingSettings);
+                $settingsSections = [];
+                foreach (array_keys(smart_marketing_settings_sections()) as $sectionKey) {
+                    $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
+                }
+                $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
+                $response = [
+                    'ok' => $entry['status'] === 'connected',
+                    'platform' => $platform,
+                    'messages' => [$entry['message'] ?? ($entry['status'] === 'connected' ? 'Validation passed' : 'Validation failed')],
+                    'integration' => smart_marketing_settings_mask_section('integrations', ['channels' => [$platform => $entry]])['channels'][$platform],
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
+                    'sections' => $settingsSectionsMasked,
+                    'integrations' => $integrationsHealth,
+                    'connectors' => $connectors,
+                    'audit' => smart_marketing_audit_log_read(),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
+                ];
+                break;
+
+            case 'integration-disable':
+                $platform = (string) ($payload['platform'] ?? '');
+                if ($platform === '') {
+                    throw new RuntimeException('Integration platform is required.');
+                }
+                $entry = smart_marketing_connector_disable($marketingSettings, $platform, $admin);
+                smart_marketing_settings_save($marketingSettings);
+                smart_marketing_integrations_audit_append($platform, 'disable', $admin, $entry, 'Disabled by admin');
+                $marketingSettings = smart_marketing_settings_load();
+                $integrationsHealth = smart_marketing_integrations_health($marketingSettings);
+                $connectors = smart_marketing_channel_connectors($marketingSettings);
+                $settingsSections = [];
+                foreach (array_keys(smart_marketing_settings_sections()) as $sectionKey) {
+                    $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
+                }
+                $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
+                $response = [
+                    'ok' => true,
+                    'platform' => $platform,
+                    'messages' => [$entry['message'] ?? 'Integration disabled'],
+                    'integration' => smart_marketing_settings_mask_section('integrations', ['channels' => [$platform => $entry]])['channels'][$platform],
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
+                    'sections' => $settingsSectionsMasked,
+                    'integrations' => $integrationsHealth,
+                    'connectors' => $connectors,
+                    'audit' => smart_marketing_audit_log_read(),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
+                ];
+                break;
+
+            case 'integration-delete':
+                $platform = (string) ($payload['platform'] ?? '');
+                if ($platform === '') {
+                    throw new RuntimeException('Integration platform is required.');
+                }
+                $entry = smart_marketing_connector_delete($marketingSettings, $platform, $admin);
+                smart_marketing_settings_save($marketingSettings);
+                smart_marketing_integrations_audit_append($platform, 'delete', $admin, $entry, 'Credentials removed');
+                $marketingSettings = smart_marketing_settings_load();
+                $integrationsHealth = smart_marketing_integrations_health($marketingSettings);
+                $connectors = smart_marketing_channel_connectors($marketingSettings);
+                $settingsSections = [];
+                foreach (array_keys(smart_marketing_settings_sections()) as $sectionKey) {
+                    $settingsSections[$sectionKey] = smart_marketing_settings_section_read($sectionKey);
+                }
+                $settingsSectionsMasked = smart_marketing_settings_mask_sections($settingsSections);
+                $response = [
+                    'ok' => true,
+                    'platform' => $platform,
+                    'messages' => ['Credentials deleted'],
+                    'integration' => smart_marketing_settings_mask_section('integrations', ['channels' => [$platform => $entry]])['channels'][$platform],
+                    'settings' => smart_marketing_settings_redact($marketingSettings),
+                    'sections' => $settingsSectionsMasked,
+                    'integrations' => $integrationsHealth,
+                    'connectors' => $connectors,
+                    'audit' => smart_marketing_audit_log_read(),
+                    'integrationsAudit' => smart_marketing_integrations_audit_read(),
                 ];
                 break;
 
@@ -688,7 +834,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $pageState = [
-    'settings' => $marketingSettings,
+    'settings' => smart_marketing_settings_redact($marketingSettings),
     'aiHealth' => $aiHealth,
     'integrations' => $integrationsHealth,
     'brainRuns' => array_reverse($brainRuns),
@@ -703,9 +849,10 @@ $pageState = [
     'optimization' => $optimizationState,
     'governance' => $governanceState,
     'notifications' => $notificationsState,
-    'settingsSections' => $settingsSections,
+    'settingsSections' => $settingsSectionsMasked,
     'settingsAudit' => $settingsAuditTrail,
     'connectorCatalog' => $connectorCatalog,
+    'integrationsAudit' => $integrationsAudit,
     'csrfToken' => $csrfToken,
     'defaults' => [
         'regions' => $defaultRegions,
@@ -1248,45 +1395,62 @@ $pageStateJson = json_encode($pageState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED
                     <span>Status</span>
                     <span>Configuration</span>
                   </div>
-<?php foreach ($connectorCatalog as $connectorKey => $connectorMeta): ?>
+<?php foreach ($connectorCatalog as $connectorKey => $connectorMeta):
+    $fieldsMeta = $connectorMeta['fields'] ?? [];
+?>
                   <div class="smart-settings__integration-row" data-integration-row="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>">
-                    <div>
+                    <div class="smart-settings__integration-summary">
                       <strong><?= htmlspecialchars($connectorMeta['label'] ?? smart_marketing_integration_label($connectorKey), ENT_QUOTES) ?></strong>
                       <p><?= htmlspecialchars($connectorMeta['description'] ?? '', ENT_QUOTES) ?></p>
+                      <p class="smart-settings__meta">
+                        <span class="smart-status" data-integration-status="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>">Unknown</span>
+                      </p>
+                      <p class="smart-settings__meta">
+                        Last validated <span data-integration-validated="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>">—</span>
+                        · by <span data-integration-validated-by="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>">—</span>
+                      </p>
+                      <p class="smart-settings__meta" data-integration-message="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"></p>
                     </div>
-                    <div>
-                      <select data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.status">
-                        <option value="connected">✅ Connected</option>
-                        <option value="warning">⚠️ Warning</option>
-                        <option value="error">❌ Error</option>
-                        <option value="unknown">Unknown</option>
-                      </select>
-                      <p class="smart-settings__meta">Last sync <span data-settings-integration-last="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>">—</span></p>
-                    </div>
-                    <div>
-<?php
-    $defaults = smart_marketing_default_connector_settings();
-    $fields = array_keys(array_diff_key($defaults[$connectorKey], array_flip(['status', 'connectedAt', 'lastTested', 'lastTestResult'])));
-    foreach ($fields as $field):
-        $label = ucwords(str_replace(['_', 'Id'], [' ', ' ID'], $field));
+                    <div class="smart-settings__integration-config">
+<?php foreach ($fieldsMeta as $fieldMeta):
+    $fieldKey = (string) ($fieldMeta['key'] ?? '');
+    if ($fieldKey === '') {
+        continue;
+    }
+    $label = $fieldMeta['label'] ?? ucwords(str_replace(['_', 'Id'], [' ', ' ID'], $fieldKey));
+    $isSecret = !empty($fieldMeta['secret']);
+    $fieldType = $fieldMeta['type'] ?? ($isSecret ? 'secret' : 'text');
 ?>
-                      <label><?= htmlspecialchars($label, ENT_QUOTES) ?>
-                        <input type="text" data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.<?= htmlspecialchars($field, ENT_QUOTES) ?>" />
+                      <label class="smart-settings__integration-field<?= $isSecret ? ' smart-settings__integration-field--secret' : '' ?>">
+                        <span><?= htmlspecialchars($label, ENT_QUOTES) ?><?= !empty($fieldMeta['required']) ? ' <span class="smart-settings__required" aria-hidden="true">*</span>' : '' ?></span>
+<?php if ($fieldType === 'select'): ?>
+                        <select data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.<?= htmlspecialchars($fieldKey, ENT_QUOTES) ?>">
+                          <option value="">Select…</option>
+<?php foreach (($fieldMeta['options'] ?? []) as $option): ?>
+                          <option value="<?= htmlspecialchars((string) $option, ENT_QUOTES) ?>"><?= htmlspecialchars(ucwords(str_replace(['_', '-'], ' ', (string) $option)), ENT_QUOTES) ?></option>
+<?php endforeach; ?>
+                        </select>
+<?php else: ?>
+                        <input
+                          type="<?= $isSecret ? 'password' : 'text' ?>"
+                          data-setting-field="channels.<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>.<?= htmlspecialchars($fieldKey, ENT_QUOTES) ?>"
+                          data-setting-type="<?= $isSecret ? 'secret' : 'text' ?>"
+                          data-secret-has-value="0"
+                          autocomplete="<?= $isSecret ? 'new-password' : 'off' ?>"
+                          placeholder="<?= htmlspecialchars($fieldMeta['placeholder'] ?? '', ENT_QUOTES) ?>"
+                        />
+<?php endif; ?>
                       </label>
 <?php endforeach; ?>
                       <div class="smart-settings__inline-actions">
-                        <button type="button" class="btn btn-ghost" data-settings-connect="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-link" aria-hidden="true"></i> Connect</button>
-                        <button type="button" class="btn btn-ghost" data-settings-refresh="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i> Refresh token</button>
+                        <button type="button" class="btn btn-primary" data-integration-save="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
+                        <button type="button" class="btn btn-ghost" data-integration-test="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i> Test</button>
+                        <button type="button" class="btn btn-ghost" data-integration-disable="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-power-off" aria-hidden="true"></i> Disable</button>
+                        <button type="button" class="btn btn-danger" data-integration-delete="<?= htmlspecialchars($connectorKey, ENT_QUOTES) ?>"><i class="fa-solid fa-trash" aria-hidden="true"></i> Delete</button>
                       </div>
                     </div>
                   </div>
 <?php endforeach; ?>
-                </div>
-                <div class="smart-settings__actions">
-                  <button type="button" class="btn btn-primary" data-settings-save="integrations"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save</button>
-                  <button type="button" class="btn btn-ghost" data-settings-revert="integrations"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Revert</button>
-                  <button type="button" class="btn btn-ghost" data-settings-test="integrations"><i class="fa-solid fa-stethoscope" aria-hidden="true"></i> Test</button>
-                  <button type="button" class="btn btn-ghost" data-settings-revalidate-all><i class="fa-solid fa-wave-square" aria-hidden="true"></i> Revalidate all</button>
                 </div>
               </form>
               <div class="smart-settings__history" data-settings-history="integrations"></div>

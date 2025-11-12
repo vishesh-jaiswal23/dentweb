@@ -3,6 +3,41 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/ai_gemini.php';
 
+const SMART_MARKETING_SECRET_SENTINEL = '__SECRET_PRESENT__';
+const SMART_MARKETING_SECRET_PLACEHOLDER = '••••••••';
+
+function smart_marketing_secret_placeholder(): string
+{
+    return SMART_MARKETING_SECRET_PLACEHOLDER;
+}
+
+function smart_marketing_secret_sentinel(): string
+{
+    return SMART_MARKETING_SECRET_SENTINEL;
+}
+
+function smart_marketing_is_secret_value($value): bool
+{
+    return is_string($value) && $value === SMART_MARKETING_SECRET_SENTINEL;
+}
+
+function smart_marketing_mask_secret(?string $value): string
+{
+    $value = (string) $value;
+    if ($value === '') {
+        return '';
+    }
+
+    $length = mb_strlen($value);
+    if ($length <= 4) {
+        return str_repeat('•', $length);
+    }
+
+    $start = mb_substr($value, 0, 2);
+    $end = mb_substr($value, -2);
+    return sprintf('%s%s%s', $start, str_repeat('•', max(4, $length - 4)), $end);
+}
+
 function smart_marketing_storage_dir(): string
 {
     $path = __DIR__ . '/../storage/smart_marketing';
@@ -233,79 +268,85 @@ function smart_marketing_sitemap_fragment_file(): string
 function smart_marketing_connector_catalog(): array
 {
     return [
-        'googleAds' => [
-            'label' => 'Google Ads',
-            'description' => 'Search, Display, Performance Max, and YouTube inventory from the shared MCC.',
-            'channels' => ['search', 'display', 'performance_max', 'youtube'],
+        'meta' => [
+            'label' => 'Meta Ads (Facebook & Instagram)',
+            'description' => 'Business Manager, Pages, Pixels, and WhatsApp entry points managed via Meta Marketing APIs.',
+            'channels' => ['lead', 'awareness', 'engagement', 'whatsapp'],
             'defaults' => [
-                'account' => '',
-                'subAccount' => '',
                 'status' => 'unknown',
             ],
-            'accounts' => [
-                ['id' => '123-456-7890', 'name' => 'Dakshayani Solar Master'],
-                ['id' => '987-654-3210', 'name' => 'Jharkhand Rooftop Portfolio'],
-                ['id' => '456-789-0123', 'name' => 'Performance Max Experiments'],
+            'fields' => [
+                ['key' => 'businessManagerId', 'label' => 'Business Manager ID', 'required' => true],
+                ['key' => 'adAccountId', 'label' => 'Ad Account ID', 'required' => true],
+                ['key' => 'pageId', 'label' => 'Page ID', 'required' => true],
+                ['key' => 'appId', 'label' => 'App ID', 'required' => true],
+                ['key' => 'appSecret', 'label' => 'App Secret', 'required' => true, 'secret' => true],
+                ['key' => 'systemUserToken', 'label' => 'System User Token / OAuth Token', 'required' => true, 'secret' => true],
+                ['key' => 'pixelId', 'label' => 'Pixel ID (optional)'],
+                ['key' => 'whatsappNumberId', 'label' => 'WhatsApp Number ID (optional)'],
             ],
         ],
-        'meta' => [
-            'label' => 'Meta Ads (FB/IG)',
-            'description' => 'Business Manager and connected ad accounts for Facebook & Instagram placements.',
-            'channels' => ['lead', 'awareness', 'engagement'],
+        'googleAds' => [
+            'label' => 'Google Ads & YouTube',
+            'description' => 'OAuth and developer credentials for Google Ads, Performance Max, and YouTube placements.',
+            'channels' => ['search', 'display', 'performance_max', 'youtube'],
             'defaults' => [
-                'account' => '',
-                'page' => '',
                 'status' => 'unknown',
             ],
-            'accounts' => [
-                ['id' => 'act_112233445566778', 'name' => 'Dakshayani Meta Ads'],
-                ['id' => 'act_998877665544332', 'name' => 'Regional Boosters'],
-            ],
-            'pages' => [
-                ['id' => 'pg_64521', 'name' => 'Dakshayani Enterprises'],
-                ['id' => 'pg_99881', 'name' => 'Dakshayani Solar Rooftops'],
+            'fields' => [
+                ['key' => 'managerId', 'label' => 'Manager Account ID (MCC) / Customer ID', 'required' => true],
+                ['key' => 'oauthClientId', 'label' => 'OAuth Client ID', 'required' => true],
+                ['key' => 'oauthClientSecret', 'label' => 'OAuth Client Secret', 'required' => true, 'secret' => true],
+                ['key' => 'refreshToken', 'label' => 'Refresh Token', 'required' => true, 'secret' => true],
+                ['key' => 'developerToken', 'label' => 'Developer Token', 'required' => true, 'secret' => true],
+                ['key' => 'conversionTrackingId', 'label' => 'Conversion Tracking ID (optional)'],
+                ['key' => 'linkedYoutubeChannelId', 'label' => 'YouTube Channel ID (optional)'],
             ],
         ],
         'youtube' => [
-            'label' => 'YouTube Ads',
-            'description' => 'Uses the linked Google Ads account to publish in-feed, in-stream, and Shorts inventory.',
+            'label' => 'YouTube Delivery',
+            'description' => 'Status mirror for YouTube placements using the Google Ads integration.',
             'channels' => ['video'],
             'defaults' => [
-                'channel' => '',
                 'status' => 'unknown',
             ],
-            'channels_list' => [
-                ['id' => 'UC-DAKSHAYANI', 'name' => 'Dakshayani Solar Stories'],
-                ['id' => 'UC-ENERGYPLUS', 'name' => 'Energy Plus Series'],
+            'fields' => [
+                ['key' => 'linkedYoutubeChannelId', 'label' => 'YouTube Channel ID (optional)'],
             ],
         ],
         'whatsapp' => [
-            'label' => 'WhatsApp Business',
-            'description' => 'Click-to-chat flows and templates through Meta Business APIs.',
+            'label' => 'WhatsApp Business API',
+            'description' => 'Meta WhatsApp Business Account or BSP credentials for template messaging.',
             'channels' => ['messaging'],
             'defaults' => [
-                'number' => '',
-                'businessAccount' => '',
                 'status' => 'unknown',
             ],
-            'numbers' => [
-                ['id' => '+91-6200001234', 'name' => 'Sales Desk'],
-                ['id' => '+91-6200005678', 'name' => 'Service & AMC'],
+            'fields' => [
+                ['key' => 'wabaId', 'label' => 'WABA ID', 'required' => true],
+                ['key' => 'phoneNumberId', 'label' => 'Phone Number ID', 'required' => true],
+                ['key' => 'accessToken', 'label' => 'Access Token', 'secret' => true],
+                ['key' => 'bspName', 'label' => 'BSP Name (if applicable)'],
+                ['key' => 'bspKey', 'label' => 'BSP Key', 'secret' => true],
+                ['key' => 'templateNamespace', 'label' => 'Template Namespace (optional)'],
+                ['key' => 'adminSandboxNumber', 'label' => 'Admin Sandbox Number (optional)'],
             ],
         ],
         'email' => [
-            'label' => 'Email & SMS Provider',
-            'description' => 'Transactional and bulk blasts via connected provider APIs.',
+            'label' => 'Email & SMS Gateway',
+            'description' => 'Provider credentials for SendGrid, Twilio, MSG91, or SMTP relays.',
             'channels' => ['email', 'sms'],
             'defaults' => [
-                'provider' => '',
-                'profile' => '',
                 'status' => 'unknown',
             ],
-            'providers' => [
-                ['id' => 'sendgrid', 'name' => 'SendGrid (Transactional)'],
-                ['id' => 'mailgun', 'name' => 'Mailgun Bulk'],
-                ['id' => 'msg91', 'name' => 'MSG91 SMS'],
+            'fields' => [
+                ['key' => 'provider', 'label' => 'Provider', 'required' => true, 'type' => 'select', 'options' => ['sendgrid', 'twilio', 'msg91', 'smtp']],
+                ['key' => 'apiKey', 'label' => 'API Key', 'secret' => true],
+                ['key' => 'senderId', 'label' => 'Sender ID / From Email', 'required' => true],
+                ['key' => 'smtpHost', 'label' => 'SMTP Host (for SMTP providers)'],
+                ['key' => 'smtpPort', 'label' => 'SMTP Port (for SMTP providers)'],
+                ['key' => 'smtpUsername', 'label' => 'SMTP Username (for SMTP providers)'],
+                ['key' => 'smtpPassword', 'label' => 'SMTP Password', 'secret' => true],
+                ['key' => 'sandboxRecipient', 'label' => 'Sandbox Recipient Email / Phone'],
             ],
         ],
     ];
@@ -315,14 +356,24 @@ function smart_marketing_default_connector_settings(): array
 {
     $defaults = [];
     foreach (smart_marketing_connector_catalog() as $key => $meta) {
+        $credentials = [];
+        foreach (($meta['fields'] ?? []) as $field) {
+            $credentials[$field['key']] = $field['default'] ?? '';
+        }
+
         $defaults[$key] = array_merge(
             [
                 'status' => 'unknown',
                 'connectedAt' => null,
                 'lastTested' => null,
+                'lastValidatedAt' => null,
                 'lastTestResult' => 'unknown',
+                'validatedBy' => null,
+                'message' => 'Not connected',
+                'disabled' => false,
             ],
-            $meta['defaults'] ?? []
+            $meta['defaults'] ?? [],
+            $credentials
         );
     }
 
@@ -576,14 +627,21 @@ function smart_marketing_settings_normalize_section(string $section, array $data
                 $entry = array_merge($defaultsChannel, $channels[$key] ?? []);
                 $entry['status'] = smart_marketing_normalize_enum(
                     strtolower((string) ($entry['status'] ?? 'unknown')),
-                    ['connected', 'warning', 'error', 'unknown']
+                    ['connected', 'warning', 'error', 'unknown', 'disconnected', 'disabled']
                 );
                 $entry['connectedAt'] = smart_marketing_normalize_datetime($entry['connectedAt'] ?? null);
                 $entry['lastTested'] = smart_marketing_normalize_datetime($entry['lastTested'] ?? null);
+                $entry['lastValidatedAt'] = smart_marketing_normalize_datetime($entry['lastValidatedAt'] ?? ($entry['lastTested'] ?? null));
                 $entry['lastTestResult'] = smart_marketing_normalize_enum(
                     strtolower((string) ($entry['lastTestResult'] ?? 'unknown')),
                     ['passed', 'failed', 'unknown']
                 );
+                if (!$entry['lastTested'] && $entry['lastValidatedAt']) {
+                    $entry['lastTested'] = $entry['lastValidatedAt'];
+                }
+                $entry['validatedBy'] = trim((string) ($entry['validatedBy'] ?? '')) ?: null;
+                $entry['message'] = trim((string) ($entry['message'] ?? '')) ?: 'Not connected';
+                $entry['disabled'] = (bool) ($entry['disabled'] ?? false);
                 $hydrated[$key] = $entry;
             }
             $normalized['channels'] = $hydrated;
@@ -598,6 +656,171 @@ function smart_marketing_settings_normalize_section(string $section, array $data
     $normalized['lastUpdatedBy'] = is_string($normalized['lastUpdatedBy'] ?? null) ? trim((string) $normalized['lastUpdatedBy']) : null;
 
     return $normalized;
+}
+
+function smart_marketing_settings_mask_section(string $section, array $data): array
+{
+    if ($section !== 'integrations') {
+        return $data;
+    }
+
+    $masked = $data;
+    $catalog = smart_marketing_connector_catalog();
+    $channels = $masked['channels'] ?? [];
+    foreach ($channels as $key => $entry) {
+        $fields = $catalog[$key]['fields'] ?? [];
+        foreach ($fields as $field) {
+            $fieldKey = $field['key'];
+            if (!array_key_exists($fieldKey, $entry)) {
+                continue;
+            }
+            if (!empty($field['secret']) && (string) $entry[$fieldKey] !== '') {
+                $channels[$key][$fieldKey] = smart_marketing_secret_sentinel();
+            }
+        }
+    }
+    $masked['channels'] = $channels;
+
+    return $masked;
+}
+
+function smart_marketing_settings_mask_sections(array $sections): array
+{
+    $masked = [];
+    foreach ($sections as $section => $data) {
+        $masked[$section] = smart_marketing_settings_mask_section($section, $data);
+    }
+
+    return $masked;
+}
+
+function smart_marketing_settings_redact(array $settings): array
+{
+    if (isset($settings['integrationsHub']['channels']) && is_array($settings['integrationsHub']['channels'])) {
+        $catalog = smart_marketing_connector_catalog();
+        foreach ($settings['integrationsHub']['channels'] as $key => $entry) {
+            $fields = $catalog[$key]['fields'] ?? [];
+            foreach ($fields as $field) {
+                $fieldKey = $field['key'];
+                if (!array_key_exists($fieldKey, $entry)) {
+                    continue;
+                }
+                if (!empty($field['secret']) && (string) $entry[$fieldKey] !== '') {
+                    $settings['integrationsHub']['channels'][$key][$fieldKey] = smart_marketing_secret_sentinel();
+                }
+            }
+        }
+    }
+
+    if (isset($settings['integrations']) && is_array($settings['integrations'])) {
+        $settings['integrations'] = smart_marketing_settings_mask_section('integrations', ['channels' => $settings['integrations']])['channels'];
+    }
+
+    return $settings;
+}
+
+function smart_marketing_integration_field_map(string $connectorKey): array
+{
+    $catalog = smart_marketing_connector_catalog();
+    $fields = $catalog[$connectorKey]['fields'] ?? [];
+    $map = [];
+    foreach ($fields as $field) {
+        $map[$field['key']] = $field;
+    }
+
+    return $map;
+}
+
+function smart_marketing_integration_merge_credentials(string $connectorKey, array $incoming, array $current): array
+{
+    $fields = smart_marketing_integration_field_map($connectorKey);
+    $merged = $current;
+    foreach ($fields as $fieldKey => $fieldMeta) {
+        if (array_key_exists($fieldKey, $incoming)) {
+            $value = $incoming[$fieldKey];
+            if (!empty($fieldMeta['secret'])) {
+                if (smart_marketing_is_secret_value($value) || trim((string) $value) === '') {
+                    $value = $current[$fieldKey] ?? '';
+                }
+            }
+            if (is_string($value)) {
+                $merged[$fieldKey] = trim($value);
+            } else {
+                $merged[$fieldKey] = $value;
+            }
+        } elseif (!array_key_exists($fieldKey, $merged)) {
+            $merged[$fieldKey] = '';
+        }
+    }
+
+    return $merged;
+}
+
+function smart_marketing_integrations_audit_file(): string
+{
+    return smart_marketing_settings_root() . '/audit_integrations.json';
+}
+
+function smart_marketing_integrations_audit_read(): array
+{
+    $file = smart_marketing_integrations_audit_file();
+    if (!is_file($file)) {
+        return [];
+    }
+
+    $contents = file_get_contents($file);
+    if ($contents === false || trim($contents) === '') {
+        return [];
+    }
+
+    $decoded = smart_marketing_decode_json($contents);
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function smart_marketing_mask_integration_audit_context(string $platform, array $context): array
+{
+    $fields = smart_marketing_integration_field_map($platform);
+    $masked = $context;
+    foreach ($fields as $fieldKey => $meta) {
+        if (!empty($meta['secret']) && isset($masked[$fieldKey])) {
+            $masked[$fieldKey] = smart_marketing_mask_secret((string) $masked[$fieldKey]);
+        }
+    }
+
+    if (isset($masked['validationDetails']) && is_array($masked['validationDetails'])) {
+        $masked['validationDetails'] = array_map(static function ($value) {
+            if (is_array($value)) {
+                return $value;
+            }
+
+            return is_string($value) ? $value : json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }, $masked['validationDetails']);
+    }
+
+    return $masked;
+}
+
+function smart_marketing_integrations_audit_append(string $platform, string $action, array $admin, array $context = [], ?string $developerMessage = null): void
+{
+    $log = smart_marketing_integrations_audit_read();
+    $log[] = [
+        'platform' => $platform,
+        'action' => $action,
+        'timestamp' => ai_timestamp(),
+        'admin' => [
+            'email' => $admin['email'] ?? null,
+            'name' => $admin['full_name'] ?? ($admin['name'] ?? null),
+        ],
+        'developer_message' => $developerMessage,
+        'context' => smart_marketing_mask_integration_audit_context($platform, $context),
+    ];
+
+    $log = array_slice($log, -200);
+    $payload = json_encode($log, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($payload !== false) {
+        file_put_contents(smart_marketing_integrations_audit_file(), $payload, LOCK_EX);
+    }
 }
 
 function smart_marketing_settings_extract_sections(array $settings): array
@@ -1310,14 +1533,26 @@ function smart_marketing_integrations_health(array $settings): array
     foreach ($catalog as $key => $meta) {
         $entry = $integrations[$key] ?? [];
         $status = strtolower((string) ($entry['status'] ?? 'unknown'));
-        if (!in_array($status, ['connected', 'warning', 'error', 'unknown'], true)) {
+        if (!in_array($status, ['connected', 'warning', 'error', 'unknown', 'disconnected', 'disabled'], true)) {
             $status = 'unknown';
         }
 
         $result[$key] = [
             'status' => $status,
             'label' => $meta['label'] ?? smart_marketing_integration_label($key),
-            'details' => array_merge($entry, ['channels' => $meta['channels'] ?? []]),
+            'details' => [
+                'connectedAt' => $entry['connectedAt'] ?? null,
+                'lastValidatedAt' => $entry['lastValidatedAt'] ?? ($entry['lastTested'] ?? null),
+                'lastTested' => $entry['lastTested'] ?? null,
+                'lastTestResult' => $entry['lastTestResult'] ?? 'unknown',
+                'validatedBy' => $entry['validatedBy'] ?? null,
+                'message' => $entry['message'] ?? 'Not connected',
+                'disabled' => (bool) ($entry['disabled'] ?? false),
+                'channels' => $meta['channels'] ?? [],
+                'validationDetails' => isset($entry['validationDetails']) && is_array($entry['validationDetails'])
+                    ? $entry['validationDetails']
+                    : [],
+            ],
         ];
     }
 
@@ -1344,7 +1579,7 @@ function smart_marketing_channel_connectors(array $settings): array
     foreach ($catalog as $key => $meta) {
         $entry = $integrations[$key] ?? smart_marketing_default_connector_settings()[$key];
         $status = strtolower((string) ($entry['status'] ?? 'unknown'));
-        if (!in_array($status, ['connected', 'warning', 'error', 'unknown'], true)) {
+        if (!in_array($status, ['connected', 'warning', 'error', 'unknown', 'disconnected', 'disabled'], true)) {
             $status = 'unknown';
         }
 
@@ -1353,25 +1588,647 @@ function smart_marketing_channel_connectors(array $settings): array
             'label' => $meta['label'],
             'description' => $meta['description'],
             'status' => $status,
-            'lastTested' => $entry['lastTested'] ?? null,
-            'lastTestResult' => $entry['lastTestResult'] ?? 'unknown',
             'connectedAt' => $entry['connectedAt'] ?? null,
-            'details' => $entry,
-            'options' => [
-                'accounts' => $meta['accounts'] ?? [],
-                'pages' => $meta['pages'] ?? [],
+            'lastTested' => $entry['lastTested'] ?? null,
+            'lastValidatedAt' => $entry['lastValidatedAt'] ?? ($entry['lastTested'] ?? null),
+            'lastTestResult' => $entry['lastTestResult'] ?? 'unknown',
+            'validatedBy' => $entry['validatedBy'] ?? null,
+            'message' => $entry['message'] ?? 'Not connected',
+            'disabled' => (bool) ($entry['disabled'] ?? false),
+            'details' => [
                 'channels' => $meta['channels'] ?? [],
-                'youtubeChannels' => $meta['channels_list'] ?? [],
-                'numbers' => $meta['numbers'] ?? [],
-                'providers' => $meta['providers'] ?? [],
+                'validationDetails' => isset($entry['validationDetails']) && is_array($entry['validationDetails'])
+                    ? $entry['validationDetails']
+                    : [],
             ],
+            'fields' => array_values(array_map(static function ($field) use ($entry) {
+                $value = $entry[$field['key']] ?? '';
+                $hasValue = $value !== '';
+                if (!empty($field['secret'])) {
+                    $value = $hasValue ? smart_marketing_secret_placeholder() : '';
+                }
+
+                return [
+                    'key' => $field['key'],
+                    'label' => $field['label'],
+                    'required' => !empty($field['required']),
+                    'secret' => !empty($field['secret']),
+                    'value' => $value,
+                    'hasValue' => $hasValue,
+                ];
+            }, $meta['fields'] ?? [])),
         ];
     }
 
     return $connectors;
 }
 
-function smart_marketing_connector_connect(array &$settings, string $connectorKey, array $payload): array
+function smart_marketing_http_request(string $method, string $url, array $options = []): array
+{
+    $method = strtoupper($method);
+    $query = $options['query'] ?? [];
+    if (!empty($query)) {
+        $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+    }
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HEADER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, (int) ($options['timeout'] ?? 15));
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, (int) ($options['connect_timeout'] ?? 5));
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+
+    $headers = [];
+    foreach (($options['headers'] ?? []) as $name => $value) {
+        $headers[] = $name . ': ' . $value;
+    }
+    if (!empty($headers)) {
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    }
+
+    if (isset($options['body'])) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $options['body']);
+    } elseif (isset($options['json'])) {
+        $encoded = json_encode($options['json'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            curl_close($ch);
+            return ['ok' => false, 'status' => 0, 'body' => '', 'headers' => [], 'error' => 'Unable to encode JSON payload'];
+        }
+        $headers[] = 'Content-Type: application/json';
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $encoded);
+    } elseif (isset($options['form'])) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($options['form'], '', '&', PHP_QUERY_RFC3986));
+    }
+
+    $response = curl_exec($ch);
+    if ($response === false) {
+        $error = curl_error($ch) ?: 'Request failed';
+        curl_close($ch);
+        return ['ok' => false, 'status' => 0, 'body' => '', 'headers' => [], 'error' => $error];
+    }
+
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    curl_close($ch);
+
+    $rawHeaders = substr($response, 0, $headerSize);
+    $body = substr($response, $headerSize);
+
+    $headerBlocks = array_filter(explode("\r\n\r\n", trim($rawHeaders)));
+    $headerBlock = end($headerBlocks) ?: '';
+    $headersAssoc = [];
+    foreach (explode("\r\n", $headerBlock) as $line) {
+        if (strpos($line, ':') === false) {
+            continue;
+        }
+        [$name, $value] = array_map('trim', explode(':', $line, 2));
+        $headersAssoc[strtolower($name)] = $value;
+    }
+
+    $ok = $status >= 200 && $status < 300;
+
+    return [
+        'ok' => $ok,
+        'status' => $status,
+        'body' => $body,
+        'headers' => $headersAssoc,
+        'error' => $ok ? null : 'HTTP ' . $status,
+    ];
+}
+
+function smart_marketing_decode_json(string $payload): array
+{
+    if (trim($payload) === '') {
+        return [];
+    }
+
+    try {
+        $decoded = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
+    } catch (Throwable $exception) {
+        return [];
+    }
+
+    return is_array($decoded) ? $decoded : [];
+}
+
+function smart_marketing_validate_integration_credentials(string $connectorKey, array $credentials): array
+{
+    switch ($connectorKey) {
+        case 'meta':
+            return smart_marketing_validate_meta_credentials($credentials);
+
+        case 'googleAds':
+            return smart_marketing_validate_google_credentials($credentials);
+
+        case 'whatsapp':
+            return smart_marketing_validate_whatsapp_credentials($credentials);
+
+        case 'email':
+            return smart_marketing_validate_email_credentials($credentials);
+
+        case 'youtube':
+            return ['ok' => true, 'message' => 'YouTube shares Google Ads credentials', 'details' => []];
+
+        default:
+            return ['ok' => false, 'message' => 'Unknown connector: ' . $connectorKey, 'details' => []];
+    }
+}
+
+function smart_marketing_validate_meta_credentials(array $credentials): array
+{
+    $required = ['businessManagerId', 'adAccountId', 'pageId', 'appId', 'appSecret', 'systemUserToken'];
+    foreach ($required as $field) {
+        if (trim((string) ($credentials[$field] ?? '')) === '') {
+            return ['ok' => false, 'message' => sprintf('Meta field %s is required.', $field), 'details' => []];
+        }
+    }
+
+    $token = (string) $credentials['systemUserToken'];
+    $businessId = trim((string) $credentials['businessManagerId']);
+    $adAccountId = trim((string) $credentials['adAccountId']);
+    $pageId = trim((string) $credentials['pageId']);
+
+    $actor = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/me', [
+        'query' => [
+            'fields' => 'id,name',
+            'access_token' => $token,
+        ],
+    ]);
+    if (!$actor['ok']) {
+        return ['ok' => false, 'message' => 'Meta token rejected. Verify the system user or OAuth token.', 'details' => ['error' => $actor['error']]];
+    }
+    $actorData = smart_marketing_decode_json($actor['body']);
+    $actorName = (string) ($actorData['name'] ?? 'Unknown user');
+
+    $businessResponse = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/' . rawurlencode($businessId), [
+        'query' => [
+            'fields' => 'name,verification_status',
+            'access_token' => $token,
+        ],
+    ]);
+    if (!$businessResponse['ok']) {
+        return ['ok' => false, 'message' => 'Unable to fetch Meta Business Manager details.', 'details' => ['error' => $businessResponse['error']]];
+    }
+    $businessData = smart_marketing_decode_json($businessResponse['body']);
+    $businessName = (string) ($businessData['name'] ?? $businessId);
+    $businessVerification = (string) ($businessData['verification_status'] ?? 'unknown');
+
+    $accountResponse = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/' . rawurlencode($adAccountId), [
+        'query' => [
+            'fields' => 'name,account_status,timezone_id',
+            'access_token' => $token,
+        ],
+    ]);
+    if (!$accountResponse['ok']) {
+        return ['ok' => false, 'message' => 'Unable to fetch Meta ad account details.', 'details' => ['error' => $accountResponse['error']]];
+    }
+    $accountData = smart_marketing_decode_json($accountResponse['body']);
+    $accountName = (string) ($accountData['name'] ?? $adAccountId);
+    $accountStatusCode = (int) ($accountData['account_status'] ?? 0);
+    $accountStatus = match ($accountStatusCode) {
+        1 => 'ACTIVE',
+        2 => 'DISABLED',
+        3 => 'UNSETTLED',
+        7 => 'PENDING_RISK_REVIEW',
+        default => 'STATUS_' . $accountStatusCode,
+    };
+
+    $pageResponse = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/' . rawurlencode($pageId), [
+        'query' => [
+            'fields' => 'name,verification_status',
+            'access_token' => $token,
+        ],
+    ]);
+    if (!$pageResponse['ok']) {
+        return ['ok' => false, 'message' => 'Unable to fetch Meta page information.', 'details' => ['error' => $pageResponse['error']]];
+    }
+    $pageData = smart_marketing_decode_json($pageResponse['body']);
+    $pageName = (string) ($pageData['name'] ?? $pageId);
+    $pageVerification = (string) ($pageData['verification_status'] ?? 'unknown');
+
+    $optional = [];
+    if (trim((string) ($credentials['pixelId'] ?? '')) !== '') {
+        $pixelResponse = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/' . rawurlencode((string) $credentials['pixelId']), [
+            'query' => [
+                'fields' => 'name',
+                'access_token' => $token,
+            ],
+        ]);
+        if ($pixelResponse['ok']) {
+            $pixelData = smart_marketing_decode_json($pixelResponse['body']);
+            $optional['pixel'] = $pixelData['name'] ?? $credentials['pixelId'];
+        } else {
+            $optional['pixelWarning'] = 'Pixel lookup failed';
+        }
+    }
+
+    if (trim((string) ($credentials['whatsappNumberId'] ?? '')) !== '') {
+        $waResponse = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/' . rawurlencode((string) $credentials['whatsappNumberId']), [
+            'query' => [
+                'fields' => 'display_phone_number,verified_name',
+                'access_token' => $token,
+            ],
+        ]);
+        if ($waResponse['ok']) {
+            $waData = smart_marketing_decode_json($waResponse['body']);
+            $optional['whatsappNumber'] = $waData['display_phone_number'] ?? $credentials['whatsappNumberId'];
+        } else {
+            $optional['whatsappWarning'] = 'Unable to verify WhatsApp number';
+        }
+    }
+
+    $details = array_merge([
+        'business' => $businessName,
+        'businessVerification' => $businessVerification,
+        'adAccount' => $accountName,
+        'adAccountStatus' => $accountStatus,
+        'page' => $pageName,
+        'pageVerification' => $pageVerification,
+        'actor' => $actorName,
+    ], $optional);
+
+    $developerMessage = sprintf(
+        'Business verification: %s, Ad account status: %s, Page verification: %s',
+        $businessVerification,
+        $accountStatus,
+        $pageVerification
+    );
+
+    return [
+        'ok' => true,
+        'message' => 'Connected Successfully ✅',
+        'details' => $details,
+        'developerMessage' => $developerMessage,
+    ];
+}
+
+function smart_marketing_validate_google_credentials(array $credentials): array
+{
+    $required = ['managerId', 'oauthClientId', 'oauthClientSecret', 'refreshToken', 'developerToken'];
+    foreach ($required as $field) {
+        if (trim((string) ($credentials[$field] ?? '')) === '') {
+            return ['ok' => false, 'message' => sprintf('Google field %s is required.', $field), 'details' => []];
+        }
+    }
+
+    $tokenResponse = smart_marketing_http_request('POST', 'https://oauth2.googleapis.com/token', [
+        'form' => [
+            'client_id' => $credentials['oauthClientId'],
+            'client_secret' => $credentials['oauthClientSecret'],
+            'refresh_token' => $credentials['refreshToken'],
+            'grant_type' => 'refresh_token',
+        ],
+    ]);
+    if (!$tokenResponse['ok']) {
+        return ['ok' => false, 'message' => 'Unable to exchange refresh token for access token.', 'details' => ['error' => $tokenResponse['error']]];
+    }
+    $tokenData = smart_marketing_decode_json($tokenResponse['body']);
+    $accessToken = (string) ($tokenData['access_token'] ?? '');
+    if ($accessToken === '') {
+        return ['ok' => false, 'message' => 'Google OAuth response missing access token.', 'details' => []];
+    }
+
+    $adsResponse = smart_marketing_http_request('GET', 'https://googleads.googleapis.com/v15/customers:listAccessibleCustomers', [
+        'headers' => [
+            'Authorization' => 'Bearer ' . $accessToken,
+            'developer-token' => $credentials['developerToken'],
+        ],
+    ]);
+    if (!$adsResponse['ok']) {
+        return ['ok' => false, 'message' => 'Google Ads API rejected the credentials.', 'details' => ['error' => $adsResponse['error']]];
+    }
+    $adsData = smart_marketing_decode_json($adsResponse['body']);
+    $accounts = $adsData['resourceNames'] ?? [];
+    $accounts = is_array($accounts) ? $accounts : [];
+    $managerId = preg_replace('/[^0-9]/', '', (string) $credentials['managerId']);
+    $managerResource = 'customers/' . $managerId;
+    $hasManager = in_array($managerResource, $accounts, true);
+
+    $details = [
+        'accessibleAccounts' => count($accounts),
+        'managerLinked' => $hasManager,
+    ];
+
+    if (!empty($credentials['linkedYoutubeChannelId'])) {
+        $channelResponse = smart_marketing_http_request('GET', 'https://www.googleapis.com/youtube/v3/channels', [
+            'query' => [
+                'part' => 'snippet',
+                'id' => $credentials['linkedYoutubeChannelId'],
+            ],
+            'headers' => [
+                'Authorization' => 'Bearer ' . $accessToken,
+            ],
+        ]);
+        if ($channelResponse['ok']) {
+            $channelData = smart_marketing_decode_json($channelResponse['body']);
+            $items = $channelData['items'] ?? [];
+            if (!empty($items)) {
+                $details['youtubeChannel'] = $items[0]['snippet']['title'] ?? $credentials['linkedYoutubeChannelId'];
+            } else {
+                $details['youtubeWarning'] = 'YouTube channel not accessible with provided scopes.';
+            }
+        } else {
+            $details['youtubeWarning'] = 'Unable to verify YouTube channel';
+        }
+    }
+
+    if (!empty($credentials['conversionTrackingId'])) {
+        $details['conversionTrackingId'] = $credentials['conversionTrackingId'];
+    }
+
+    $developerMessage = sprintf(
+        'Accessible accounts: %d, Manager linked: %s',
+        $details['accessibleAccounts'],
+        $details['managerLinked'] ? 'yes' : 'no'
+    );
+
+    return [
+        'ok' => true,
+        'message' => 'Connected Successfully ✅',
+        'details' => $details,
+        'developerMessage' => $developerMessage,
+    ];
+}
+
+function smart_marketing_validate_whatsapp_credentials(array $credentials): array
+{
+    $required = ['wabaId', 'phoneNumberId'];
+    foreach ($required as $field) {
+        if (trim((string) ($credentials[$field] ?? '')) === '') {
+            return ['ok' => false, 'message' => sprintf('WhatsApp field %s is required.', $field), 'details' => []];
+        }
+    }
+
+    $accessToken = trim((string) ($credentials['accessToken'] ?? ''));
+    $bspName = strtolower(trim((string) ($credentials['bspName'] ?? '')));
+    $bspKey = trim((string) ($credentials['bspKey'] ?? ''));
+
+    if ($accessToken === '' && ($bspName === '' || $bspKey === '')) {
+        return ['ok' => false, 'message' => 'Provide either a Meta access token or BSP credentials.', 'details' => []];
+    }
+
+    $details = [];
+
+    if ($accessToken !== '') {
+        $wabaResponse = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/' . rawurlencode((string) $credentials['wabaId']), [
+            'query' => [
+                'fields' => 'name,status',
+                'access_token' => $accessToken,
+            ],
+        ]);
+        if (!$wabaResponse['ok']) {
+            return ['ok' => false, 'message' => 'Unable to fetch WhatsApp Business Account details.', 'details' => ['error' => $wabaResponse['error']]];
+        }
+        $wabaData = smart_marketing_decode_json($wabaResponse['body']);
+        $details['businessAccount'] = $wabaData['name'] ?? $credentials['wabaId'];
+
+        $phoneResponse = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/' . rawurlencode((string) $credentials['phoneNumberId']), [
+            'query' => [
+                'fields' => 'display_phone_number,verified_name',
+                'access_token' => $accessToken,
+            ],
+        ]);
+        if (!$phoneResponse['ok']) {
+            return ['ok' => false, 'message' => 'Unable to fetch WhatsApp phone number details.', 'details' => ['error' => $phoneResponse['error']]];
+        }
+        $phoneData = smart_marketing_decode_json($phoneResponse['body']);
+        $details['number'] = $phoneData['display_phone_number'] ?? $credentials['phoneNumberId'];
+
+        $templatesResponse = smart_marketing_http_request('GET', 'https://graph.facebook.com/v19.0/' . rawurlencode((string) $credentials['wabaId']) . '/message_templates', [
+            'query' => [
+                'access_token' => $accessToken,
+                'limit' => 25,
+            ],
+        ]);
+        if ($templatesResponse['ok']) {
+            $templateData = smart_marketing_decode_json($templatesResponse['body']);
+            $templates = $templateData['data'] ?? [];
+            $inactive = [];
+            foreach ($templates as $template) {
+                $status = strtoupper((string) ($template['status'] ?? ''));
+                if ($status !== 'APPROVED') {
+                    $inactive[] = $template['name'] ?? 'unknown';
+                }
+            }
+            $details['templates'] = count($templates);
+            if (!empty($inactive)) {
+                $details['inactiveTemplates'] = $inactive;
+            }
+        }
+
+        if (!empty($credentials['templateNamespace'])) {
+            $details['namespace'] = $credentials['templateNamespace'];
+        }
+    } else {
+        switch ($bspName) {
+            case '360dialog':
+                $bspResponse = smart_marketing_http_request('GET', 'https://waba.360dialog.io/v1/accounts/self', [
+                    'headers' => ['D360-API-KEY' => $bspKey],
+                ]);
+                if (!$bspResponse['ok']) {
+                    return ['ok' => false, 'message' => '360dialog API key rejected.', 'details' => ['error' => $bspResponse['error']]];
+                }
+                $account = smart_marketing_decode_json($bspResponse['body']);
+                $details['businessAccount'] = $account['accountBusinessName'] ?? $credentials['wabaId'];
+                break;
+
+            default:
+                return ['ok' => false, 'message' => sprintf('Unsupported BSP provider %s for automated validation.', $credentials['bspName']), 'details' => []];
+        }
+    }
+
+    if (!empty($credentials['adminSandboxNumber'])) {
+        $details['sandbox'] = $credentials['adminSandboxNumber'];
+    }
+
+    return [
+        'ok' => true,
+        'message' => 'Connected Successfully ✅',
+        'details' => $details,
+        'developerMessage' => 'WhatsApp credentials validated via API ping',
+    ];
+}
+
+function smart_marketing_validate_email_credentials(array $credentials): array
+{
+    $provider = strtolower(trim((string) ($credentials['provider'] ?? '')));
+    if ($provider === '') {
+        return ['ok' => false, 'message' => 'Email/SMS provider is required.', 'details' => []];
+    }
+    if (trim((string) ($credentials['senderId'] ?? '')) === '') {
+        return ['ok' => false, 'message' => 'Sender ID / From Email is required.', 'details' => []];
+    }
+
+    $details = ['provider' => $provider];
+
+    switch ($provider) {
+        case 'sendgrid':
+            if (trim((string) ($credentials['apiKey'] ?? '')) === '') {
+                return ['ok' => false, 'message' => 'SendGrid API key is required.', 'details' => []];
+            }
+            $accountResponse = smart_marketing_http_request('GET', 'https://api.sendgrid.com/v3/user/account', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $credentials['apiKey'],
+                ],
+            ]);
+            if (!$accountResponse['ok']) {
+                return ['ok' => false, 'message' => 'SendGrid API key rejected.', 'details' => ['error' => $accountResponse['error']]];
+            }
+            $accountData = smart_marketing_decode_json($accountResponse['body']);
+            $details['account'] = $accountData['username'] ?? 'SendGrid';
+            if (!empty($credentials['sandboxRecipient'])) {
+                smart_marketing_http_request('POST', 'https://api.sendgrid.com/v3/mail/send', [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $credentials['apiKey'],
+                        'Content-Type' => 'application/json',
+                    ],
+                    'json' => [
+                        'personalizations' => [[
+                            'to' => [['email' => $credentials['sandboxRecipient']]],
+                        ]],
+                        'from' => ['email' => $credentials['senderId']],
+                        'subject' => 'Sandbox verification',
+                        'content' => [['type' => 'text/plain', 'value' => 'SendGrid sandbox verification']],
+                        'mail_settings' => ['sandbox_mode' => ['enable' => true]],
+                    ],
+                ]);
+                $details['sandbox'] = 'SendGrid sandbox triggered';
+            }
+            break;
+
+        case 'twilio':
+            if (trim((string) ($credentials['apiKey'] ?? '')) === '' || strpos((string) $credentials['apiKey'], ':') === false) {
+                return ['ok' => false, 'message' => 'Twilio credentials must be provided as AccountSID:AuthToken.', 'details' => []];
+            }
+            [$sid, $authToken] = explode(':', (string) $credentials['apiKey'], 2);
+            $twilioResponse = smart_marketing_http_request('GET', 'https://api.twilio.com/2010-04-01/Accounts.json', [
+                'headers' => [
+                    'Authorization' => 'Basic ' . base64_encode($sid . ':' . $authToken),
+                ],
+            ]);
+            if (!$twilioResponse['ok']) {
+                return ['ok' => false, 'message' => 'Twilio credentials rejected.', 'details' => ['error' => $twilioResponse['error']]];
+            }
+            $details['account'] = $sid;
+            break;
+
+        case 'msg91':
+            if (trim((string) ($credentials['apiKey'] ?? '')) === '') {
+                return ['ok' => false, 'message' => 'MSG91 auth key is required.', 'details' => []];
+            }
+            $msgResponse = smart_marketing_http_request('GET', 'https://api.msg91.com/api/v5/credits', [
+                'headers' => [
+                    'authkey' => $credentials['apiKey'],
+                ],
+            ]);
+            if (!$msgResponse['ok']) {
+                return ['ok' => false, 'message' => 'MSG91 credentials rejected.', 'details' => ['error' => $msgResponse['error']]];
+            }
+            $details['credits'] = smart_marketing_decode_json($msgResponse['body'])['total_credits'] ?? null;
+            break;
+
+        case 'smtp':
+            $host = trim((string) ($credentials['smtpHost'] ?? ''));
+            $port = (int) ($credentials['smtpPort'] ?? 587);
+            $username = trim((string) ($credentials['smtpUsername'] ?? ''));
+            $password = trim((string) ($credentials['smtpPassword'] ?? ''));
+            if ($host === '' || $username === '' || $password === '') {
+                return ['ok' => false, 'message' => 'SMTP host, username, and password are required for SMTP providers.', 'details' => []];
+            }
+            $socket = @fsockopen($host, $port, $errno, $errstr, 5.0);
+            if (!$socket) {
+                return ['ok' => false, 'message' => 'Unable to connect to SMTP host.', 'details' => ['error' => $errstr]];
+            }
+            stream_set_timeout($socket, 5);
+            fwrite($socket, "EHLO dentweb\r\n");
+            fgets($socket, 1024);
+            fwrite($socket, "QUIT\r\n");
+            fclose($socket);
+            $details['smtpHost'] = $host;
+            $details['smtpPort'] = $port;
+            break;
+
+        default:
+            return ['ok' => false, 'message' => sprintf('Unsupported provider %s.', $provider), 'details' => []];
+    }
+
+    if (!empty($credentials['sandboxRecipient'])) {
+        $details['sandboxRecipient'] = $credentials['sandboxRecipient'];
+    }
+
+    return [
+        'ok' => true,
+        'message' => 'Connected Successfully ✅',
+        'details' => $details,
+        'developerMessage' => 'Email/SMS credentials validated via provider API',
+    ];
+}
+
+function smart_marketing_connector_connect(array &$settings, string $connectorKey, array $payload, array $admin = []): array
+{
+    $catalog = smart_marketing_connector_catalog();
+    if (!isset($catalog[$connectorKey])) {
+        throw new RuntimeException('Unknown connector.');
+    }
+
+    $current = $settings['integrations'][$connectorKey] ?? smart_marketing_default_connector_settings()[$connectorKey];
+    $fieldMap = smart_marketing_integration_field_map($connectorKey);
+    $existingCredentials = [];
+    foreach ($fieldMap as $fieldKey => $meta) {
+        $existingCredentials[$fieldKey] = $current[$fieldKey] ?? '';
+    }
+
+    $mergedCredentials = smart_marketing_integration_merge_credentials($connectorKey, $payload, $existingCredentials);
+    $validation = smart_marketing_validate_integration_credentials($connectorKey, $mergedCredentials);
+    if (!$validation['ok']) {
+        throw new RuntimeException($validation['message'] ?? 'Validation failed.');
+    }
+
+    foreach ($mergedCredentials as $field => $value) {
+        $current[$field] = $value;
+    }
+
+    $now = ai_timestamp();
+    if (empty($current['connectedAt'])) {
+        $current['connectedAt'] = $now;
+    }
+    $current['status'] = 'connected';
+    $current['disabled'] = false;
+    $current['lastTested'] = $now;
+    $current['lastValidatedAt'] = $now;
+    $current['lastTestResult'] = 'passed';
+    $current['validatedBy'] = (string) ($admin['email'] ?? ($admin['full_name'] ?? 'Admin'));
+    $current['message'] = $validation['message'] ?? 'Connected Successfully ✅';
+    if (!empty($validation['details'])) {
+        $current['validationDetails'] = $validation['details'];
+    } else {
+        unset($current['validationDetails']);
+    }
+
+    $settings['integrations'][$connectorKey] = $current;
+
+    if ($connectorKey === 'googleAds') {
+        $youtubeDefaults = smart_marketing_default_connector_settings()['youtube'];
+        $youtube = $settings['integrations']['youtube'] ?? $youtubeDefaults;
+        $youtube['linkedYoutubeChannelId'] = $current['linkedYoutubeChannelId'] ?? ($youtube['linkedYoutubeChannelId'] ?? '');
+        $youtube['status'] = $current['status'];
+        $youtube['connectedAt'] = $current['connectedAt'];
+        $youtube['lastTested'] = $current['lastTested'];
+        $youtube['lastValidatedAt'] = $current['lastValidatedAt'];
+        $youtube['lastTestResult'] = $current['lastTestResult'];
+        $youtube['validatedBy'] = $current['validatedBy'];
+        $youtube['message'] = $current['message'];
+        $youtube['disabled'] = $current['disabled'];
+        $settings['integrations']['youtube'] = $youtube;
+    }
+
+    return $current;
+}
+
+function smart_marketing_connector_disable(array &$settings, string $connectorKey, array $admin = []): array
 {
     $catalog = smart_marketing_connector_catalog();
     if (!isset($catalog[$connectorKey])) {
@@ -1379,40 +2236,66 @@ function smart_marketing_connector_connect(array &$settings, string $connectorKe
     }
 
     $entry = $settings['integrations'][$connectorKey] ?? smart_marketing_default_connector_settings()[$connectorKey];
-    $requiredField = match ($connectorKey) {
-        'googleAds' => 'account',
-        'meta' => 'account',
-        'youtube' => 'channel',
-        'whatsapp' => 'number',
-        'email' => 'provider',
-        default => null,
-    };
-
-    if ($requiredField) {
-        $value = trim((string) ($payload[$requiredField] ?? $entry[$requiredField] ?? ''));
-        if ($value === '') {
-            throw new RuntimeException('Select an account before connecting.');
-        }
-        $entry[$requiredField] = $value;
+    foreach (smart_marketing_integration_field_map($connectorKey) as $fieldKey => $meta) {
+        $entry[$fieldKey] = '';
     }
 
-    foreach ($payload as $field => $value) {
-        if (is_scalar($value)) {
-            $entry[$field] = is_string($value) ? trim((string) $value) : $value;
-        }
-    }
-
-    $entry['status'] = 'connected';
-    $entry['connectedAt'] = ai_timestamp();
-    $entry['lastTested'] = null;
+    $entry['status'] = 'disabled';
+    $entry['disabled'] = true;
+    $entry['connectedAt'] = null;
+    $entry['lastTested'] = ai_timestamp();
+    $entry['lastValidatedAt'] = null;
     $entry['lastTestResult'] = 'unknown';
+    $entry['validatedBy'] = (string) ($admin['email'] ?? ($admin['full_name'] ?? 'Admin'));
+    $entry['message'] = 'Integration disabled';
+    unset($entry['validationDetails']);
 
     $settings['integrations'][$connectorKey] = $entry;
+
+    if ($connectorKey === 'googleAds' && isset($settings['integrations']['youtube'])) {
+        $youtube = $settings['integrations']['youtube'];
+        $youtube['status'] = 'disabled';
+        $youtube['disabled'] = true;
+        $youtube['connectedAt'] = null;
+        $youtube['lastTested'] = $entry['lastTested'];
+        $youtube['lastValidatedAt'] = null;
+        $youtube['lastTestResult'] = 'unknown';
+        $youtube['validatedBy'] = $entry['validatedBy'];
+        $youtube['message'] = 'Integration disabled';
+        $settings['integrations']['youtube'] = $youtube;
+    }
 
     return $entry;
 }
 
-function smart_marketing_connector_test(array &$settings, string $connectorKey): array
+function smart_marketing_connector_delete(array &$settings, string $connectorKey, array $admin = []): array
+{
+    $catalog = smart_marketing_connector_catalog();
+    if (!isset($catalog[$connectorKey])) {
+        throw new RuntimeException('Unknown connector.');
+    }
+
+    $defaults = smart_marketing_default_connector_settings()[$connectorKey];
+    $defaults['status'] = 'disconnected';
+    $defaults['connectedAt'] = null;
+    $defaults['lastTested'] = null;
+    $defaults['lastValidatedAt'] = null;
+    $defaults['lastTestResult'] = 'unknown';
+    $defaults['validatedBy'] = null;
+    $defaults['message'] = 'Not connected';
+    $defaults['disabled'] = false;
+    unset($defaults['validationDetails']);
+
+    $settings['integrations'][$connectorKey] = $defaults;
+
+    if ($connectorKey === 'googleAds' && isset($settings['integrations']['youtube'])) {
+        $settings['integrations']['youtube'] = smart_marketing_default_connector_settings()['youtube'];
+    }
+
+    return $defaults;
+}
+
+function smart_marketing_connector_test(array &$settings, string $connectorKey, array $admin = []): array
 {
     $catalog = smart_marketing_connector_catalog();
     if (!isset($catalog[$connectorKey])) {
@@ -1420,24 +2303,52 @@ function smart_marketing_connector_test(array &$settings, string $connectorKey):
     }
 
     $entry = $settings['integrations'][$connectorKey] ?? smart_marketing_default_connector_settings()[$connectorKey];
-    $requiredField = match ($connectorKey) {
-        'googleAds' => 'account',
-        'meta' => 'account',
-        'youtube' => 'channel',
-        'whatsapp' => 'number',
-        'email' => 'provider',
-        default => null,
-    };
-
-    $ok = true;
-    if ($requiredField) {
-        $ok = trim((string) ($entry[$requiredField] ?? '')) !== '';
+    $credentials = [];
+    if ($connectorKey === 'youtube') {
+        $googleEntry = $settings['integrations']['googleAds'] ?? smart_marketing_default_connector_settings()['googleAds'];
+        $credentials = [];
+        foreach (smart_marketing_integration_field_map('googleAds') as $fieldKey => $meta) {
+            $credentials[$fieldKey] = $googleEntry[$fieldKey] ?? '';
+        }
+        if (!empty($entry['linkedYoutubeChannelId'])) {
+            $credentials['linkedYoutubeChannelId'] = $entry['linkedYoutubeChannelId'];
+        }
+        $validation = smart_marketing_validate_integration_credentials('googleAds', $credentials);
+    } else {
+        foreach (smart_marketing_integration_field_map($connectorKey) as $fieldKey => $meta) {
+            $credentials[$fieldKey] = $entry[$fieldKey] ?? '';
+        }
+        $validation = smart_marketing_validate_integration_credentials($connectorKey, $credentials);
     }
 
     $now = ai_timestamp();
     $entry['lastTested'] = $now;
-    $entry['lastTestResult'] = $ok ? 'ok' : 'fail';
-    $entry['status'] = $ok ? 'connected' : 'error';
+    if ($validation['ok']) {
+        $entry['lastTestResult'] = 'passed';
+        $entry['status'] = 'connected';
+        $entry['lastValidatedAt'] = $now;
+        $entry['validatedBy'] = (string) ($admin['email'] ?? ($admin['full_name'] ?? 'Admin'));
+        $entry['message'] = $validation['message'] ?? 'Connected Successfully ✅';
+        if (!empty($validation['details'])) {
+            $entry['validationDetails'] = $validation['details'];
+        } else {
+            unset($entry['validationDetails']);
+        }
+        if ($connectorKey === 'googleAds' && isset($settings['integrations']['youtube'])) {
+            $youtube = $settings['integrations']['youtube'];
+            $youtube['status'] = $entry['status'];
+            $youtube['lastTested'] = $entry['lastTested'];
+            $youtube['lastValidatedAt'] = $entry['lastValidatedAt'];
+            $youtube['lastTestResult'] = $entry['lastTestResult'];
+            $youtube['message'] = $entry['message'];
+            $youtube['validatedBy'] = $entry['validatedBy'];
+            $settings['integrations']['youtube'] = $youtube;
+        }
+    } else {
+        $entry['lastTestResult'] = 'failed';
+        $entry['status'] = 'error';
+        $entry['message'] = $validation['message'] ?? 'Validation failed';
+    }
 
     $settings['integrations'][$connectorKey] = $entry;
 
