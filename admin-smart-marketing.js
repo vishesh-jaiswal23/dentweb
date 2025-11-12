@@ -16,6 +16,7 @@
     integrationBanner: document.querySelector('[data-integrations-banner]'),
     integrationBannerMessage: document.querySelector('[data-integrations-banner-message]'),
     integrationBannerAction: document.querySelector('[data-integrations-banner-action]'),
+    integrationBar: document.querySelector('[data-integration-bar]'),
     audit: document.querySelector('[data-audit-log]'),
     brainForm: document.querySelector('[data-brain-form]'),
     goalsGroup: document.querySelector('[data-checkbox-group="goals"]'),
@@ -94,6 +95,8 @@
     notificationsInstantWhatsapp: document.querySelector('[data-notifications-instant-whatsapp]'),
     notificationsLog: document.querySelector('[data-notifications-log]'),
     notificationsTest: document.querySelector('[data-notifications-test]'),
+    startGuide: document.querySelector('[data-start-guide]'),
+    startGuideIndicator: document.querySelector('[data-start-guide-indicator]'),
   };
 
   const analyticsMetricDefinitions = [
@@ -146,6 +149,11 @@
       ],
     },
   };
+
+  const GUIDE_TOTAL_STEPS = 3;
+  let guideStep = 1;
+  let integrationRefreshTimer;
+  let integrationRefreshPending = false;
 
   function formatDate(value) {
     if (!value) return '';
@@ -457,6 +465,52 @@
     }
   }
 
+  function renderIntegrationBar() {
+    if (!elements.integrationBar) return;
+    const platforms = [
+      { key: 'meta', label: 'Meta' },
+      { key: 'googleAds', label: 'Google' },
+      { key: 'whatsapp', label: 'WhatsApp' },
+      { key: 'email', label: 'Email' },
+    ];
+    const integrations = state.integrations || {};
+    elements.integrationBar.innerHTML = '';
+
+    platforms.forEach(({ key, label }) => {
+      const entry = integrations[key] || {};
+      const status = entry.status || 'unknown';
+      const details = entry.details || {};
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'smart-marketing__integration-chip';
+      chip.dataset.platform = key;
+      chip.dataset.status = status;
+      const statusIcon =
+        status === 'connected'
+          ? '✅'
+          : status === 'warning'
+          ? '⚠️'
+          : status === 'error'
+          ? '❌'
+          : status === 'disabled'
+          ? '⏸️'
+          : status === 'disconnected'
+          ? '⏹️'
+          : '•';
+      chip.innerHTML = `<span>${statusIcon}</span><strong>${escapeHtml(label)}</strong>`;
+      chip.setAttribute('aria-label', `${label} status ${status.replace(/_/g, ' ')}`);
+      const tooltip = [];
+      if (details.message) {
+        tooltip.push(details.message);
+      }
+      if (details.lastValidatedAt) {
+        tooltip.push(`Last check ${formatDate(details.lastValidatedAt)}`);
+      }
+      chip.title = tooltip.join(' · ') || 'View credentials';
+      elements.integrationBar.appendChild(chip);
+    });
+  }
+
   function renderIntegrations() {
     if (!elements.integrations) return;
     const integrations = state.integrations || {};
@@ -501,6 +555,7 @@
 
     updateIntegrationSummaryViews();
     renderIntegrationBanner();
+    renderIntegrationBar();
   }
 
   function getIntegrationRow(key) {
@@ -508,6 +563,198 @@
     return elements.settingsRoot.querySelector(
       `[data-integration-row="${escapeSelector(key)}"]`
     );
+  }
+
+  function highlightIntegrationRow(row) {
+    if (!row) return;
+    row.classList.add('is-highlighted');
+    setTimeout(() => {
+      row.classList.remove('is-highlighted');
+    }, 2000);
+  }
+
+  function openIntegrationSettings(platform) {
+    expandSettingsSection('integrations');
+    if (!platform) return;
+    const row = getIntegrationRow(platform);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    highlightIntegrationRow(row);
+    const input = row.querySelector('input, select, textarea, button');
+    if (input) {
+      setTimeout(() => {
+        input.focus({ preventScroll: true });
+      }, 250);
+    }
+  }
+
+  function setIntegrationInlineMessage(platform, message, variant = 'info') {
+    const row = getIntegrationRow(platform);
+    if (!row) return;
+    const messageEl = row.querySelector(`[data-integration-message="${escapeSelector(platform)}"]`);
+    if (!messageEl) return;
+    if (!message) {
+      messageEl.textContent = '';
+      messageEl.hidden = true;
+      delete messageEl.dataset.variant;
+      return;
+    }
+    messageEl.textContent = message;
+    messageEl.hidden = false;
+    messageEl.dataset.variant = variant;
+  }
+
+  function isStartGuideOpen() {
+    return Boolean(elements.startGuide && !elements.startGuide.hasAttribute('hidden'));
+  }
+
+  function setGuideStep(step) {
+    if (!elements.startGuide) return;
+    guideStep = Math.min(Math.max(step, 1), GUIDE_TOTAL_STEPS);
+    const tabs = Array.from(elements.startGuide.querySelectorAll('[data-start-guide-tab]'));
+    const panels = Array.from(elements.startGuide.querySelectorAll('[data-start-guide-panel]'));
+    tabs.forEach((tab) => {
+      const index = parseInt(tab.dataset.startGuideTab, 10) || 1;
+      const active = index === guideStep;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      tab.setAttribute('tabindex', active ? '0' : '-1');
+    });
+    panels.forEach((panel) => {
+      const index = parseInt(panel.dataset.startGuidePanel, 10) || 1;
+      panel.hidden = index !== guideStep;
+      panel.setAttribute('aria-hidden', index === guideStep ? 'false' : 'true');
+    });
+    if (elements.startGuideIndicator) {
+      elements.startGuideIndicator.textContent = `Step ${guideStep} of ${GUIDE_TOTAL_STEPS}`;
+    }
+    const prev = elements.startGuide.querySelector('[data-guide-prev]');
+    const next = elements.startGuide.querySelector('[data-guide-next]');
+    if (prev) {
+      prev.disabled = guideStep === 1;
+    }
+    if (next) {
+      next.textContent = guideStep === GUIDE_TOTAL_STEPS ? 'Done' : 'Next';
+    }
+  }
+
+  function openStartGuide(step = 1) {
+    if (!elements.startGuide) return;
+    elements.startGuide.removeAttribute('hidden');
+    document.body.classList.add('smart-guide-open');
+    setGuideStep(step);
+    const firstTab = elements.startGuide.querySelector('[data-start-guide-tab]');
+    if (firstTab) {
+      firstTab.focus();
+    }
+  }
+
+  function closeStartGuide() {
+    if (!elements.startGuide) return;
+    elements.startGuide.setAttribute('hidden', '');
+    document.body.classList.remove('smart-guide-open');
+  }
+
+  function scrollToWorkspace(target) {
+    let node = null;
+    if (target === 'brain') {
+      node = document.getElementById('brain-heading') || elements.brainForm;
+    } else if (target === 'analytics') {
+      node = document.getElementById('analytics-heading') || elements.analyticsKpis;
+    }
+    if (node) {
+      node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (node.focus) {
+        setTimeout(() => {
+          node.focus({ preventScroll: true });
+        }, 300);
+      }
+    }
+  }
+
+  function handlePauseAll() {
+    closeStartGuide();
+    if (elements.killSwitchButton) {
+      elements.killSwitchButton.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => {
+        elements.killSwitchButton.focus({ preventScroll: true });
+      }, 200);
+      showToast('Kill switch ready — pause all campaigns when needed.', 'info');
+    } else {
+      showToast('Pause controls live under Governance & Safety. Review settings before halting.', 'info');
+    }
+  }
+
+  function handleGuideKeydown(event) {
+    if (event.key === 'Escape' && isStartGuideOpen()) {
+      closeStartGuide();
+    }
+  }
+
+  function initStartGuide() {
+    if (!elements.startGuide) return;
+    document.querySelectorAll('[data-start-guide-open]').forEach((button) => {
+      button.addEventListener('click', () => openStartGuide(1));
+    });
+    elements.startGuide.querySelectorAll('[data-start-guide-close]').forEach((button) => {
+      button.addEventListener('click', closeStartGuide);
+    });
+    elements.startGuide.addEventListener('click', (event) => {
+      if (event.target === elements.startGuide || event.target.classList.contains('smart-guide__backdrop')) {
+        closeStartGuide();
+      }
+    });
+    const next = elements.startGuide.querySelector('[data-guide-next]');
+    if (next) {
+      next.addEventListener('click', () => {
+        if (guideStep >= GUIDE_TOTAL_STEPS) {
+          closeStartGuide();
+        } else {
+          setGuideStep(guideStep + 1);
+        }
+      });
+    }
+    const prev = elements.startGuide.querySelector('[data-guide-prev]');
+    if (prev) {
+      prev.addEventListener('click', () => setGuideStep(guideStep - 1));
+    }
+    elements.startGuide.querySelectorAll('[data-start-guide-tab]').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const step = parseInt(tab.dataset.startGuideTab, 10) || 1;
+        setGuideStep(step);
+      });
+    });
+    elements.startGuide.querySelectorAll('[data-guide-target]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        const platform = event.currentTarget.dataset.guideTarget;
+        closeStartGuide();
+        openIntegrationSettings(platform);
+      });
+    });
+    elements.startGuide.querySelectorAll('[data-guide-scroll]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        const target = event.currentTarget.dataset.guideScroll;
+        closeStartGuide();
+        scrollToWorkspace(target);
+      });
+    });
+    const pauseBtn = elements.startGuide.querySelector('[data-guide-action="pause"]');
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', handlePauseAll);
+    }
+    document.addEventListener('keydown', handleGuideKeydown);
+    setGuideStep(1);
+  }
+
+  function initIntegrationBar() {
+    if (!elements.integrationBar) return;
+    elements.integrationBar.addEventListener('click', (event) => {
+      const chip = event.target.closest('[data-platform]');
+      if (!chip) return;
+      const platform = chip.dataset.platform;
+      closeStartGuide();
+      openIntegrationSettings(platform);
+    });
   }
 
   function updateIntegrationSummaryViews() {
@@ -679,17 +926,32 @@
           disable: 'Integration disabled',
           delete: 'Credentials deleted',
         };
-        const messages = Array.isArray(data?.messages) && data.messages.length
+        let messages = Array.isArray(data?.messages) && data.messages.length
           ? data.messages
           : [defaults[action] || 'Action completed'];
         const success = data.ok !== false;
-        const variant = success ? 'info' : 'error';
+        if (action === 'save') {
+          const inlineMessage = success
+            ? 'Connected and verified ✅ – You can now generate live campaigns.'
+            : 'Could not verify token or permissions. Please recheck and retry.';
+          messages = [inlineMessage];
+          setIntegrationInlineMessage(platform, inlineMessage, success ? 'success' : 'error');
+        } else if (!success) {
+          const inlineMessage = data.messages?.[0] || 'Could not verify token or permissions. Please recheck and retry.';
+          setIntegrationInlineMessage(platform, inlineMessage, 'error');
+        } else if (action !== 'save') {
+          setIntegrationInlineMessage(platform, '');
+        }
+        const variant = action === 'save' ? (success ? 'success' : 'error') : success ? 'info' : 'error';
         setSectionAlert('integrations', messages, variant);
         showToast(messages[0], success ? 'success' : 'error');
         return data;
       })
       .catch((error) => {
         setSectionAlert('integrations', [error.message], 'error');
+        if (action === 'save') {
+          setIntegrationInlineMessage(platform, 'Could not verify token or permissions. Please recheck and retry.', 'error');
+        }
         showToast(error.message, 'error');
         throw error;
       })
@@ -697,6 +959,38 @@
         setIntegrationRowBusy(platform, false);
         setButtonLoading(button, false);
       });
+  }
+
+  function refreshIntegrationHealth() {
+    if (integrationRefreshPending) return;
+    integrationRefreshPending = true;
+    apiRequest('reload-settings')
+      .then((data) => {
+        if (!data.ok) throw new Error(data.error || 'Unable to refresh integrations');
+        if (data.sections) state.settingsSections = data.sections;
+        if (data.integrations) state.integrations = data.integrations;
+        if (data.connectors) state.connectors = data.connectors;
+        if (settingsViews.integrations) {
+          renderSettingsSection('integrations');
+          renderSettingsHistory('integrations');
+        }
+        renderIntegrations();
+        renderConnectors();
+        evaluateSettingsStatus();
+      })
+      .catch(() => {})
+      .finally(() => {
+        integrationRefreshPending = false;
+      });
+  }
+
+  function scheduleIntegrationRefresh() {
+    if (integrationRefreshTimer) {
+      clearInterval(integrationRefreshTimer);
+    }
+    integrationRefreshTimer = setInterval(() => {
+      refreshIntegrationHealth();
+    }, 60000);
   }
 
   function initIntegrationActions() {
@@ -1221,9 +1515,12 @@
     const connectors = state.connectors || [];
     elements.connectorList.innerHTML = '';
     if (!connectors.length) {
-      const empty = document.createElement('p');
-      empty.className = 'smart-marketing__hint';
-      empty.textContent = 'No connectors configured yet.';
+      const empty = document.createElement('div');
+      empty.className = 'smart-marketing__empty';
+      empty.innerHTML = `
+        <p>No platforms connected yet. Connect one to begin AI-driven marketing.</p>
+        <button type="button" class="btn btn-secondary" data-open-credentials>Open Credentials Setup</button>
+      `;
       elements.connectorList.appendChild(empty);
       return;
     }
@@ -1373,6 +1670,12 @@
   function initConnectorActions() {
     if (!elements.connectorList) return;
     elements.connectorList.addEventListener('click', (event) => {
+      const openBtn = event.target.closest('[data-open-credentials]');
+      if (openBtn) {
+        openIntegrationSettings();
+        closeStartGuide();
+        return;
+      }
       const button = event.target.closest('[data-connector-action]');
       if (!button) return;
       const card = button.closest('[data-connector-id]');
@@ -2998,7 +3301,7 @@
   function initIntegrationBanner() {
     if (!elements.integrationBannerAction) return;
     elements.integrationBannerAction.addEventListener('click', () => {
-      expandSettingsSection('integrations');
+      openIntegrationSettings();
     });
   }
 
@@ -3209,12 +3512,20 @@
     initBrainForm();
     renderSettingsKillSwitch();
     initConnectorActions();
+    initStartGuide();
+    initIntegrationBar();
     initCampaignBuilder();
     initAutomations();
     initAnalyticsSection();
     initOptimizationSection();
     initGovernanceSection();
     initNotificationsSection();
+    scheduleIntegrationRefresh();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        refreshIntegrationHealth();
+      }
+    });
     evaluateSettingsStatus();
   }
 
